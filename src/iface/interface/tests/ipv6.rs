@@ -1272,9 +1272,9 @@ fn get_source_address_empty_interface() {
 
 #[rstest]
 #[case(Medium::Ip)]
-#[cfg(feature = "medium-ip")]
+#[cfg(all(feature = "multicast", feature = "medium-ip"))]
 #[case(Medium::Ethernet)]
-#[cfg(feature = "medium-ethernet")]
+#[cfg(all(feature = "multicast", feature = "medium-ethernet"))]
 fn test_join_ipv6_multicast_group(#[case] medium: Medium) {
     fn recv_icmpv6(
         device: &mut crate::tests::TestingDevice,

@@ -15,35 +15,35 @@ RUSTC_VERSIONS=(
 FEATURES_TEST=(
     "default"
     "std,proto-ipv4"
-    "std,medium-ethernet,phy-raw_socket,proto-ipv6,socket-udp,socket-dns"
-    "std,medium-ethernet,phy-tuntap_interface,proto-ipv6,socket-udp"
-    "std,medium-ethernet,proto-ipv4,proto-ipv4-fragmentation,socket-raw,socket-dns"
-    "std,medium-ethernet,proto-ipv4,multicast,socket-raw,socket-dns"
-    "std,medium-ethernet,proto-ipv4,socket-udp,socket-tcp,socket-dns"
-    "std,medium-ethernet,proto-ipv4,proto-dhcpv4,socket-udp"
-    "std,medium-ethernet,medium-ip,medium-ieee802154,proto-ipv6,multicast,proto-rpl,socket-udp,socket-dns"
-    "std,medium-ethernet,proto-ipv6,socket-tcp"
-    "std,medium-ethernet,medium-ip,proto-ipv4,socket-icmp,socket-tcp"
-    "std,medium-ip,proto-ipv6,socket-icmp,socket-tcp"
-    "std,medium-ieee802154,proto-sixlowpan,socket-udp"
-    "std,medium-ieee802154,proto-sixlowpan,proto-sixlowpan-fragmentation,socket-udp"
-    "std,medium-ieee802154,proto-rpl,proto-sixlowpan,proto-sixlowpan-fragmentation,socket-udp"
-    "std,medium-ip,proto-ipv4,proto-ipv6,socket-tcp,socket-udp"
-    "std,medium-ethernet,medium-ip,medium-ieee802154,proto-ipv4,proto-ipv6,multicast,proto-rpl,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "std,medium-ip,proto-ipv4,proto-ipv6,multicast,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "std,medium-ieee802154,medium-ip,proto-ipv4,socket-raw"
-    "std,medium-ethernet,proto-ipv4,proto-ipsec,socket-raw"
+    "std,medium-ethernet,phy-raw_socket,proto-ipv6,socket-udp,socket-dns,smoltcp-device/provides-medium-ethernet"
+    "std,medium-ethernet,phy-tuntap_interface,proto-ipv6,socket-udp,smoltcp-device/provides-medium-ethernet"
+    "std,medium-ethernet,proto-ipv4,proto-ipv4-fragmentation,socket-raw,socket-dns,smoltcp-device/provides-medium-ethernet"
+    "std,medium-ethernet,proto-ipv4,multicast,socket-raw,socket-dns,smoltcp-device/provides-medium-ethernet"
+    "std,medium-ethernet,proto-ipv4,socket-udp,socket-tcp,socket-dns,smoltcp-device/provides-medium-ethernet"
+    "std,medium-ethernet,proto-ipv4,proto-dhcpv4,socket-udp,smoltcp-device/provides-medium-ethernet"
+    "std,medium-ethernet,medium-ip,medium-ieee802154,proto-ipv6,multicast,proto-rpl,socket-udp,socket-dns,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip,smoltcp-device/provides-medium-ieee802154"
+    "std,medium-ethernet,proto-ipv6,socket-tcp,smoltcp-device/provides-medium-ethernet"
+    "std,medium-ethernet,medium-ip,proto-ipv4,socket-icmp,socket-tcp,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip"
+    "std,medium-ip,proto-ipv6,socket-icmp,socket-tcp,smoltcp-device/provides-medium-ip"
+    "std,medium-ieee802154,proto-sixlowpan,socket-udp,smoltcp-device/provides-medium-ieee802154"
+    "std,medium-ieee802154,proto-sixlowpan,proto-sixlowpan-fragmentation,socket-udp,smoltcp-device/provides-medium-ieee802154"
+    "std,medium-ieee802154,proto-rpl,proto-sixlowpan,proto-sixlowpan-fragmentation,socket-udp,smoltcp-device/provides-medium-ieee802154"
+    "std,medium-ip,proto-ipv4,proto-ipv6,socket-tcp,socket-udp,smoltcp-device/provides-medium-ip"
+    "std,medium-ethernet,medium-ip,medium-ieee802154,proto-ipv4,proto-ipv6,multicast,proto-rpl,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip,smoltcp-device/provides-medium-ieee802154"
+    "std,medium-ip,proto-ipv4,proto-ipv6,multicast,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ip"
+    "std,medium-ieee802154,medium-ip,proto-ipv4,socket-raw,smoltcp-device/provides-medium-ieee802154,smoltcp-device/provides-medium-ip"
+    "std,medium-ethernet,proto-ipv4,proto-ipsec,socket-raw,smoltcp-device/provides-medium-ethernet"
 )
 
 FEATURES_TEST_NIGHTLY=(
-    "alloc,medium-ethernet,proto-ipv4,proto-ipv6,socket-raw,socket-udp,socket-tcp,socket-icmp"
+    "alloc,medium-ethernet,proto-ipv4,proto-ipv6,socket-raw,socket-udp,socket-tcp,socket-icmp,smoltcp-device/provides-medium-ethernet"
 )
 
 FEATURES_CHECK=(
-    "medium-ip,medium-ethernet,medium-ieee802154,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,proto-ipsec,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "defmt,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "defmt,alloc,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "medium-ieee802154,proto-sixlowpan,socket-dns"
+    "medium-ip,medium-ethernet,medium-ieee802154,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,proto-ipsec,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip,smoltcp-device/provides-medium-ieee802154"
+    "defmt,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip"
+    "defmt,alloc,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip"
+    "medium-ieee802154,proto-sixlowpan,socket-dns,smoltcp-device/provides-medium-ieee802154"
 )
 
 test() {
