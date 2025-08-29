@@ -69,10 +69,9 @@ impl Device for RawSocket {
         Self: 'a;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        let mut capabilities = DeviceCapabilities::default();
+        let mut capabilities = DeviceCapabilities::new(self.medium);
 
         capabilities.max_transmission_unit = self.mtu;
-        capabilities.medium = self.medium;
 
         capabilities
     }

@@ -31,7 +31,7 @@ impl Device for Loopback {
     type TxToken<'a> = TxToken<'a>;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        let mut capabilities = DeviceCapabilities::default();
+        let mut capabilities = DeviceCapabilities::new(self.medium);
 
         capabilities.max_transmission_unit = 65535;
         capabilities.medium = self.medium;

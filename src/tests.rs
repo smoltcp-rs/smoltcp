@@ -90,10 +90,9 @@ impl Device for TestingDevice {
     type TxToken<'a> = TxToken<'a>;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        let mut capabilities = DeviceCapabilities::default();
+        let mut capabilities = DeviceCapabilities::new(self.medium);
 
         capabilities.max_transmission_unit = self.max_transmission_unit;
-        capabilities.medium = self.medium;
 
         capabilities
     }

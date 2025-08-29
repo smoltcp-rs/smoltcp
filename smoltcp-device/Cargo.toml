@@ -12,8 +12,14 @@ defmt = ["dep:defmt"]
 
 std = []
 
-"medium-ethernet" = []
-"medium-ip" = []
-"medium-ieee802154" = []
+# Set by device driver crates
+"provides-medium-ethernet" = []
+"provides-medium-ip" = []
+"provides-medium-ieee802154" = []
+
+# Set by smoltcp
+"requires-medium-ethernet" = []
+"requires-medium-ip" = []
+"requires-medium-ieee802154" = []
 
 "packetmeta-id" = []

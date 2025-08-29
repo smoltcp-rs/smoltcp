@@ -7,7 +7,7 @@ This crate deals with the *network devices*. It provides a trait
 for transmitting and receiving frames, [Device](trait.Device.html).
 */
 #![cfg_attr(
-    feature = "medium-ethernet",
+    feature = "provides-medium-ethernet",
     doc = r##"
 # Examples
 
@@ -46,10 +46,9 @@ impl smoltcp_device::Device for StmPhy {
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
+        let mut caps = DeviceCapabilities::new(Medium::Ethernet);
         caps.max_transmission_unit = 1536;
         caps.max_burst_size = Some(1);
-        caps.medium = Medium::Ethernet;
         caps
     }
 }
@@ -88,6 +87,41 @@ impl<'a> smoltcp_device::TxToken for StmPhyTxToken<'a> {
 #![allow(clippy::option_map_unit_fn)]
 #![allow(clippy::unit_arg)]
 #![allow(clippy::new_without_default)]
+
+// Check that required media are provided
+#[cfg(all(feature = "requires-medium-ip", not(feature = "provides-medium-ip")))]
+compile_error!("smoltcp requires the IP medium, but no network device implementation in the project supports it. Either disable the medium in smoltcp, or add a device implementation that provides it.");
+
+#[cfg(all(
+    feature = "requires-medium-ethernet",
+    not(feature = "provides-medium-ethernet")
+))]
+compile_error!("smoltcp requires the Ethernet medium, but no network device implementation in the project supports it. Either disable the medium in smoltcp, or add a device implementation that provides it.");
+
+#[cfg(all(
+    feature = "requires-medium-ieee802154",
+    not(feature = "provides-medium-ieee802154")
+))]
+compile_error!(
+    "smoltcp requires the IEEE 802.15.4 medium, but no network device implementation in the project supports it. Either disable the medium in smoltcp, or add a device implementation that provides it."
+);
+
+// Check that provided media are required. This ensures that smoltcp includes all code necessary to handle the media.
+
+#[cfg(all(feature = "provides-medium-ip", not(feature = "requires-medium-ip")))]
+compile_error!("A smoltcp network device provides the IP medium, but smoltcp is not configured to support it. Either disable the medium in your network devices, or enable it in smoltcp.");
+
+#[cfg(all(
+    feature = "provides-medium-ethernet",
+    not(feature = "requires-medium-ethernet"),
+))]
+compile_error!("A smoltcp network device provides the Ethernet medium, but smoltcp is not configured to support it. Either disable the medium in your network devices, or enable it in smoltcp.");
+
+#[cfg(all(
+    feature = "provides-medium-ieee802154",
+    not(feature = "requires-medium-ieee802154"),
+))]
+compile_error!("A smoltcp network device provides the IEEE 802.15.4 medium, but smoltcp is not configured to support it. Either disable the medium in your network devices, or enable it in smoltcp.");
 
 pub mod time;
 
@@ -156,7 +190,7 @@ impl ChecksumCapabilities {
 ///
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider
 /// the bandwidth or packet size limitations.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct DeviceCapabilities {
@@ -197,6 +231,18 @@ pub struct DeviceCapabilities {
     pub checksum: ChecksumCapabilities,
 }
 
+impl DeviceCapabilities {
+    /// Creates a new `DeviceCapabilities` struct using the given `medium`.
+    pub fn new(medium: Medium) -> Self {
+        Self {
+            medium,
+            max_transmission_unit: Default::default(),
+            max_burst_size: Default::default(),
+            checksum: Default::default(),
+        }
+    }
+}
+
 /// Type of medium of a device.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -205,39 +251,18 @@ pub enum Medium {
     /// and interfaces using it must do neighbor discovery via ARP or NDISC.
     ///
     /// Examples of devices of this type are Ethernet, WiFi (802.11), Linux `tap`, and VPNs in tap (layer 2) mode.
-    #[cfg(feature = "medium-ethernet")]
+    #[cfg(feature = "provides-medium-ethernet")]
     Ethernet,
 
     /// IP medium. Devices of this type send and receive IP frames, without an
     /// Ethernet header. MAC addresses are not used, and no neighbor discovery (ARP, NDISC) is done.
     ///
     /// Examples of devices of this type are the Linux `tun`, PPP interfaces, VPNs in tun (layer 3) mode.
-    #[cfg(feature = "medium-ip")]
+    #[cfg(feature = "provides-medium-ip")]
     Ip,
 
-    #[cfg(feature = "medium-ieee802154")]
+    #[cfg(feature = "provides-medium-ieee802154")]
     Ieee802154,
-}
-
-impl Default for Medium {
-    fn default() -> Medium {
-        #[cfg(feature = "medium-ethernet")]
-        return Medium::Ethernet;
-        #[cfg(all(feature = "medium-ip", not(feature = "medium-ethernet")))]
-        return Medium::Ip;
-        #[cfg(all(
-            feature = "medium-ieee802154",
-            not(feature = "medium-ip"),
-            not(feature = "medium-ethernet")
-        ))]
-        return Medium::Ieee802154;
-        #[cfg(all(
-            not(feature = "medium-ip"),
-            not(feature = "medium-ethernet"),
-            not(feature = "medium-ieee802154")
-        ))]
-        return panic!("No medium enabled");
-    }
 }
 
 /// An interface for sending and receiving raw network frames.
