@@ -12,11 +12,10 @@ use std::process;
 use std::str::{self, FromStr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(feature = "phy-tuntap_interface")]
-use smoltcp::phy::TunTapInterface;
 use smoltcp::phy::{Device, FaultInjector, Medium, Tracer};
 use smoltcp::phy::{PcapMode, PcapWriter};
 use smoltcp::time::{Duration, Instant};
+use smoltcp_device_unix::TunTapInterface;
 
 #[cfg(feature = "log")]
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
@@ -96,7 +95,6 @@ pub fn add_tuntap_options(opts: &mut Options, _free: &mut [&str]) {
     opts.optopt("", "tap", "TAP interface to use", "tap0");
 }
 
-#[cfg(feature = "phy-tuntap_interface")]
 pub fn parse_tuntap_options(matches: &mut Matches) -> TunTapInterface {
     let tun = matches.opt_str("tun");
     let tap = matches.opt_str("tap");

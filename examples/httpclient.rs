@@ -6,10 +6,11 @@ use std::str::{self, FromStr};
 use url::Url;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{Device, Medium, wait as phy_wait};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
+use smoltcp_device::{Device, Medium};
+use smoltcp_device_unix::wait as phy_wait;
 
 fn main() {
     utils::setup_logging("");

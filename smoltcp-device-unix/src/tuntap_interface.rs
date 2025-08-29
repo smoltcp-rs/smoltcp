@@ -4,69 +4,58 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::rc::Rc;
 use std::vec::Vec;
 
-use crate::phy::{self, Device, DeviceCapabilities, Medium, sys};
-use crate::time::Instant;
+use crate::sys;
 
-/// A socket that captures or transmits the complete frame.
+use smoltcp_device::time::Instant;
+use smoltcp_device::{Device, DeviceCapabilities, Medium};
+
+/// A virtual TUN (IP) or TAP (Ethernet) interface.
 #[derive(Debug)]
-pub struct RawSocket {
-    medium: Medium,
-    lower: Rc<RefCell<sys::RawSocketDesc>>,
+pub struct TunTapInterface {
+    lower: Rc<RefCell<sys::TunTapInterfaceDesc>>,
     mtu: usize,
+    medium: Medium,
 }
 
-impl AsRawFd for RawSocket {
+impl AsRawFd for TunTapInterface {
     fn as_raw_fd(&self) -> RawFd {
         self.lower.borrow().as_raw_fd()
     }
 }
 
-impl RawSocket {
-    /// Creates a raw socket, bound to the interface called `name`.
+impl TunTapInterface {
+    /// Attaches to a TUN/TAP interface called `name`, or creates it if it does not exist.
     ///
-    /// This requires superuser privileges or a corresponding capability bit
-    /// set on the executable.
-    pub fn new(name: &str, medium: Medium) -> io::Result<RawSocket> {
-        let mut lower = sys::RawSocketDesc::new(name, medium)?;
-        lower.bind_interface()?;
-
-        let mut mtu = lower.interface_mtu()?;
-
-        #[cfg(feature = "medium-ieee802154")]
-        if medium == Medium::Ieee802154 {
-            // SIOCGIFMTU returns 127 - (ACK_PSDU - FCS - 1) - FCS.
-            //                    127 - (5 - 2 - 1) - 2 = 123
-            // For IEEE802154, we want to add (ACK_PSDU - FCS - 1), since that is what SIOCGIFMTU
-            // uses as the size of the link layer header.
-            //
-            // https://github.com/torvalds/linux/blob/7475e51b87969e01a6812eac713a1c8310372e8a/net/mac802154/iface.c#L541
-            mtu += 2;
-        }
-
-        #[cfg(feature = "medium-ethernet")]
-        if medium == Medium::Ethernet {
-            // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
-            // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
-            mtu += crate::wire::EthernetFrame::<&[u8]>::header_len()
-        }
-
-        Ok(RawSocket {
-            medium,
+    /// If `name` is a persistent interface configured with UID of the current user,
+    /// no special privileges are needed. Otherwise, this requires superuser privileges
+    /// or a corresponding capability set on the executable.
+    pub fn new(name: &str, medium: Medium) -> io::Result<TunTapInterface> {
+        let lower = sys::TunTapInterfaceDesc::new(name, medium)?;
+        let mtu = lower.interface_mtu()?;
+        Ok(TunTapInterface {
             lower: Rc::new(RefCell::new(lower)),
             mtu,
+            medium,
+        })
+    }
+
+    /// Attaches to a TUN/TAP interface specified by file descriptor `fd`.
+    ///
+    /// On platforms like Android, a file descriptor to a tun interface is exposed.
+    /// On these platforms, a TunTapInterface cannot be instantiated with a name.
+    pub fn from_fd(fd: RawFd, medium: Medium, mtu: usize) -> io::Result<TunTapInterface> {
+        let lower = sys::TunTapInterfaceDesc::from_fd(fd, mtu)?;
+        Ok(TunTapInterface {
+            lower: Rc::new(RefCell::new(lower)),
+            mtu,
+            medium,
         })
     }
 }
 
-impl Device for RawSocket {
-    type RxToken<'a>
-        = RxToken
-    where
-        Self: 'a;
-    type TxToken<'a>
-        = TxToken
-    where
-        Self: 'a;
+impl Device for TunTapInterface {
+    type RxToken<'a> = RxToken;
+    type TxToken<'a> = TxToken;
 
     fn capabilities(&self) -> DeviceCapabilities {
         let mut capabilities = DeviceCapabilities::new(self.medium);
@@ -105,7 +94,7 @@ pub struct RxToken {
     buffer: Vec<u8>,
 }
 
-impl phy::RxToken for RxToken {
+impl smoltcp_device::RxToken for RxToken {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&[u8]) -> R,
@@ -116,10 +105,10 @@ impl phy::RxToken for RxToken {
 
 #[doc(hidden)]
 pub struct TxToken {
-    lower: Rc<RefCell<sys::RawSocketDesc>>,
+    lower: Rc<RefCell<sys::TunTapInterfaceDesc>>,
 }
 
-impl phy::TxToken for TxToken {
+impl smoltcp_device::TxToken for TxToken {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

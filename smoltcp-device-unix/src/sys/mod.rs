@@ -1,6 +1,6 @@
 #![allow(unsafe_code)]
 
-use crate::time::Duration;
+use smoltcp_device::time::Duration;
 use std::os::unix::io::RawFd;
 use std::{io, mem, ptr};
 
@@ -8,39 +8,24 @@ use std::{io, mem, ptr};
 #[path = "linux.rs"]
 mod imp;
 
-#[cfg(all(
-    feature = "phy-raw_socket",
-    not(any(target_os = "linux", target_os = "android")),
-    unix
-))]
-pub mod bpf;
-#[cfg(all(
-    feature = "phy-raw_socket",
-    any(target_os = "linux", target_os = "android")
-))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+mod bpf;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub use self::raw_socket::RawSocketDesc;
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub use self::bpf::BpfDevice as RawSocketDesc;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod raw_socket;
-#[cfg(all(
-    feature = "phy-tuntap_interface",
-    any(target_os = "linux", target_os = "android")
-))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod tuntap_interface;
 
-#[cfg(all(
-    feature = "phy-raw_socket",
-    not(any(target_os = "linux", target_os = "android")),
-    unix
-))]
-pub use self::bpf::BpfDevice as RawSocketDesc;
-#[cfg(all(
-    feature = "phy-raw_socket",
-    any(target_os = "linux", target_os = "android")
-))]
-pub use self::raw_socket::RawSocketDesc;
-#[cfg(all(
-    feature = "phy-tuntap_interface",
-    any(target_os = "linux", target_os = "android")
-))]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub use self::tuntap_interface::TunTapInterfaceDesc;
+
+pub(crate) const ETHERNET_HEADER_LEN: usize = 14;
 
 /// Wait until given file descriptor becomes readable, but no longer than given timeout.
 pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
@@ -90,21 +75,14 @@ pub fn wait(fd: RawFd, duration: Option<Duration>) -> io::Result<()> {
     }
 }
 
-#[cfg(all(
-    any(feature = "phy-tuntap_interface", feature = "phy-raw_socket"),
-    unix
-))]
 #[repr(C)]
 #[derive(Debug)]
+#[allow(non_camel_case_types)]
 struct ifreq {
     ifr_name: [libc::c_char; libc::IF_NAMESIZE],
     ifr_data: libc::c_int, /* ifr_ifindex or ifr_mtu */
 }
 
-#[cfg(all(
-    any(feature = "phy-tuntap_interface", feature = "phy-raw_socket"),
-    unix
-))]
 fn ifreq_for(name: &str) -> ifreq {
     let mut ifreq = ifreq {
         ifr_name: [0; libc::IF_NAMESIZE],
@@ -116,10 +94,6 @@ fn ifreq_for(name: &str) -> ifreq {
     ifreq
 }
 
-#[cfg(all(
-    any(target_os = "linux", target_os = "android"),
-    any(feature = "phy-tuntap_interface", feature = "phy-raw_socket")
-))]
 fn ifreq_ioctl(
     lower: libc::c_int,
     ifreq: &mut ifreq,

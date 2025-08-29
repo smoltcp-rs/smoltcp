@@ -353,7 +353,7 @@ pub trait TxToken {
 /// metadata fields, a non-breaking change.
 ///
 /// ```rust
-/// let mut meta = smoltcp_devicephy::PacketMeta::default();
+/// let mut meta = smoltcp_device::PacketMeta::default();
 /// #[cfg(feature = "packetmeta-id")]
 /// {
 ///     meta.set_id(15);

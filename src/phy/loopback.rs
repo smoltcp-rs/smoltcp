@@ -34,7 +34,6 @@ impl Device for Loopback {
         let mut capabilities = DeviceCapabilities::new(self.medium);
 
         capabilities.max_transmission_unit = 65535;
-        capabilities.medium = self.medium;
         capabilities.checksum = ChecksumCapabilities::ignored();
 
         capabilities
