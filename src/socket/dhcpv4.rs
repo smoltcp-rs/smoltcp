@@ -574,13 +574,9 @@ impl<'a> Socket<'a> {
         // 0x0f * 4 = 60 bytes.
         const MAX_IPV4_HEADER_LEN: usize = 60;
 
-        // We don't directly modify self.transaction_id because sending the packet
-        // may fail. We only want to update state after successfully sending.
-        let next_transaction_id = Self::random_transaction_id(cx);
-
         let mut dhcp_repr = DhcpRepr {
             message_type: DhcpMessageType::Discover,
-            transaction_id: next_transaction_id,
+            transaction_id: self.transaction_id,
             secs: 0,
             client_hardware_address: ethernet_addr,
             client_ip: Ipv4Address::UNSPECIFIED,
@@ -624,6 +620,9 @@ impl<'a> Socket<'a> {
                     return Ok(());
                 }
 
+                let next_transaction_id = Self::random_transaction_id(cx);
+                dhcp_repr.transaction_id = next_transaction_id;
+
                 // send packet
                 net_debug!(
                     "DHCP send DISCOVER to {}: {:?}",
@@ -666,7 +665,6 @@ impl<'a> Socket<'a> {
                     + (self.retry_config.initial_request_timeout << (state.retry as u32 / 2));
                 state.retry += 1;
 
-                self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Renewing(state) => {
@@ -691,6 +689,9 @@ impl<'a> Socket<'a> {
                 }
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.client_ip = state.config.address.address();
+
+                let next_transaction_id = Self::random_transaction_id(cx);
+                dhcp_repr.transaction_id = next_transaction_id;
 
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
