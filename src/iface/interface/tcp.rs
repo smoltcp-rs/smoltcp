@@ -6,6 +6,7 @@ impl InterfaceInner {
     pub(crate) fn process_tcp<'frame>(
         &mut self,
         sockets: &mut SocketSet,
+        handled_by_raw_socket: bool,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
@@ -32,9 +33,11 @@ impl InterfaceInner {
         if tcp_repr.control == TcpControl::Rst
             || ip_repr.dst_addr().is_unspecified()
             || ip_repr.src_addr().is_unspecified()
+            || handled_by_raw_socket
         {
-            // Never reply to a TCP RST packet with another TCP RST packet. We also never want to
-            // send a TCP RST packet with unspecified addresses.
+            // Never reply to a TCP RST packet with another TCP RST packet.
+            // Never send a TCP RST packet with unspecified addresses.
+            // Never send a TCP RST when packet has been handled by raw socket.
             None
         } else {
             // The packet wasn't handled by a socket, send a TCP RST packet.
