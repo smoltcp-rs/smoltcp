@@ -248,7 +248,7 @@ impl<'a> Socket<'a> {
 
         let mut mdns = MulticastDns::Disabled;
         #[cfg(feature = "socket-mdns")]
-        if name.split(|&c| c == b'.').last().unwrap() == b"local" {
+        if name.split(|&c| c == b'.').next_back().unwrap() == b"local" {
             net_trace!("Starting a mDNS query");
             mdns = MulticastDns::Enabled;
         }

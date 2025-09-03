@@ -743,7 +743,7 @@ impl<'a> Socket<'a> {
     ///
     /// The socket has an internal "configuration changed" flag. If
     /// set, this function returns the configuration and resets the flag.
-    pub fn poll(&mut self) -> Option<Event> {
+    pub fn poll(&mut self) -> Option<Event<'_>> {
         if !self.config_changed {
             None
         } else if let ClientState::Renewing(state) = &self.state {

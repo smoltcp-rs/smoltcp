@@ -18,10 +18,7 @@ impl AsRawFd for TunTapInterfaceDesc {
 impl TunTapInterfaceDesc {
     pub fn new(name: &str, medium: Medium) -> io::Result<TunTapInterfaceDesc> {
         let lower = unsafe {
-            let lower = libc::open(
-                "/dev/net/tun\0".as_ptr() as *const libc::c_char,
-                libc::O_RDWR | libc::O_NONBLOCK,
-            );
+            let lower = libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_NONBLOCK);
             if lower == -1 {
                 return Err(io::Error::last_os_error());
             }
