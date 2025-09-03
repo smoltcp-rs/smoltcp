@@ -68,10 +68,7 @@ impl InterfaceInner {
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             SixlowpanPacket::FragmentHeader => {
-                match self.process_sixlowpan_fragment(ieee802154_repr, payload, f) {
-                    Some(payload) => payload,
-                    None => return None,
-                }
+                self.process_sixlowpan_fragment(ieee802154_repr, payload, f)?
             }
             SixlowpanPacket::IphcHeader => {
                 match Self::sixlowpan_to_ipv6(

@@ -372,7 +372,7 @@ impl Timer {
     fn set_for_retransmit(&mut self, timestamp: Instant, delay: Duration) {
         match *self {
             Timer::Idle { .. }
-            | Timer::FastRetransmit { .. }
+            | Timer::FastRetransmit
             | Timer::Retransmit { .. }
             | Timer::ZeroWindowProbe { .. } => {
                 *self = Timer::Retransmit {

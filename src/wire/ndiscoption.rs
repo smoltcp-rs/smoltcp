@@ -370,7 +370,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NdiscOption<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NdiscOption<&'a mut T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NdiscOption<&mut T> {
     /// Return a mutable pointer to the option data.
     #[inline]
     pub fn data_mut(&mut self) -> &mut [u8] {
@@ -380,7 +380,7 @@ impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> NdiscOption<&'a mut T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&'a T> {
+impl<T: AsRef<[u8]> + ?Sized> fmt::Display for NdiscOption<&T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self) {
             Ok(repr) => write!(f, "{repr}"),
@@ -507,11 +507,11 @@ impl<'a> Repr<'a> {
             &Repr::SourceLinkLayerAddr(addr) | &Repr::TargetLinkLayerAddr(addr) => {
                 let len = 2 + addr.len();
                 // Round up to next multiple of 8
-                (len + 7) / 8 * 8
+                len.div_ceil(8) * 8
             }
             &Repr::PrefixInformation(_) => field::PREFIX.end,
             &Repr::RedirectedHeader(RedirectedHeader { header, data }) => {
-                (8 + header.buffer_len() + data.len() + 7) / 8 * 8
+                (8 + header.buffer_len() + data.len()).div_ceil(8) * 8
             }
             &Repr::Mtu(_) => field::MTU.end,
             &Repr::Unknown { length, .. } => field::DATA(length).end,
@@ -527,13 +527,13 @@ impl<'a> Repr<'a> {
             Repr::SourceLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::SourceLinkLayerAddr);
                 let opt_len = addr.len() + 2;
-                opt.set_data_len(((opt_len + 7) / 8) as u8); // round to next multiple of 8.
+                opt.set_data_len(opt_len.div_ceil(8) as u8); // round to next multiple of 8.
                 opt.set_link_layer_addr(addr);
             }
             Repr::TargetLinkLayerAddr(addr) => {
                 opt.set_option_type(Type::TargetLinkLayerAddr);
                 let opt_len = addr.len() + 2;
-                opt.set_data_len(((opt_len + 7) / 8) as u8); // round to next multiple of 8.
+                opt.set_data_len(opt_len.div_ceil(8) as u8); // round to next multiple of 8.
                 opt.set_link_layer_addr(addr);
             }
             Repr::PrefixInformation(PrefixInformation {
@@ -557,7 +557,7 @@ impl<'a> Repr<'a> {
                 // exceeding the MTU.
                 opt.clear_redirected_reserved();
                 opt.set_option_type(Type::RedirectedHeader);
-                opt.set_data_len((((8 + header.buffer_len() + data.len()) + 7) / 8) as u8);
+                opt.set_data_len((8 + header.buffer_len() + data.len()).div_ceil(8) as u8);
                 let mut packet = &mut opt.data_mut()[field::REDIRECTED_RESERVED.end - 2..];
                 let mut ip_packet = Ipv6Packet::new_unchecked(&mut packet);
                 header.emit(&mut ip_packet);
