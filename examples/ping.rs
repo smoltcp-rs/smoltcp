@@ -8,8 +8,8 @@ use std::os::unix::io::AsRawFd;
 use std::str::FromStr;
 
 use smoltcp::iface::Config;
-use smoltcp::phy::wait as phy_wait;
 use smoltcp::phy::Device;
+use smoltcp::phy::wait as phy_wait;
 use smoltcp::socket::icmp;
 use smoltcp::wire::{
     EthernetAddress, Icmpv4Packet, Icmpv4Repr, Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr,

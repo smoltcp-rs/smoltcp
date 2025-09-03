@@ -92,15 +92,17 @@ fn any_ip(#[case] medium: Medium) {
 
     // Accept any IP:
     iface.set_any_ip(true);
-    assert!(iface
-        .inner
-        .process_ipv6(
-            &mut sockets,
-            PacketMeta::default(),
-            HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
-        )
-        .is_some());
+    assert!(
+        iface
+            .inner
+            .process_ipv6(
+                &mut sockets,
+                PacketMeta::default(),
+                HardwareAddress::default(),
+                &Ipv6Packet::new_checked(&data[..]).unwrap()
+            )
+            .is_some()
+    );
 }
 
 #[rstest]
@@ -862,15 +864,21 @@ fn test_solicited_node_addrs(#[case] medium: Medium) {
         new_addrs.extend(addrs.to_vec());
         *addrs = new_addrs;
     });
-    assert!(iface
-        .inner
-        .has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0002)));
-    assert!(iface
-        .inner
-        .has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0xffff)));
-    assert!(!iface
-        .inner
-        .has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0003)));
+    assert!(
+        iface
+            .inner
+            .has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0002))
+    );
+    assert!(
+        iface
+            .inner
+            .has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0xffff))
+    );
+    assert!(
+        !iface
+            .inner
+            .has_solicited_node(Ipv6Address::new(0xff02, 0, 0, 0, 0, 1, 0xff00, 0x0003))
+    );
 }
 
 #[rstest]
@@ -881,8 +889,8 @@ fn test_solicited_node_addrs(#[case] medium: Medium) {
 #[case(Medium::Ieee802154)]
 #[cfg(all(feature = "socket-udp", feature = "medium-ieee802154"))]
 fn test_icmp_reply_size(#[case] medium: Medium) {
-    use crate::wire::Icmpv6DstUnreachable;
     use crate::wire::IPV6_MIN_MTU as MIN_MTU;
+    use crate::wire::Icmpv6DstUnreachable;
     const MAX_PAYLOAD_LEN: usize = 1192;
 
     let (mut iface, mut sockets, _device) = setup(medium);

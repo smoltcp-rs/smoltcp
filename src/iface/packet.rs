@@ -141,7 +141,7 @@ impl<'p> Packet<'p> {
                 &caps.checksum,
             ),
             #[cfg(feature = "socket-tcp")]
-            IpPayload::Tcp(mut tcp_repr) => {
+            &IpPayload::Tcp(mut tcp_repr) => {
                 // This is a terrible hack to make TCP performance more acceptable on systems
                 // where the TCP buffers are significantly larger than network buffers,
                 // e.g. a 64 kB TCP receive buffer (and so, when empty, a 64k window)

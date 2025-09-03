@@ -4,7 +4,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::rc::Rc;
 use std::vec::Vec;
 
-use crate::phy::{self, sys, Device, DeviceCapabilities, Medium};
+use crate::phy::{self, Device, DeviceCapabilities, Medium, sys};
 use crate::time::Instant;
 
 /// A virtual TUN (IP) or TAP (Ethernet) interface.

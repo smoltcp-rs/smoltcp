@@ -663,11 +663,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     pub fn key_source(&self) -> Option<&[u8]> {
         let ki = self.key_identifier();
         let len = ki.len();
-        if len > 1 {
-            Some(&ki[..len - 1])
-        } else {
-            None
-        }
+        if len > 1 { Some(&ki[..len - 1]) } else { None }
     }
 
     /// Return the Key Index field.
@@ -675,11 +671,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
         let ki = self.key_identifier();
         let len = ki.len();
 
-        if len > 0 {
-            Some(ki[len - 1])
-        } else {
-            None
-        }
+        if len > 0 { Some(ki[len - 1]) } else { None }
     }
 
     /// Return the Message Integrity Code (MIC).

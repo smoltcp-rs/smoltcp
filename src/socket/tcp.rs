@@ -13,8 +13,8 @@ use crate::socket::{Context, PollAt};
 use crate::storage::{Assembler, RingBuffer};
 use crate::time::{Duration, Instant};
 use crate::wire::{
-    IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, TcpControl, TcpRepr, TcpSeqNumber,
-    TcpTimestampGenerator, TcpTimestampRepr, TCP_HEADER_LEN,
+    IpAddress, IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, TCP_HEADER_LEN, TcpControl,
+    TcpRepr, TcpSeqNumber, TcpTimestampGenerator, TcpTimestampRepr,
 };
 
 mod congestion;
@@ -1807,7 +1807,11 @@ impl<'a> Socket<'a> {
         // If a FIN is received at the end of the current segment, but
         // we have a hole in the assembler before the current segment, disregard this FIN.
         if control == TcpControl::Fin && window_start < segment_start {
-            tcp_trace!("ignoring FIN because we don't have full data yet. window_start={} segment_start={}", window_start, segment_start);
+            tcp_trace!(
+                "ignoring FIN because we don't have full data yet. window_start={} segment_start={}",
+                window_start,
+                segment_start
+            );
             control = TcpControl::None;
         }
 

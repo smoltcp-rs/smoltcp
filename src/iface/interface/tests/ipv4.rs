@@ -34,28 +34,32 @@ fn test_any_ip_accept_arp(#[case] medium: Medium) {
 
     let (mut iface, mut sockets, _) = setup(medium);
 
-    assert!(iface
-        .inner
-        .process_ethernet(
-            &mut sockets,
-            PacketMeta::default(),
-            ETHERNET_FRAME_ARP(buffer.as_mut()),
-            &mut iface.fragments,
-        )
-        .is_none());
+    assert!(
+        iface
+            .inner
+            .process_ethernet(
+                &mut sockets,
+                PacketMeta::default(),
+                ETHERNET_FRAME_ARP(buffer.as_mut()),
+                &mut iface.fragments,
+            )
+            .is_none()
+    );
 
     // Accept any IP address
     iface.set_any_ip(true);
 
-    assert!(iface
-        .inner
-        .process_ethernet(
-            &mut sockets,
-            PacketMeta::default(),
-            ETHERNET_FRAME_ARP(buffer.as_mut()),
-            &mut iface.fragments,
-        )
-        .is_some());
+    assert!(
+        iface
+            .inner
+            .process_ethernet(
+                &mut sockets,
+                PacketMeta::default(),
+                ETHERNET_FRAME_ARP(buffer.as_mut()),
+                &mut iface.fragments,
+            )
+            .is_some()
+    );
 }
 
 #[rstest]
@@ -174,66 +178,98 @@ fn test_local_subnet_broadcasts(#[case] medium: Medium) {
         });
     });
 
-    assert!(iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254)));
-    assert!(iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 168, 1, 255)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 168, 1, 254)));
+    assert!(
+        iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254))
+    );
+    assert!(
+        iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 168, 1, 255))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 168, 1, 254))
+    );
 
     iface.update_ip_addrs(|addrs| {
         addrs.iter_mut().next().map(|addr| {
             *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 23, 24), 16));
         });
     });
-    assert!(iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 168, 23, 255)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 168, 23, 254)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 168, 255, 254)));
-    assert!(iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 168, 255, 255)));
+    assert!(
+        iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 168, 23, 255))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 168, 23, 254))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 168, 255, 254))
+    );
+    assert!(
+        iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 168, 255, 255))
+    );
 
     iface.update_ip_addrs(|addrs| {
         addrs.iter_mut().next().map(|addr| {
             *addr = IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(192, 168, 23, 24), 8));
         });
     });
-    assert!(iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 23, 1, 255)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 23, 1, 254)));
-    assert!(!iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 255, 255, 254)));
-    assert!(iface
-        .inner
-        .is_broadcast_v4(Ipv4Address::new(192, 255, 255, 255)));
+    assert!(
+        iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 255))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(255, 255, 255, 254))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 23, 1, 255))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 23, 1, 254))
+    );
+    assert!(
+        !iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 255, 255, 254))
+    );
+    assert!(
+        iface
+            .inner
+            .is_broadcast_v4(Ipv4Address::new(192, 255, 255, 255))
+    );
 }
 
 #[rstest]

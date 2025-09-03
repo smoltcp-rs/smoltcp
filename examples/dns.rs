@@ -2,7 +2,7 @@ mod utils;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::phy::Device;
-use smoltcp::phy::{wait as phy_wait, Medium};
+use smoltcp::phy::{Medium, wait as phy_wait};
 use smoltcp::socket::dns::{self, GetQueryResultError};
 use smoltcp::time::Instant;
 use smoltcp::wire::{DnsQueryType, EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};

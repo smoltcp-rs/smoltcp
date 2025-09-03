@@ -111,11 +111,7 @@ impl Controller for Cubic {
 
 #[inline]
 fn abs(a: f64) -> f64 {
-    if a < 0.0 {
-        -a
-    } else {
-        a
-    }
+    if a < 0.0 { -a } else { a }
 }
 
 /// Calculate cube root by using the Newton-Raphson method.

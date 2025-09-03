@@ -196,32 +196,42 @@ mod test {
     fn test_fill() {
         let mut cache = Cache::new();
 
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0))
-            .found());
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
-            .found());
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0))
+                .found()
+        );
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
+                .found()
+        );
 
         cache.fill(MOCK_IP_ADDR_1.into(), HADDR_A, Instant::from_millis(0));
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0)),
             Answer::Found(HADDR_A)
         );
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
-            .found());
-        assert!(!cache
-            .lookup(
-                &MOCK_IP_ADDR_1.into(),
-                Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2
-            )
-            .found(),);
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
+                .found()
+        );
+        assert!(
+            !cache
+                .lookup(
+                    &MOCK_IP_ADDR_1.into(),
+                    Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2
+                )
+                .found(),
+        );
 
         cache.fill(MOCK_IP_ADDR_1.into(), HADDR_A, Instant::from_millis(0));
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
-            .found());
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
+                .found()
+        );
     }
 
     #[test]
@@ -233,12 +243,14 @@ mod test {
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0)),
             Answer::Found(HADDR_A)
         );
-        assert!(!cache
-            .lookup(
-                &MOCK_IP_ADDR_1.into(),
-                Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2
-            )
-            .found(),);
+        assert!(
+            !cache
+                .lookup(
+                    &MOCK_IP_ADDR_1.into(),
+                    Instant::from_millis(0) + Cache::ENTRY_LIFETIME * 2
+                )
+                .found(),
+        );
     }
 
     #[test]
@@ -268,14 +280,18 @@ mod test {
             cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(1000)),
             Answer::Found(HADDR_B)
         );
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_4.into(), Instant::from_millis(1000))
-            .found());
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_4.into(), Instant::from_millis(1000))
+                .found()
+        );
 
         cache.fill(MOCK_IP_ADDR_4.into(), HADDR_D, Instant::from_millis(300));
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(1000))
-            .found());
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(1000))
+                .found()
+        );
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_4.into(), Instant::from_millis(1000)),
             Answer::Found(HADDR_D)
@@ -311,16 +327,22 @@ mod test {
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0)),
             Answer::Found(HADDR_A)
         );
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
-            .found());
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0))
+                .found()
+        );
 
         cache.flush();
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0))
-            .found());
-        assert!(!cache
-            .lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0))
-            .found());
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0))
+                .found()
+        );
+        assert!(
+            !cache
+                .lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0))
+                .found()
+        );
     }
 }

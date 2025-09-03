@@ -4,10 +4,10 @@
 //! [RFC 6282]: https://datatracker.ietf.org/doc/html/rfc6282
 
 use super::{Error, Result};
+use crate::wire::IpProtocol;
 use crate::wire::ieee802154::Address as LlAddress;
 use crate::wire::ipv6;
 use crate::wire::ipv6::AddressExt;
-use crate::wire::IpProtocol;
 
 pub mod frag;
 pub mod iphc;
@@ -269,9 +269,9 @@ mod test {
 
     #[test]
     fn sixlowpan_three_fragments() {
+        use crate::wire::Ieee802154Address;
         use crate::wire::ieee802154::Frame as Ieee802154Frame;
         use crate::wire::ieee802154::Repr as Ieee802154Repr;
-        use crate::wire::Ieee802154Address;
 
         let key = frag::Key {
             ll_src_addr: Ieee802154Address::Extended([50, 147, 130, 47, 40, 8, 62, 217]),

@@ -3,8 +3,8 @@ use byteorder::{ByteOrder, NetworkEndian};
 
 use super::{Error, Result};
 use crate::time::Duration;
-use crate::wire::icmpv6::{field, Message, Packet};
 use crate::wire::RawHardwareAddress;
+use crate::wire::icmpv6::{Message, Packet, field};
 use crate::wire::{Ipv6Address, Ipv6AddressExt};
 use crate::wire::{NdiscOption, NdiscOptionRepr};
 use crate::wire::{NdiscPrefixInformation, NdiscRedirectedHeader};
