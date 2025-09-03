@@ -15,19 +15,11 @@ pub struct SeqNumber(pub i32);
 
 impl SeqNumber {
     pub fn max(self, rhs: Self) -> Self {
-        if self > rhs {
-            self
-        } else {
-            rhs
-        }
+        if self > rhs { self } else { rhs }
     }
 
     pub fn min(self, rhs: Self) -> Self {
-        if self < rhs {
-            self
-        } else {
-            rhs
-        }
+        if self < rhs { self } else { rhs }
     }
 }
 

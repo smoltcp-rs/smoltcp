@@ -41,8 +41,8 @@ mod mock {
 #[cfg(feature = "std")]
 mod mock {
     use smoltcp::time::{Duration, Instant};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // should be AtomicU64 but that's unstable
     #[derive(Debug, Clone)]

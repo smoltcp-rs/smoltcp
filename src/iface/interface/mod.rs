@@ -414,7 +414,9 @@ impl Interface {
     #[cfg(feature = "_proto-fragmentation")]
     pub fn set_reassembly_timeout(&mut self, timeout: Duration) {
         if timeout > Duration::from_secs(60) {
-            net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
+            net_debug!(
+                "RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds"
+            );
         }
         self.fragments.reassembly_timeout = timeout;
     }
@@ -1282,7 +1284,9 @@ impl InterfaceInner {
 
                     #[cfg(not(feature = "proto-ipv4-fragmentation"))]
                     {
-                        net_debug!("Enable the `proto-ipv4-fragmentation` feature for fragmentation support.");
+                        net_debug!(
+                            "Enable the `proto-ipv4-fragmentation` feature for fragmentation support."
+                        );
                         Ok(())
                     }
                 } else {

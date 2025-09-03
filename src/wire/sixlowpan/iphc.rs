@@ -4,9 +4,9 @@
 //! [RFC 6282 § 3.1]: https://datatracker.ietf.org/doc/html/rfc6282#section-3.1
 
 use super::{
-    AddressContext, AddressMode, Error, NextHeader, Result, UnresolvedAddress, DISPATCH_IPHC_HEADER,
+    AddressContext, AddressMode, DISPATCH_IPHC_HEADER, Error, NextHeader, Result, UnresolvedAddress,
 };
-use crate::wire::{ieee802154::Address as LlAddress, ipv6, ipv6::AddressExt, IpProtocol};
+use crate::wire::{IpProtocol, ieee802154::Address as LlAddress, ipv6, ipv6::AddressExt};
 use byteorder::{ByteOrder, NetworkEndian};
 
 mod field {

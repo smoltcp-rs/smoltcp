@@ -47,7 +47,7 @@ use std::os::unix::io::AsRawFd;
 use std::str;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium, RawSocket};
+use smoltcp::phy::{Device, Medium, RawSocket, wait as phy_wait};
 use smoltcp::socket::tcp;
 use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
 

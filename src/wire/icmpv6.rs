@@ -3,14 +3,14 @@ use core::{cmp, fmt};
 
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
-use crate::wire::ip::checksum;
 use crate::wire::MldRepr;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::wire::NdiscRepr;
 #[cfg(feature = "proto-rpl")]
 use crate::wire::RplRepr;
-use crate::wire::{IpProtocol, Ipv6Address, Ipv6Packet, Ipv6Repr};
+use crate::wire::ip::checksum;
 use crate::wire::{IPV6_HEADER_LEN, IPV6_MIN_MTU};
+use crate::wire::{IpProtocol, Ipv6Address, Ipv6Packet, Ipv6Repr};
 
 /// Error packets must not exceed min MTU
 const MAX_ERROR_PACKET_LEN: usize = IPV6_MIN_MTU - IPV6_HEADER_LEN;
@@ -1077,12 +1077,14 @@ mod test {
             &ChecksumCapabilities::default(),
         );
         let packet = Packet::new_unchecked(&bytes[..field::HEADER_END + IPV6_HEADER_LEN - 1]);
-        assert!(Repr::parse(
-            &MOCK_IP_ADDR_1,
-            &MOCK_IP_ADDR_2,
-            &packet,
-            &ChecksumCapabilities::ignored(),
-        )
-        .is_err());
+        assert!(
+            Repr::parse(
+                &MOCK_IP_ADDR_1,
+                &MOCK_IP_ADDR_2,
+                &packet,
+                &ChecksumCapabilities::ignored(),
+            )
+            .is_err()
+        );
     }
 }
