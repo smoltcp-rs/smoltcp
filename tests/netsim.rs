@@ -268,10 +268,11 @@ impl Device for QueueDevice<'_> {
         Self: 'a;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
+        let mut caps = DeviceCapabilities::new(self.medium);
+
         caps.max_transmission_unit = 1514;
-        caps.medium = self.medium;
         caps.checksum = ChecksumCapabilities::ignored();
+
         caps
     }
 

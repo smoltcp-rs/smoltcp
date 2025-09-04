@@ -1,0 +1,25 @@
+[package]
+name = "smoltcp-device"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+
+[dependencies]
+defmt = { version = "0.3.8", optional = true, features = ["ip_in_core"] }
+
+[features]
+defmt = ["dep:defmt"]
+
+std = []
+
+# Set by device driver crates
+"provides-medium-ethernet" = []
+"provides-medium-ip" = []
+"provides-medium-ieee802154" = []
+
+# Set by smoltcp
+"requires-medium-ethernet" = []
+"requires-medium-ip" = []
+"requires-medium-ieee802154" = []
+
+"packetmeta-id" = []

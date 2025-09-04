@@ -4,9 +4,8 @@ use std::os::unix::io::{AsRawFd, RawFd};
 
 use libc;
 
-use super::{ifreq, ifreq_for};
-use crate::phy::Medium;
-use crate::wire::ETHERNET_HEADER_LEN;
+use super::{ifreq, ifreq_for, ETHERNET_HEADER_LEN};
+use smoltcp_device::Medium;
 
 /// set interface
 #[cfg(any(
@@ -190,17 +189,15 @@ impl Drop for BpfDevice {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     #[test]
     #[cfg(any(target_os = "macos", target_os = "netbsd"))]
     fn test_aligned_bpf_hdr_len() {
-        assert_eq!(18, BPF_HDRLEN);
+        assert_eq!(18, super::BPF_HDRLEN);
     }
 
     #[test]
     #[cfg(target_os = "openbsd")]
     fn test_aligned_bpf_hdr_len() {
-        assert_eq!(26, BPF_HDRLEN);
+        assert_eq!(26, super::BPF_HDRLEN);
     }
 }

@@ -18,7 +18,7 @@
 //!
 //!
 //! # Setup
-//!    
+//!
 //!     modprobe mac802154_hwsim
 //!
 //!     ip link set wpan0 down
@@ -47,9 +47,10 @@ use std::os::unix::io::AsRawFd;
 use std::str;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium, RawSocket};
+use smoltcp::phy::{Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
+use smoltcp_device_unix::{wait as phy_wait, RawSocket};
 
 //For benchmark
 use smoltcp::time::{Duration, Instant};
