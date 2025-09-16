@@ -132,7 +132,7 @@ The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sock
   * Nagle's algorithm is implemented.
   * Selective acknowledgements are **not** implemented.
   * Silly window syndrome avoidance is **not** implemented.
-  * Congestion control is **not** implemented.
+  * Congestion control is optional, `CUBIC` and `Reno` are implemented.
   * Timestamping is **not** supported.
   * Urgent pointer is **ignored**.
   * Probing Zero Windows is **not** implemented.
