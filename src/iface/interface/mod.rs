@@ -752,11 +752,12 @@ impl Interface {
                 }),
                 #[cfg(feature = "socket-eth")]
                 Socket::Eth(socket) => {
-                    socket.dispatch(&mut self.inner, |inner, (eth_repr, payload)| {
-                        let token = device.transmit(inner.now).ok_or_else(|| {
+                    socket.dispatch(&mut self.inner, |inner, meta, (eth_repr, payload)| {
+                        let mut token = device.transmit(inner.now).ok_or_else(|| {
                             net_debug!("failed to transmit raw ETH: device exhausted");
                             EgressError::Exhausted
                         })?;
+                        token.set_meta(meta);
                         inner.dispatch_ethernet(token, payload.len(), |mut frame| {
                             frame.set_dst_addr(eth_repr.dst_addr);
                             frame.set_src_addr(eth_repr.src_addr);
@@ -927,18 +928,19 @@ impl InterfaceInner {
     fn eth_socket_filter(
         &mut self,
         sockets: &mut SocketSet,
+        meta: PacketMeta,
         eth_repr: &EthernetRepr,
         eth_payload: &[u8],
     ) -> bool {
         let mut handled_by_eth_socket = false;
 
-        // Pass every IP packet to all raw sockets we have registered.
+        // Pass every packet to all eth sockets we have registered.
         for eth_socket in sockets
             .items_mut()
             .filter_map(|i| eth::Socket::downcast_mut(&mut i.socket))
         {
             if eth_socket.accepts(eth_repr) {
-                eth_socket.process(self, eth_repr, eth_payload);
+                eth_socket.process(self, meta, eth_repr, eth_payload);
                 handled_by_eth_socket = true;
             }
         }

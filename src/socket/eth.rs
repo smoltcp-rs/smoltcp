@@ -3,6 +3,7 @@ use core::cmp::min;
 use core::task::Waker;
 
 use crate::iface::Context;
+use crate::phy::PacketMeta;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
@@ -50,11 +51,28 @@ impl core::fmt::Display for RecvError {
 #[cfg(feature = "std")]
 impl std::error::Error for RecvError {}
 
+/// Metadata for a sent or received ETH packet.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct EthMetadata {
+    pub meta: PacketMeta,
+}
+
+impl core::fmt::Display for EthMetadata {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        #[cfg(feature = "packetmeta-id")]
+        return write!(f, "PacketID: {:?}", self.meta);
+
+        #[cfg(not(feature = "packetmeta-id"))]
+        write!(f, "()")
+    }
+}
+
 /// A Eth packet metadata.
-pub type PacketMetadata = crate::storage::PacketMetadata<()>;
+pub type PacketMetadata = crate::storage::PacketMetadata<EthMetadata>;
 
 /// A Eth packet ring buffer.
-pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, ()>;
+pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, EthMetadata>;
 
 pub type Ethertype = u16;
 
@@ -176,10 +194,15 @@ impl<'a> Socket<'a> {
     ///
     /// If the buffer is filled in a way that does not match the socket's
     /// ethertype, the packet will be silently dropped.
-    pub fn send(&mut self, size: usize) -> Result<&mut [u8], SendError> {
+    pub fn send(
+        &mut self,
+        size: usize,
+        meta: impl Into<EthMetadata>,
+    ) -> Result<&mut [u8], SendError> {
+        let meta = meta.into();
         let packet_buf = self
             .tx_buffer
-            .enqueue(size, ())
+            .enqueue(size, meta)
             .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
@@ -194,13 +217,19 @@ impl<'a> Socket<'a> {
     /// The closure then returns the size of the data written into the buffer.
     ///
     /// Also see [send](#method.send).
-    pub fn send_with<F>(&mut self, max_size: usize, f: F) -> Result<usize, SendError>
+    pub fn send_with<F>(
+        &mut self,
+        max_size: usize,
+        meta: impl Into<EthMetadata>,
+        f: F,
+    ) -> Result<usize, SendError>
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
+        let meta = meta.into();
         let size = self
             .tx_buffer
-            .enqueue_with_infallible(max_size, (), f)
+            .enqueue_with_infallible(max_size, meta, f)
             .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
@@ -215,23 +244,27 @@ impl<'a> Socket<'a> {
     /// Enqueue a packet to send, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(&mut self, data: &[u8]) -> Result<(), SendError> {
-        self.send(data.len())?.copy_from_slice(data);
+    pub fn send_slice(
+        &mut self,
+        data: &[u8],
+        meta: impl Into<EthMetadata>,
+    ) -> Result<(), SendError> {
+        self.send(data.len(), meta)?.copy_from_slice(data);
         Ok(())
     }
 
     /// Dequeue a packet, and return a pointer to the payload.
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn recv(&mut self) -> Result<&[u8], RecvError> {
-        let ((), packet_buf) = self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
+    pub fn recv(&mut self) -> Result<(&[u8], EthMetadata), RecvError> {
+        let (meta, packet_buf) = self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
             "eth:{}: receive {} buffered octets",
             self.ethertype.unwrap_or(0),
             packet_buf.len()
         );
-        Ok(packet_buf)
+        Ok((packet_buf, meta))
     }
 
     /// Dequeue a packet, and copy the payload into the given slice.
@@ -240,15 +273,15 @@ impl<'a> Socket<'a> {
     /// the packet is dropped and a `RecvError::Truncated` error is returned.
     ///
     /// See also [recv](#method.recv).
-    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<usize, RecvError> {
-        let buffer = self.recv()?;
+    pub fn recv_slice(&mut self, data: &mut [u8]) -> Result<(usize, EthMetadata), RecvError> {
+        let (buffer, meta) = self.recv()?;
         if data.len() < buffer.len() {
             return Err(RecvError::Truncated);
         }
 
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
-        Ok(length)
+        Ok((length, meta))
     }
 
     /// Peek at a packet in the receive buffer and return a pointer to the
@@ -256,8 +289,8 @@ impl<'a> Socket<'a> {
     /// This function otherwise behaves identically to [recv](#method.recv).
     ///
     /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn peek(&mut self) -> Result<&[u8], RecvError> {
-        let ((), packet_buf) = self.rx_buffer.peek().map_err(|_| RecvError::Exhausted)?;
+    pub fn peek(&mut self) -> Result<(&[u8], &EthMetadata), RecvError> {
+        let (meta, packet_buf) = self.rx_buffer.peek().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
             "eth:{}: receive {} buffered octets",
@@ -265,7 +298,7 @@ impl<'a> Socket<'a> {
             packet_buf.len()
         );
 
-        Ok(packet_buf)
+        Ok((packet_buf, meta))
     }
 
     /// Peek at a packet in the receive buffer, copy the payload into the given slice,
@@ -276,15 +309,15 @@ impl<'a> Socket<'a> {
     /// no data is copied into the provided buffer and a `RecvError::Truncated` error is returned.
     ///
     /// See also [peek](#method.peek).
-    pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<usize, RecvError> {
-        let buffer = self.peek()?;
+    pub fn peek_slice(&mut self, data: &mut [u8]) -> Result<(usize, &EthMetadata), RecvError> {
+        let (buffer, meta) = self.peek()?;
         if data.len() < buffer.len() {
             return Err(RecvError::Truncated);
         }
 
         let length = min(data.len(), buffer.len());
         data[..length].copy_from_slice(&buffer[..length]);
-        Ok(length)
+        Ok((length, meta))
     }
 
     /// Return the amount of octets queued in the transmit buffer.
@@ -305,7 +338,13 @@ impl<'a> Socket<'a> {
         }
     }
 
-    pub(crate) fn process(&mut self, _cx: &mut Context, eth_repr: &EthernetRepr, payload: &[u8]) {
+    pub(crate) fn process(
+        &mut self,
+        _cx: &mut Context,
+        meta: PacketMeta,
+        eth_repr: &EthernetRepr,
+        payload: &[u8],
+    ) {
         debug_assert!(self.accepts(eth_repr));
 
         let header_len = eth_repr.buffer_len();
@@ -317,7 +356,9 @@ impl<'a> Socket<'a> {
             total_len
         );
 
-        match self.rx_buffer.enqueue(total_len, ()) {
+        let metadata = EthMetadata { meta };
+
+        match self.rx_buffer.enqueue(total_len, metadata) {
             Ok(buf) => {
                 let mut frame = EthernetFrame::new_checked(buf).expect("internal ethernet error");
                 eth_repr.emit(&mut frame);
@@ -335,10 +376,10 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (EthernetRepr, &[u8])) -> Result<(), E>,
+        F: FnOnce(&mut Context, PacketMeta, (EthernetRepr, &[u8])) -> Result<(), E>,
     {
         let ethertype = self.ethertype;
-        let res = self.tx_buffer.dequeue_with(|&mut (), buffer| {
+        let res = self.tx_buffer.dequeue_with(|meta, buffer| {
             #[allow(clippy::useless_asref)]
             let frame = match EthernetFrame::new_checked(buffer.as_ref()) {
                 Ok(x) => x,
@@ -355,7 +396,7 @@ impl<'a> Socket<'a> {
                 }
             };
             net_trace!("eth:{}: sending", ethertype.unwrap_or(0));
-            emit(cx, (eth_repr, frame.payload()))
+            emit(cx, meta.meta, (eth_repr, frame.payload()))
         });
         match res {
             Err(Empty) => Ok(()),
@@ -415,12 +456,21 @@ mod test {
         let (mut iface, _, _) = setup(Medium::Ethernet);
         let cx = iface.context();
         let mut socket = socket(buffer(1), buffer(1));
+        let dummymeta = EthMetadata {
+            meta: PacketMeta {
+                #[cfg(feature = "packetmeta-id")]
+                id: 42,
+            },
+        };
         assert!(socket.can_send());
-        assert_eq!(socket.send_slice(&PACKET_BYTES[..]), Ok(()));
-        assert_eq!(socket.send_slice(b""), Err(SendError::BufferFull));
+        assert_eq!(socket.send_slice(&PACKET_BYTES[..], dummymeta), Ok(()));
+        assert_eq!(
+            socket.send_slice(b"", dummymeta),
+            Err(SendError::BufferFull)
+        );
         assert!(!socket.can_send());
         assert_eq!(
-            socket.dispatch(cx, |_, (eth_repr, eth_payload)| {
+            socket.dispatch(cx, |_, _, (eth_repr, eth_payload)| {
                 assert_eq!(eth_repr.ethertype, EtherType::from(ETHER_TYPE));
                 assert_eq!(eth_payload, PACKET_PAYLOAD);
                 Err(())
@@ -429,7 +479,7 @@ mod test {
         );
         assert!(!socket.can_send());
         assert_eq!(
-            socket.dispatch(cx, |_, (eth_repr, eth_payload)| {
+            socket.dispatch(cx, |_, _, (eth_repr, eth_payload)| {
                 assert_eq!(eth_repr.ethertype, EtherType::from(ETHER_TYPE));
                 assert_eq!(eth_payload, PACKET_PAYLOAD);
                 Ok::<_, ()>(())
@@ -449,6 +499,13 @@ mod test {
         assert_eq!(socket.recv(), Err(RecvError::Exhausted));
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
 
+        let pktmeta = PacketMeta {
+            #[cfg(feature = "packetmeta-id")]
+            id: 43,
+        };
+
+        let ethmeta = EthMetadata { meta: pktmeta };
+
         let frameinfo = EthernetRepr {
             src_addr: EthernetAddress::from_bytes(&PACKET_SENDER),
             dst_addr: EthernetAddress::from_bytes(&PACKET_RECEIVER),
@@ -456,15 +513,15 @@ mod test {
         };
 
         assert!(socket.accepts(&frameinfo));
-        socket.process(cx, &frameinfo, &PACKET_PAYLOAD);
+        socket.process(cx, pktmeta, &frameinfo, &PACKET_PAYLOAD);
         assert!(socket.can_recv());
 
         assert!(socket.accepts(&frameinfo));
-        socket.process(cx, &frameinfo, &PACKET_PAYLOAD);
+        socket.process(cx, pktmeta, &frameinfo, &PACKET_PAYLOAD);
 
-        assert_eq!(socket.peek(), Ok(&PACKET_BYTES[..]));
-        assert_eq!(socket.peek(), Ok(&PACKET_BYTES[..]));
-        assert_eq!(socket.recv(), Ok(&PACKET_BYTES[..]));
+        assert_eq!(socket.peek(), Ok((&PACKET_BYTES[..], &ethmeta)));
+        assert_eq!(socket.peek(), Ok((&PACKET_BYTES[..], &ethmeta)));
+        assert_eq!(socket.recv(), Ok((&PACKET_BYTES[..], ethmeta)));
         assert!(!socket.can_recv());
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
     }
