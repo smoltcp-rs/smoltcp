@@ -21,6 +21,7 @@ impl InterfaceInner {
         #[cfg(feature = "socket-eth")]
         let _ = self.eth_socket_filter(
             sockets,
+            meta,
             &EthernetRepr::parse(&eth_frame).unwrap(),
             eth_frame.payload(),
         );
