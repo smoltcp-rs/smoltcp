@@ -531,7 +531,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&'a mut T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Packet<&mut T> {
     /// Return a pointer to the options.
     #[inline]
     pub fn options_mut(&mut self) -> DhcpOptionWriter<'_> {

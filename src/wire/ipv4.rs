@@ -622,7 +622,7 @@ impl Repr {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match Repr::parse(self, &ChecksumCapabilities::ignored()) {
             Ok(repr) => write!(f, "{repr}"),
@@ -705,7 +705,7 @@ impl<T: AsRef<[u8]>> PrettyPrint for Packet<T> {
                         return Ok(());
                     } else {
                         write!(f, "{indent}{ip_repr}")?;
-                        format_checksum(f, ip_packet.verify_checksum())?;
+                        format_checksum(f, ip_packet.verify_checksum(), false)?;
                         (ip_repr, ip_packet.payload())
                     }
                 }

@@ -252,7 +252,7 @@ impl Cidr {
     ///
     /// # Panics
     /// This function panics if the given prefix length is invalid for the given address.
-    pub fn new(addr: Address, prefix_len: u8) -> Cidr {
+    pub const fn new(addr: Address, prefix_len: u8) -> Cidr {
         match addr {
             #[cfg(feature = "proto-ipv4")]
             Address::Ipv4(addr) => Cidr::Ipv4(Ipv4Cidr::new(addr, prefix_len)),
@@ -779,9 +779,17 @@ pub mod checksum {
     }
 
     // We use this in pretty printer implementations.
-    pub(crate) fn format_checksum(f: &mut fmt::Formatter, correct: bool) -> fmt::Result {
+    pub(crate) fn format_checksum(
+        f: &mut fmt::Formatter,
+        correct: bool,
+        partially_correct: bool,
+    ) -> fmt::Result {
         if !correct {
-            write!(f, " (checksum incorrect)")
+            if partially_correct {
+                write!(f, " (partial checksum correct)")
+            } else {
+                write!(f, " (checksum incorrect)")
+            }
         } else {
             Ok(())
         }
@@ -833,7 +841,10 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
                             )?;
                             let valid =
                                 udp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
-                            format_checksum(f, valid)
+                            let partially_valid = udp_packet
+                                .verify_partial_checksum(&repr.src_addr(), &repr.dst_addr());
+
+                            format_checksum(f, valid, partially_valid)
                         }
                     }
                 }
@@ -855,7 +866,10 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
                             write!(f, "{indent}{tcp_repr}")?;
                             let valid =
                                 tcp_packet.verify_checksum(&repr.src_addr(), &repr.dst_addr());
-                            format_checksum(f, valid)
+                            let partially_valid = tcp_packet
+                                .verify_partial_checksum(&repr.src_addr(), &repr.dst_addr());
+
+                            format_checksum(f, valid, partially_valid)
                         }
                     }
                 }

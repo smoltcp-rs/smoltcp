@@ -327,7 +327,7 @@ impl Assembler {
     /// |--- 100 ---|--- 200 ---|--- 100 ---|
     ///
     /// An offset of 1500 would return the ranges: ``(1500, 1600), (1800, 1900)``
-    pub fn iter_data(&self, first_offset: usize) -> AssemblerIter {
+    pub fn iter_data(&self, first_offset: usize) -> AssemblerIter<'_> {
         AssemblerIter::new(self, first_offset)
     }
 }

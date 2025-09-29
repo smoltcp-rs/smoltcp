@@ -363,7 +363,11 @@ impl Interface {
         InterfaceInner::flush_neighbor_cache(&mut self.inner);
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs);
 
-        #[cfg(all(feature = "proto-ipv6", feature = "multicast"))]
+        #[cfg(all(
+            feature = "proto-ipv6",
+            feature = "multicast",
+            feature = "medium-ethernet"
+        ))]
         if self.inner.caps.medium == Medium::Ethernet {
             self.update_solicited_node_groups();
         }
@@ -1314,16 +1318,24 @@ impl InterfaceInner {
             }
             // We don't support IPv6 fragmentation yet.
             #[cfg(feature = "proto-ipv6")]
-            IpRepr::Ipv6(_) => tx_token.consume(total_len, |mut tx_buffer| {
-                #[cfg(feature = "medium-ethernet")]
-                if matches!(self.caps.medium, Medium::Ethernet) {
-                    emit_ethernet(&ip_repr, tx_buffer)?;
-                    tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
-                }
+            IpRepr::Ipv6(_) => {
+                // Check if we need to fragment it.
+                if total_ip_len > self.caps.ip_mtu() {
+                    net_debug!("IPv6 fragmentation support is unimplemented. Dropping.");
+                    Ok(())
+                } else {
+                    tx_token.consume(total_len, |mut tx_buffer| {
+                        #[cfg(feature = "medium-ethernet")]
+                        if matches!(self.caps.medium, Medium::Ethernet) {
+                            emit_ethernet(&ip_repr, tx_buffer)?;
+                            tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
+                        }
 
-                emit_ip(&ip_repr, tx_buffer);
-                Ok(())
-            }),
+                        emit_ip(&ip_repr, tx_buffer);
+                        Ok(())
+                    })
+                }
+            }
         }
     }
 }
