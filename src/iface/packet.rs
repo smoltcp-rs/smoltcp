@@ -130,7 +130,10 @@ impl<'p> Packet<'p> {
             }
 
             #[cfg(feature = "socket-raw")]
-            IpPayload::Raw(raw_packet) => payload.copy_from_slice(raw_packet),
+            IpPayload::Raw(raw_packet) => {
+                let len = raw_packet.len();
+                payload[..len].copy_from_slice(raw_packet)
+            }
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpPayload::Udp(udp_repr, inner_payload) => udp_repr.emit(
                 &mut UdpPacket::new_unchecked(payload),
