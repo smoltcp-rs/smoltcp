@@ -15,8 +15,7 @@ An implementation of the [Device](trait.Device.html) trait for a simple hardware
 Ethernet controller could look as follows:
 
 ```rust
-use smoltcp_device::{DeviceCapabilities, Device, Medium};
-use smoltcp::time::Instant;
+use smoltcp_device::{DeviceCapabilities, Device, Medium, time::Instant};
 
 struct StmPhy {
     rx_buffer: [u8; 1536],
