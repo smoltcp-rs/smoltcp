@@ -1,9 +1,9 @@
 use core::result::Result;
 use heapless::{LinearMap, Vec};
 
-#[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
-use super::{check, IpPayload, Packet};
 use super::{Interface, InterfaceInner};
+#[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
+use super::{IpPayload, Packet, check};
 use crate::config::{IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT};
 use crate::phy::{Device, PacketMeta};
 use crate::wire::*;
@@ -191,7 +191,7 @@ impl Interface {
             .multicast
             .groups
             .iter()
-            .find(|(_, &state)| state == GroupState::Joining)
+            .find(|&(_, &state)| state == GroupState::Joining)
         {
             match addr {
                 #[cfg(feature = "proto-ipv4")]
@@ -239,7 +239,7 @@ impl Interface {
             .multicast
             .groups
             .iter()
-            .find(|(_, &state)| state == GroupState::Leaving)
+            .find(|&(_, &state)| state == GroupState::Leaving)
         {
             match addr {
                 #[cfg(feature = "proto-ipv4")]

@@ -165,28 +165,28 @@ impl<'p, T: AsRef<[u8]> + ?Sized> Packet<&'p T> {
         let len = self.buffer.as_ref().len();
         match RplControlMessage::from(self.msg_code()) {
             RplControlMessage::DodagInformationSolicitation if len < field::DIS_RESERVED + 1 => {
-                return Err(Error)
+                return Err(Error);
             }
             RplControlMessage::DodagInformationObject if len < field::DIO_DODAG_ID.end => {
-                return Err(Error)
+                return Err(Error);
             }
             RplControlMessage::DestinationAdvertisementObject
                 if self.dao_dodag_id_present() && len < field::DAO_DODAG_ID.end =>
             {
-                return Err(Error)
+                return Err(Error);
             }
             RplControlMessage::DestinationAdvertisementObject if len < field::DAO_SEQUENCE + 1 => {
-                return Err(Error)
+                return Err(Error);
             }
             RplControlMessage::DestinationAdvertisementObjectAck
                 if self.dao_ack_dodag_id_present() && len < field::DAO_ACK_DODAG_ID.end =>
             {
-                return Err(Error)
+                return Err(Error);
             }
             RplControlMessage::DestinationAdvertisementObjectAck
                 if len < field::DAO_ACK_STATUS + 1 =>
             {
-                return Err(Error)
+                return Err(Error);
             }
             RplControlMessage::SecureDodagInformationSolicitation
             | RplControlMessage::SecureDodagInformationObject
@@ -2391,8 +2391,8 @@ pub mod data {
 
 #[cfg(test)]
 mod tests {
-    use super::options::{Packet as OptionPacket, Repr as OptionRepr};
     use super::Repr as RplRepr;
+    use super::options::{Packet as OptionPacket, Repr as OptionRepr};
     use super::*;
     use crate::phy::ChecksumCapabilities;
     use crate::wire::{icmpv6::*, *};

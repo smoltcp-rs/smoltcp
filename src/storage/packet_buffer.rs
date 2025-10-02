@@ -322,12 +322,14 @@ mod test {
         ));
         assert_eq!(buffer.metadata_ring.len(), 1);
 
-        assert!(buffer
-            .dequeue_with(|&mut (), payload| {
-                assert_eq!(payload, &b"abcd"[..]);
-                Result::<(), ()>::Ok(())
-            })
-            .is_ok());
+        assert!(
+            buffer
+                .dequeue_with(|&mut (), payload| {
+                    assert_eq!(payload, &b"abcd"[..]);
+                    Result::<(), ()>::Ok(())
+                })
+                .is_ok()
+        );
         assert_eq!(buffer.metadata_ring.len(), 0);
     }
 
