@@ -42,21 +42,19 @@ mod mock {
 mod mock {
     use smoltcp::time::{Duration, Instant};
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    // should be AtomicU64 but that's unstable
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub struct Clock(Arc<AtomicUsize>);
+    pub struct Clock(Arc<AtomicU64>);
 
     impl Clock {
         pub fn new() -> Clock {
-            Clock(Arc::new(AtomicUsize::new(0)))
+            Clock(Arc::new(AtomicU64::new(0)))
         }
 
         pub fn advance(&self, duration: Duration) {
-            self.0
-                .fetch_add(duration.total_millis() as usize, Ordering::SeqCst);
+            self.0.fetch_add(duration.total_millis(), Ordering::SeqCst);
         }
 
         pub fn elapsed(&self) -> Instant {
