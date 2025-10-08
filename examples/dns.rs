@@ -1,11 +1,11 @@
 mod utils;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::Device;
-use smoltcp::phy::{Medium, wait as phy_wait};
 use smoltcp::socket::dns::{self, GetQueryResultError};
 use smoltcp::time::Instant;
 use smoltcp::wire::{DnsQueryType, EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
+use smoltcp_device::{Device, Medium};
+use smoltcp_device_unix::wait as phy_wait;
 use std::os::unix::io::AsRawFd;
 
 fn main() {

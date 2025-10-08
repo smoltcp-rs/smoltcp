@@ -1,0 +1,22 @@
+[package]
+name = "smoltcp-device-unix"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+
+[dependencies]
+smoltcp-device = { version = "0.1.0", path = "../smoltcp-device" }
+libc = "0.2.18"
+log = { version = "0.4.4", default-features = false, optional = true }
+defmt = { version = "0.3.8", optional = true, features = ["ip_in_core"] }
+
+[features]
+medium-ethernet = ["smoltcp-device/provides-medium-ethernet"]
+medium-ieee802154 = ["smoltcp-device/provides-medium-ieee802154"]
+medium-ip = ["smoltcp-device/provides-medium-ip"]
+
+defmt = ["dep:defmt", "smoltcp-device/defmt"]
+
+default = [
+  "log", # needed for `cargo test --no-default-features --features default` :/
+]
