@@ -424,8 +424,9 @@ mod test {
 
     use crate::phy::Medium;
     use crate::tests::setup;
+    use crate::time::Instant;
     use crate::wire::ethernet::EtherType;
-    use crate::wire::EthernetAddress;
+    use crate::wire::{EthernetAddress, HardwareAddress};
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
         PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 48 * packets])
@@ -442,12 +443,12 @@ mod test {
 
     #[rustfmt::skip]
     pub const PACKET_BYTES: [u8; 18] = [
-        0xaa, 0xbb, 0xcc, 0x12, 0x34, 0x56,
+        0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
         0xaa, 0xbb, 0xcc, 0x78, 0x90, 0x12,
         0x12, 0x34,
         0xaa, 0x00, 0x00, 0xff,
     ];
-    pub const PACKET_RECEIVER: [u8; 6] = [0xaa, 0xbb, 0xcc, 0x12, 0x34, 0x56];
+    pub const PACKET_RECEIVER: [u8; 6] = [0x02, 0x02, 0x02, 0x02, 0x02, 0x02];
     pub const PACKET_SENDER: [u8; 6] = [0xaa, 0xbb, 0xcc, 0x78, 0x90, 0x12];
     pub const PACKET_PAYLOAD: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
 
@@ -524,5 +525,49 @@ mod test {
         assert_eq!(socket.recv(), Ok((&PACKET_BYTES[..], ethmeta)));
         assert!(!socket.can_recv());
         assert_eq!(socket.peek(), Err(RecvError::Exhausted));
+    }
+
+    #[test]
+    fn test_loopback() {
+        let (mut iface, mut sockets, mut device) = setup(Medium::Ethernet);
+        let eth_socket = socket(buffer(3), buffer(3));
+        let socket_handle = sockets.add(eth_socket);
+        let now = Instant::now();
+
+        let ethmeta = EthMetadata {
+            meta: PacketMeta {
+                #[cfg(feature = "packetmeta-id")]
+                id: 42,
+            },
+        };
+
+        // we need to eat up the mldv2_report_packet here first
+        iface.poll(now, &mut device, &mut sockets);
+        #[cfg(feature = "proto-ipv6")]
+        let _ = device.tx_queue.pop_front().unwrap();
+
+        // send our test frame
+        assert_eq!(iface.hardware_addr(), HardwareAddress::Ethernet(EthernetAddress::from_bytes(&PACKET_RECEIVER)));
+        let socket = sockets.get_mut::<Socket>(socket_handle);
+        assert!(socket.can_send());
+        assert_eq!(socket.send_slice(&PACKET_BYTES[..], ethmeta), Ok(()));
+
+        // run poll_egress()
+        iface.poll(now, &mut device, &mut sockets);
+        assert!(!sockets.get_mut::<Socket>(socket_handle).can_recv());
+
+        // do loopback manually
+        assert!(!device.tx_queue.is_empty());
+        device.rx_queue.push_back( device.tx_queue.pop_front().unwrap() );
+
+        // run socket_ingress()
+        iface.poll(now, &mut device, &mut sockets);
+
+        // receive our test frame
+        let socket = sockets.get_mut::<Socket>(socket_handle);
+        assert!(socket.can_recv());
+        let received = socket.recv();
+        assert!(received.is_ok());
+        assert_eq!(received.unwrap().0, &PACKET_BYTES[..]);
     }
 }
