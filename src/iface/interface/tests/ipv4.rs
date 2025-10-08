@@ -871,14 +871,9 @@ fn test_packet_len(#[case] medium: Medium) {
     }
 }
 
-#[rstest]
-#[case(Medium::Ip)]
-#[cfg(all(feature = "socket-raw", feature = "medium-ip"))]
-#[case(Medium::Ethernet)]
-#[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]
-fn test_raw_socket_no_reply(#[case] medium: Medium) {
-    use crate::wire::{IpVersion, UdpPacket, UdpRepr};
-
+/// Check no reply is emitted when using a raw socket
+#[cfg(feature = "socket-raw")]
+fn check_no_reply_raw_socket(medium: Medium, frame: &crate::wire::ipv4::Packet<&[u8]>) {
     let (mut iface, mut sockets, _) = setup(medium);
 
     let packets = 1;
@@ -888,13 +883,29 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
         vec![raw::PacketMetadata::EMPTY; packets],
         vec![0; 48 * packets],
     );
-    let raw_socket = raw::Socket::new(
-        Some(IpVersion::Ipv4),
-        Some(IpProtocol::Udp),
-        rx_buffer,
-        tx_buffer,
-    );
+    let raw_socket = raw::Socket::new(Some(IpVersion::Ipv4), None, rx_buffer, tx_buffer);
     sockets.add(raw_socket);
+
+    assert_eq!(
+        iface.inner.process_ipv4(
+            &mut sockets,
+            PacketMeta::default(),
+            HardwareAddress::default(),
+            frame,
+            &mut iface.fragments
+        ),
+        None
+    );
+}
+
+#[rstest]
+#[case(Medium::Ip)]
+#[cfg(all(feature = "socket-raw", feature = "medium-ip"))]
+#[case(Medium::Ethernet)]
+#[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]
+/// Test no reply to received UDP when using raw socket which accepts all protocols
+fn test_raw_socket_no_reply_udp(#[case] medium: Medium) {
+    use crate::wire::{UdpPacket, UdpRepr};
 
     let src_addr = Ipv4Address::new(127, 0, 0, 2);
     let dst_addr = Ipv4Address::new(127, 0, 0, 1);
@@ -905,16 +916,6 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
         src_port: 67,
         dst_port: 68,
     };
-    let mut bytes = vec![0xff; udp_repr.header_len() + PAYLOAD_LEN];
-    let mut packet = UdpPacket::new_unchecked(&mut bytes[..]);
-    udp_repr.emit(
-        &mut packet,
-        &src_addr.into(),
-        &dst_addr.into(),
-        PAYLOAD_LEN,
-        |buf| fill_slice(buf, 0x2a),
-        &ChecksumCapabilities::default(),
-    );
     let ipv4_repr = Ipv4Repr {
         src_addr,
         dst_addr,
@@ -941,16 +942,63 @@ fn test_raw_socket_no_reply(#[case] medium: Medium) {
         Ipv4Packet::new_unchecked(&bytes[..])
     };
 
-    assert_eq!(
-        iface.inner.process_ipv4(
-            &mut sockets,
-            PacketMeta::default(),
-            HardwareAddress::default(),
-            &frame,
-            &mut iface.fragments
-        ),
-        None
-    );
+    check_no_reply_raw_socket(medium, &frame);
+}
+
+#[rstest]
+#[case(Medium::Ip)]
+#[cfg(all(feature = "socket-raw", feature = "medium-ip"))]
+#[case(Medium::Ethernet)]
+#[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]
+/// Test no reply to received TCP when using raw socket which accepts all protocols
+fn test_raw_socket_no_reply_tcp(#[case] medium: Medium) {
+    use crate::wire::{TcpPacket, TcpRepr};
+
+    let src_addr = Ipv4Address::new(127, 0, 0, 2);
+    let dst_addr = Ipv4Address::new(127, 0, 0, 1);
+
+    const PAYLOAD_LEN: usize = 10;
+    const PAYLOAD: [u8; PAYLOAD_LEN] = [0x2a; PAYLOAD_LEN];
+
+    let tcp_repr = TcpRepr {
+        src_port: 67,
+        dst_port: 68,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(1),
+        ack_number: None,
+        window_len: 10,
+        window_scale: None,
+        max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &PAYLOAD,
+    };
+    let ipv4_repr = Ipv4Repr {
+        src_addr,
+        dst_addr,
+        next_header: IpProtocol::Tcp,
+        hop_limit: 64,
+        payload_len: tcp_repr.header_len() + PAYLOAD_LEN,
+    };
+
+    // Emit to frame
+    let mut bytes = vec![0u8; ipv4_repr.buffer_len() + tcp_repr.header_len() + PAYLOAD_LEN];
+    let frame = {
+        ipv4_repr.emit(
+            &mut Ipv4Packet::new_unchecked(&mut bytes),
+            &ChecksumCapabilities::default(),
+        );
+        tcp_repr.emit(
+            &mut TcpPacket::new_unchecked(&mut bytes[ipv4_repr.buffer_len()..]),
+            &src_addr.into(),
+            &dst_addr.into(),
+            &ChecksumCapabilities::default(),
+        );
+        Ipv4Packet::new_unchecked(&bytes[..])
+    };
+
+    check_no_reply_raw_socket(medium, &frame);
 }
 
 #[rstest]
