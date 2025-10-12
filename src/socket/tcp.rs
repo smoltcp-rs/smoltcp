@@ -197,6 +197,10 @@ impl RttEstimator {
         Duration::from_millis(self.rto as _)
     }
 
+    pub(super) fn min_rtt(&self) -> Duration {
+        Duration::from_millis(self.srtt as _)
+    }
+
     fn sample(&mut self, new_rtt: u32) {
         if self.have_measurement {
             // RFC 6298 (2.3) When a subsequent RTT measurement R' is made, a host MUST set (...)
@@ -454,6 +458,9 @@ pub enum CongestionControl {
 
     #[cfg(feature = "socket-tcp-cubic")]
     Cubic,
+
+    #[cfg(feature = "socket-tcp-bbr")]
+    Bbr,
 }
 
 /// A Transmission Control Protocol socket.
@@ -657,6 +664,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-cubic")]
             CongestionControl::Cubic => AnyController::Cubic(cubic::Cubic::new()),
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            CongestionControl::Bbr => AnyController::Bbr(bbr::Bbr::new()),
         }
     }
 
@@ -672,6 +682,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-cubic")]
             AnyController::Cubic(_) => CongestionControl::Cubic,
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            AnyController::Bbr(_) => CongestionControl::Bbr,
         }
     }
 
@@ -2367,6 +2380,12 @@ impl<'a> Socket<'a> {
         self.congestion_controller
             .inner_mut()
             .pre_transmit(cx.now());
+
+        // Notify congestion controller about available data for app-limited tracking
+        let bytes_available = self.tx_buffer.len();
+        self.congestion_controller
+            .inner_mut()
+            .on_send_ready(cx.now(), bytes_available);
 
         // Check if any state needs to be changed because of a timer.
         if self.timed_out(cx.now()) {
