@@ -197,6 +197,7 @@ impl RttEstimator {
         Duration::from_millis(self.rto as _)
     }
 
+    #[cfg(feature = "socket-tcp-bbr")]
     pub(super) fn min_rtt(&self) -> Duration {
         Duration::from_millis(self.srtt as _)
     }

@@ -43,6 +43,7 @@ pub(super) trait Controller {
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(clippy::large_enum_variant)]
 pub(super) enum AnyController {
     None(no_control::NoControl),
 
