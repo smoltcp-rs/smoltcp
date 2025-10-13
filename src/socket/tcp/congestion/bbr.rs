@@ -311,7 +311,8 @@ impl Bbr {
         // available.
         if self.pacing_rate == 0 && self.min_rtt.total_micros() != 0 {
             self.pacing_rate =
-                BandwidthEstimation::bw_from_delta(self.init_cwnd as u64, self.min_rtt).unwrap_or(0);
+                BandwidthEstimation::bw_from_delta(self.init_cwnd as u64, self.min_rtt)
+                    .unwrap_or(0);
             return;
         }
 
@@ -328,7 +329,8 @@ impl Bbr {
         let mut target_window = self.get_target_cwnd(self.cwnd_gain);
         if self.is_at_full_bandwidth {
             // Add the max recently measured ack aggregation to CWND.
-            target_window = target_window.saturating_add(self.ack_aggregation.max_ack_height.get() as usize);
+            target_window =
+                target_window.saturating_add(self.ack_aggregation.max_ack_height.get() as usize);
         } else {
             // Add the most recent excess acked.  Because CWND never decreases in
             // STARTUP, this will automatically create a very localized max filter.
@@ -339,7 +341,9 @@ impl Bbr {
         // time.
         if self.is_at_full_bandwidth {
             self.cwnd = target_window.min(self.cwnd.saturating_add(bytes_acked));
-        } else if (self.cwnd_gain < target_window as f32) || (self.acked_bytes < self.init_cwnd as u64) {
+        } else if (self.cwnd_gain < target_window as f32)
+            || (self.acked_bytes < self.init_cwnd as u64)
+        {
             // If the connection is not yet out of startup phase, do not decrease
             // the window.
             self.cwnd = self.cwnd.saturating_add(bytes_acked);
@@ -351,7 +355,12 @@ impl Bbr {
         }
     }
 
-    fn calculate_recovery_window(&mut self, bytes_acked: usize, bytes_lost: usize, in_flight: usize) {
+    fn calculate_recovery_window(
+        &mut self,
+        bytes_acked: usize,
+        bytes_lost: usize,
+        in_flight: usize,
+    ) {
         if !self.recovery_state.in_recovery() {
             return;
         }
@@ -412,7 +421,8 @@ impl Bbr {
         self.max_acked_packet_number = packet_number;
 
         // Update bandwidth estimation with app_limited state
-        self.max_bandwidth.on_ack(now, now, bytes, self.round_count, self.app_limited);
+        self.max_bandwidth
+            .on_ack(now, now, bytes, self.round_count, self.app_limited);
         self.acked_bytes += bytes;
 
         if self.min_rtt == Duration::ZERO || self.min_rtt > rtt.min_rtt() {
@@ -427,7 +437,8 @@ impl Bbr {
             self.round_count,
             self.max_bandwidth.get_estimate(),
         ) as usize;
-        self.max_bandwidth.end_acks(self.round_count, self.app_limited);
+        self.max_bandwidth
+            .end_acks(self.round_count, self.app_limited);
 
         let mut is_round_start = false;
         if bytes_acked > 0 {
@@ -706,7 +717,11 @@ mod test {
         // BBR should track losses
         assert!(bbr.loss_state.has_losses());
 
-        println!("BBR: cwnd before loss = {}, after loss = {}", cwnd_before, bbr.window());
+        println!(
+            "BBR: cwnd before loss = {}, after loss = {}",
+            cwnd_before,
+            bbr.window()
+        );
     }
 
     #[test]
@@ -724,7 +739,11 @@ mod test {
         // BBR should track this as a loss signal
         assert!(bbr.loss_state.has_losses());
 
-        println!("BBR: cwnd before dup ack = {}, after = {}", cwnd_before, bbr.window());
+        println!(
+            "BBR: cwnd before dup ack = {}, after = {}",
+            cwnd_before,
+            bbr.window()
+        );
     }
 
     #[test]
@@ -744,7 +763,11 @@ mod test {
             assert!(cwnd >= bbr.min_cwnd);
         }
 
-        println!("BBR: min_cwnd = {}, final cwnd = {}", bbr.min_cwnd, bbr.window());
+        println!(
+            "BBR: min_cwnd = {}, final cwnd = {}",
+            bbr.min_cwnd,
+            bbr.window()
+        );
     }
 
     #[test]
@@ -766,7 +789,11 @@ mod test {
         // Window should not exceed remote window
         assert!(bbr.window() <= remote_window);
 
-        println!("BBR: remote_window = {}, cwnd = {}", remote_window, bbr.window());
+        println!(
+            "BBR: remote_window = {}, cwnd = {}",
+            remote_window,
+            bbr.window()
+        );
     }
 
     #[test]
@@ -785,7 +812,7 @@ mod test {
         let now = Instant::from_millis(1000);
 
         // First call should transition to Drain mode
-        bbr.maybe_exit_startup_or_drain(now, bbr.window() * 2);  // High in_flight to stay in Drain
+        bbr.maybe_exit_startup_or_drain(now, bbr.window() * 2); // High in_flight to stay in Drain
         assert_eq!(bbr.mode, Mode::Drain);
         println!("BBR: After full BW = {:?}", bbr.mode);
 
@@ -920,7 +947,13 @@ mod test {
         // Simulate stalled bandwidth growth
         bbr.bw_at_last_round = 1000000;
         bbr.max_bandwidth.on_sent(Instant::from_millis(0), 1000);
-        bbr.max_bandwidth.on_ack(Instant::from_millis(10), Instant::from_millis(0), 1000, 0, false);
+        bbr.max_bandwidth.on_ack(
+            Instant::from_millis(10),
+            Instant::from_millis(0),
+            1000,
+            0,
+            false,
+        );
 
         // If bandwidth doesn't grow for 3 rounds, should detect full bandwidth
         for _ in 0..4 {
@@ -940,17 +973,21 @@ mod test {
 
         // Set up some bandwidth
         for i in 0..5i64 {
-            bbr.max_bandwidth.on_sent(Instant::from_millis(i * 10), 1480);
-            bbr.max_bandwidth.on_ack(Instant::from_millis(i * 10 + 5), Instant::from_millis(i * 10), 1480, i as u64, false);
+            bbr.max_bandwidth
+                .on_sent(Instant::from_millis(i * 10), 1480);
+            bbr.max_bandwidth.on_ack(
+                Instant::from_millis(i * 10 + 5),
+                Instant::from_millis(i * 10),
+                1480,
+                i as u64,
+                false,
+            );
         }
 
         let bw = bbr.max_bandwidth.get_estimate();
-        let excess = bbr.ack_aggregation.update_ack_aggregation_bytes(
-            5000,
-            now,
-            5,
-            bw,
-        );
+        let excess = bbr
+            .ack_aggregation
+            .update_ack_aggregation_bytes(5000, now, 5, bw);
 
         println!("BBR: ack aggregation excess = {} bytes", excess);
     }
@@ -969,7 +1006,10 @@ mod test {
         // cwnd should not be less than min_cwnd
         assert!(bbr.cwnd >= bbr.min_cwnd);
 
-        println!("BBR: After set_mss(1500), min_cwnd = {}, cwnd = {}", bbr.min_cwnd, bbr.cwnd);
+        println!(
+            "BBR: After set_mss(1500), min_cwnd = {}, cwnd = {}",
+            bbr.min_cwnd, bbr.cwnd
+        );
     }
 
     #[test]
@@ -1000,16 +1040,29 @@ mod test {
         let cwnd = bbr.window();
         bbr.on_send_ready(now, cwnd + 1000);
         assert!(!bbr.app_limited);
-        println!("BBR: With {} bytes available (cwnd={}), app_limited={}", cwnd + 1000, cwnd, bbr.app_limited);
+        println!(
+            "BBR: With {} bytes available (cwnd={}), app_limited={}",
+            cwnd + 1000,
+            cwnd,
+            bbr.app_limited
+        );
 
         // With less data than cwnd, should be app-limited
         bbr.on_send_ready(now, cwnd / 2);
         assert!(bbr.app_limited);
-        println!("BBR: With {} bytes available (cwnd={}), app_limited={}", cwnd / 2, cwnd, bbr.app_limited);
+        println!(
+            "BBR: With {} bytes available (cwnd={}), app_limited={}",
+            cwnd / 2,
+            cwnd,
+            bbr.app_limited
+        );
 
         // With no data, should be app-limited
         bbr.on_send_ready(now, 0);
         assert!(bbr.app_limited);
-        println!("BBR: With 0 bytes available (cwnd={}), app_limited={}", cwnd, bbr.app_limited);
+        println!(
+            "BBR: With 0 bytes available (cwnd={}), app_limited={}",
+            cwnd, bbr.app_limited
+        );
     }
 }
