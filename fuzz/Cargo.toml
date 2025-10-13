@@ -13,6 +13,7 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 getopts = "0.2"
 smoltcp = { path = ".." }
+smoltcp-device = { path = "../smoltcp-device", features = ["provides-medium-ethernet", "provides-medium-ip", "provides-medium-ieee802154"] }
 
 # Prevent this from interfering with workspaces
 [workspace]

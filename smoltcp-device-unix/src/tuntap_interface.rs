@@ -4,8 +4,10 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::rc::Rc;
 use std::vec::Vec;
 
-use crate::phy::{self, Device, DeviceCapabilities, Medium, sys};
-use crate::time::Instant;
+use crate::sys;
+
+use smoltcp_device::time::Instant;
+use smoltcp_device::{Device, DeviceCapabilities, Medium};
 
 /// A virtual TUN (IP) or TAP (Ethernet) interface.
 #[derive(Debug)]
@@ -56,11 +58,11 @@ impl Device for TunTapInterface {
     type TxToken<'a> = TxToken;
 
     fn capabilities(&self) -> DeviceCapabilities {
-        DeviceCapabilities {
-            max_transmission_unit: self.mtu,
-            medium: self.medium,
-            ..DeviceCapabilities::default()
-        }
+        let mut capabilities = DeviceCapabilities::new(self.medium);
+
+        capabilities.max_transmission_unit = self.mtu;
+
+        capabilities
     }
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
@@ -92,7 +94,7 @@ pub struct RxToken {
     buffer: Vec<u8>,
 }
 
-impl phy::RxToken for RxToken {
+impl smoltcp_device::RxToken for RxToken {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&[u8]) -> R,
@@ -106,7 +108,7 @@ pub struct TxToken {
     lower: Rc<RefCell<sys::TunTapInterfaceDesc>>,
 }
 
-impl phy::TxToken for TxToken {
+impl smoltcp_device::TxToken for TxToken {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

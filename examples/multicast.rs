@@ -3,13 +3,14 @@ mod utils;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{Device, Medium, wait as phy_wait};
+use smoltcp::phy::{Device, Medium};
 use smoltcp::socket::{raw, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
     EthernetAddress, IgmpPacket, IgmpRepr, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv4Address,
     Ipv4Packet, Ipv6Address,
 };
+use smoltcp_device_unix::wait as phy_wait;
 
 const MDNS_PORT: u16 = 5353;
 const MDNS_GROUP: Ipv4Address = Ipv4Address::new(224, 0, 0, 251);

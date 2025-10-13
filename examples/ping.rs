@@ -9,7 +9,6 @@ use std::str::FromStr;
 
 use smoltcp::iface::Config;
 use smoltcp::phy::Device;
-use smoltcp::phy::wait as phy_wait;
 use smoltcp::socket::icmp;
 use smoltcp::wire::{
     EthernetAddress, Icmpv4Packet, Icmpv4Repr, Icmpv6Packet, Icmpv6Repr, IpAddress, IpCidr,
@@ -19,6 +18,7 @@ use smoltcp::{
     phy::Medium,
     time::{Duration, Instant},
 };
+use smoltcp_device_unix::wait as phy_wait;
 
 macro_rules! send_icmp_ping {
     ( $repr_type:ident, $packet_type:ident, $ident:expr, $seq_no:expr,

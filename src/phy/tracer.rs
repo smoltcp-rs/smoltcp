@@ -216,7 +216,6 @@ mod tests {
 
     use super::*;
 
-    use crate::phy::ChecksumCapabilities;
     use crate::{
         phy::{Device, Loopback, RxToken, TxToken},
         time::Instant,
@@ -235,7 +234,22 @@ mod tests {
         }
         TRACE_EVENTS.replace(VecDeque::new());
 
-        let medium = Medium::default();
+        fn default_medium() -> Medium {
+            #[cfg(feature = "medium-ethernet")]
+            return Medium::Ethernet;
+
+            #[cfg(all(feature = "medium-ip", not(feature = "medium-ethernet")))]
+            return Medium::Ip;
+
+            #[cfg(all(
+                feature = "medium-ieee802154",
+                not(feature = "medium-ip"),
+                not(feature = "medium-ethernet")
+            ))]
+            return Medium::Ieee802154;
+        }
+
+        let medium = default_medium();
 
         let loopback_device = Loopback::new(medium);
         let mut tracer_device = Tracer::new(loopback_device, |instant, packet| {
@@ -325,6 +339,7 @@ mod tests {
     #[cfg(all(feature = "medium-ip", feature = "proto-ipv4"))]
     #[test]
     fn test_tracer_packet_display_ip() {
+        use crate::phy::ChecksumCapabilities;
         use crate::wire::{IpProtocol, Ipv4Address, Ipv4Repr};
 
         let repr = Ipv4Repr {
