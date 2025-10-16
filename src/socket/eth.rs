@@ -212,9 +212,7 @@ impl<'a> Socket<'a> {
         meta: impl Into<EthMetadata>,
     ) -> Result<&mut [u8], SendError> {
         let meta = meta.into();
-        let packet_buf = self
-            .tx_buffer
-            .enqueue(size, meta)?;
+        let packet_buf = self.tx_buffer.enqueue(size, meta)?;
 
         net_trace!(
             "eth:{}: buffer to send {} octets",
@@ -238,9 +236,7 @@ impl<'a> Socket<'a> {
         F: FnOnce(&mut [u8]) -> usize,
     {
         let meta = meta.into();
-        let size = self
-            .tx_buffer
-            .enqueue_with_infallible(max_size, meta, f)?;
+        let size = self.tx_buffer.enqueue_with_infallible(max_size, meta, f)?;
 
         net_trace!(
             "eth:{}: buffer to send {} octets",
@@ -552,7 +548,10 @@ mod test {
         };
 
         // send our test frame
-        assert_eq!(iface.hardware_addr(), HardwareAddress::Ethernet(EthernetAddress::from_bytes(&PACKET_RECEIVER)));
+        assert_eq!(
+            iface.hardware_addr(),
+            HardwareAddress::Ethernet(EthernetAddress::from_bytes(&PACKET_RECEIVER))
+        );
         let socket = sockets.get_mut::<Socket>(socket_handle);
         assert!(socket.can_send());
         assert_eq!(socket.send_slice(&PACKET_BYTES[..], ethmeta), Ok(()));
@@ -569,7 +568,9 @@ mod test {
                 break;
             }
             // do loopback manually
-            device.rx_queue.push_back( device.tx_queue.pop_front().unwrap() );
+            device
+                .rx_queue
+                .push_back(device.tx_queue.pop_front().unwrap());
         }
 
         // run socket_ingress()

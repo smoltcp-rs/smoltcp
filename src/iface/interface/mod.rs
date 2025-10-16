@@ -674,7 +674,10 @@ impl Interface {
             }
 
             let mut neighbor_addr = None;
-            let mut respond = |inner: &mut InterfaceInner, meta: PacketMeta, response: Packet| -> Result<(), EgressError> {
+            let mut respond = |inner: &mut InterfaceInner,
+                               meta: PacketMeta,
+                               response: Packet|
+             -> Result<(), EgressError> {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
                 let t = device.transmit(inner.now).ok_or_else(|| {
                     net_debug!("failed to transmit IP: device exhausted");
