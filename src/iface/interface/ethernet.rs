@@ -18,6 +18,14 @@ impl InterfaceInner {
             return None;
         }
 
+        #[cfg(feature = "socket-eth")]
+        let _ = self.eth_socket_filter(
+            sockets,
+            meta,
+            &EthernetRepr::parse(&eth_frame).unwrap(),
+            eth_frame.payload(),
+        );
+
         match eth_frame.ethertype() {
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Arp => self.process_arp(self.now, &eth_frame),
@@ -45,12 +53,7 @@ impl InterfaceInner {
         }
     }
 
-    pub(super) fn dispatch_ethernet<Tx, F>(
-        &mut self,
-        tx_token: Tx,
-        buffer_len: usize,
-        f: F,
-    ) -> Result<(), DispatchError>
+    pub(super) fn dispatch_ethernet<Tx, F>(&mut self, tx_token: Tx, buffer_len: usize, f: F)
     where
         Tx: TxToken,
         F: FnOnce(EthernetFrame<&mut [u8]>),
@@ -64,8 +67,6 @@ impl InterfaceInner {
             frame.set_src_addr(src_addr);
 
             f(frame);
-
-            Ok(())
         })
     }
 }
