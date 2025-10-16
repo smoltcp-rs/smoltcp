@@ -104,7 +104,7 @@ default = [
   "phy-raw_socket", "phy-tuntap_interface",
   "proto-ipv4",  "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
-  "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns", "socket-eth",
+  "socket-eth", "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns", "socket-eth",
   "packetmeta-id", "async", "multicast"
 ]
 
