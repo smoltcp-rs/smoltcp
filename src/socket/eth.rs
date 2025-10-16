@@ -28,6 +28,12 @@ impl core::fmt::Display for SendError {
     }
 }
 
+impl From<crate::storage::Full> for SendError {
+    fn from(_: crate::storage::Full) -> Self {
+        Self::BufferFull
+    }
+}
+
 #[cfg(feature = "std")]
 impl std::error::Error for SendError {}
 
@@ -45,6 +51,12 @@ impl core::fmt::Display for RecvError {
             RecvError::Exhausted => write!(f, "exhausted"),
             RecvError::Truncated => write!(f, "truncated"),
         }
+    }
+}
+
+impl From<crate::storage::Empty> for RecvError {
+    fn from(_: crate::storage::Empty) -> Self {
+        Self::Exhausted
     }
 }
 
@@ -202,8 +214,7 @@ impl<'a> Socket<'a> {
         let meta = meta.into();
         let packet_buf = self
             .tx_buffer
-            .enqueue(size, meta)
-            .map_err(|_| SendError::BufferFull)?;
+            .enqueue(size, meta)?;
 
         net_trace!(
             "eth:{}: buffer to send {} octets",
@@ -229,8 +240,7 @@ impl<'a> Socket<'a> {
         let meta = meta.into();
         let size = self
             .tx_buffer
-            .enqueue_with_infallible(max_size, meta, f)
-            .map_err(|_| SendError::BufferFull)?;
+            .enqueue_with_infallible(max_size, meta, f)?;
 
         net_trace!(
             "eth:{}: buffer to send {} octets",
@@ -257,7 +267,7 @@ impl<'a> Socket<'a> {
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn recv(&mut self) -> Result<(&[u8], EthMetadata), RecvError> {
-        let (meta, packet_buf) = self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
+        let (meta, packet_buf) = self.rx_buffer.dequeue()?;
 
         net_trace!(
             "eth:{}: receive {} buffered octets",
@@ -290,7 +300,7 @@ impl<'a> Socket<'a> {
     ///
     /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn peek(&mut self) -> Result<(&[u8], &EthMetadata), RecvError> {
-        let (meta, packet_buf) = self.rx_buffer.peek().map_err(|_| RecvError::Exhausted)?;
+        let (meta, packet_buf) = self.rx_buffer.peek()?;
 
         net_trace!(
             "eth:{}: receive {} buffered octets",
