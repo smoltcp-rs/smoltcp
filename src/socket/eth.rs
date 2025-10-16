@@ -532,7 +532,7 @@ mod test {
         let (mut iface, mut sockets, mut device) = setup(Medium::Ethernet);
         let eth_socket = socket(buffer(3), buffer(3));
         let socket_handle = sockets.add(eth_socket);
-        let now = Instant::now();
+        let now = Instant::ZERO;
 
         let ethmeta = EthMetadata {
             meta: PacketMeta {
@@ -540,11 +540,6 @@ mod test {
                 id: 42,
             },
         };
-
-        // we need to eat up the mldv2_report_packet here first
-        iface.poll(now, &mut device, &mut sockets);
-        #[cfg(feature = "proto-ipv6")]
-        let _ = device.tx_queue.pop_front().unwrap();
 
         // send our test frame
         assert_eq!(iface.hardware_addr(), HardwareAddress::Ethernet(EthernetAddress::from_bytes(&PACKET_RECEIVER)));
@@ -556,9 +551,16 @@ mod test {
         iface.poll(now, &mut device, &mut sockets);
         assert!(!sockets.get_mut::<Socket>(socket_handle).can_recv());
 
-        // do loopback manually
-        assert!(!device.tx_queue.is_empty());
-        device.rx_queue.push_back( device.tx_queue.pop_front().unwrap() );
+        loop {
+            // some automatically triggered features like
+            // mldv2_report_packet require some back and forth first.
+            iface.poll(now, &mut device, &mut sockets);
+            if device.tx_queue.is_empty() {
+                break;
+            }
+            // do loopback manually
+            device.rx_queue.push_back( device.tx_queue.pop_front().unwrap() );
+        }
 
         // run socket_ingress()
         iface.poll(now, &mut device, &mut sockets);
