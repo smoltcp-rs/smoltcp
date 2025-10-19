@@ -80,10 +80,10 @@ impl core::fmt::Display for EthMetadata {
     }
 }
 
-/// A Eth packet metadata.
+/// An Ethernet packet metadata.
 pub type PacketMetadata = crate::storage::PacketMetadata<EthMetadata>;
 
-/// A Eth packet ring buffer.
+/// An Ethernet packet ring buffer.
 pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, EthMetadata>;
 
 pub type Ethertype = u16;

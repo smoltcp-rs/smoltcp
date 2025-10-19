@@ -82,6 +82,9 @@ pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, ()>;
 ///
 /// A raw socket may be bound to a specific IP protocol, and owns
 /// transmit and receive packet buffers.
+///
+/// A raw socket can only handle IP-based traffic, for raw ethernet
+/// traffic look at `eth::Socket`.
 #[derive(Debug)]
 pub struct Socket<'a> {
     ip_version: Option<IpVersion>,
