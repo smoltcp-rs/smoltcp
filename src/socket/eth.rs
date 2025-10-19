@@ -458,6 +458,31 @@ mod test {
     pub const PACKET_SENDER: [u8; 6] = [0xaa, 0xbb, 0xcc, 0x78, 0x90, 0x12];
     pub const PACKET_PAYLOAD: [u8; 4] = [0xaa, 0x00, 0x00, 0xff];
 
+    /// A simple example helper function for send()
+    fn send_ethernet_frame(
+        sock: &mut Socket,
+        snd: &[u8; 6],
+        rcv: &[u8; 6],
+        ethtype: Ethertype,
+        data: &[u8],
+    ) -> Result<usize, SendError> {
+        let headerlen = 14;
+
+        sock.send_with(
+            data.len() + headerlen,
+            EthMetadata {
+                meta: PacketMeta::default(),
+            },
+            |buf| {
+                buf[..6].copy_from_slice(rcv);
+                buf[6..12].copy_from_slice(snd);
+                buf[12..14].copy_from_slice(&ethtype.to_be_bytes());
+                buf[14..].copy_from_slice(data);
+                data.len() + headerlen
+            },
+        )
+    }
+
     #[test]
     fn test_send() {
         let (mut iface, _, _) = setup(Medium::Ethernet);
@@ -469,6 +494,7 @@ mod test {
                 id: 42,
             },
         };
+        assert_eq!(socket.packet_send_capacity(), 1);
         assert!(socket.can_send());
         assert_eq!(socket.send_slice(&PACKET_BYTES[..], dummymeta), Ok(()));
         assert_eq!(
@@ -476,6 +502,8 @@ mod test {
             Err(SendError::BufferFull)
         );
         assert!(!socket.can_send());
+        assert_eq!(socket.send_queue(), 18);
+
         assert_eq!(
             socket.dispatch(cx, |_, _, (eth_repr, eth_payload)| {
                 assert_eq!(eth_repr.ethertype, EtherType::from(ETHER_TYPE));
@@ -485,6 +513,7 @@ mod test {
             Err(())
         );
         assert!(!socket.can_send());
+
         assert_eq!(
             socket.dispatch(cx, |_, _, (eth_repr, eth_payload)| {
                 assert_eq!(eth_repr.ethertype, EtherType::from(ETHER_TYPE));
@@ -494,6 +523,28 @@ mod test {
             Ok(())
         );
         assert!(socket.can_send());
+        assert_eq!(socket.send_queue(), 0);
+
+        assert_eq!(
+            send_ethernet_frame(
+                &mut socket,
+                &PACKET_SENDER,
+                &PACKET_RECEIVER,
+                ETHER_TYPE,
+                &[0xaa, 0x00, 0x00, 0xff]
+            ),
+            Ok(14 + 4)
+        );
+        assert_eq!(
+            socket.dispatch(cx, |_, _, (eth_repr, eth_payload)| {
+                assert_eq!(eth_repr.ethertype, EtherType::from(ETHER_TYPE));
+                assert_eq!(eth_repr.src_addr.0, PACKET_SENDER);
+                assert_eq!(eth_repr.dst_addr.0, PACKET_RECEIVER);
+                assert_eq!(eth_payload, PACKET_PAYLOAD);
+                Ok::<_, ()>(())
+            }),
+            Ok(())
+        );
     }
 
     #[test]
