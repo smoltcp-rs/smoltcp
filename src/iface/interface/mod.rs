@@ -333,15 +333,18 @@ impl Interface {
         self.inner.ipv6_addr()
     }
 
-    /// Get an address from the interface that could be used as source address. For IPv4, this is
-    /// the first IPv4 address from the list of addresses. For IPv6, the address is based on the
-    /// destination address and uses RFC6724 for selecting the source address.
+    /// Get an address from the interface that could be used as source address.
+    /// For IPv4, this function tries to find a registered IPv4 address in the same
+    /// subnet as the destination, falling back to the first IPv4 address if none is
+    /// found. For IPv6, the selection is based on RFC6724.
     pub fn get_source_address(&self, dst_addr: &IpAddress) -> Option<IpAddress> {
         self.inner.get_source_address(dst_addr)
     }
 
-    /// Get an address from the interface that could be used as source address. This is the first
-    /// IPv4 address from the list of addresses in the interface.
+    /// Get an IPv4 source address based on a destination address. This function tries
+    /// to find the first IPv4 address from the interface that is in the same subnet as
+    /// the destination address. If no such address is found, the first IPv4 address
+    /// from the interface is returned.
     #[cfg(feature = "proto-ipv4")]
     pub fn get_source_address_ipv4(&self, dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
         self.inner.get_source_address_ipv4(dst_addr)
@@ -414,7 +417,9 @@ impl Interface {
     #[cfg(feature = "_proto-fragmentation")]
     pub fn set_reassembly_timeout(&mut self, timeout: Duration) {
         if timeout > Duration::from_secs(60) {
-            net_debug!("RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds");
+            net_debug!(
+                "RFC 4944 specifies that the reassembly timeout MUST be set to a maximum of 60 seconds"
+            );
         }
         self.fragments.reassembly_timeout = timeout;
     }
@@ -460,9 +465,11 @@ impl Interface {
         }
 
         // Process egress.
-        match self.poll_egress(timestamp, device, sockets) {
-            PollResult::None => {}
-            PollResult::SocketStateChanged => res = PollResult::SocketStateChanged,
+        loop {
+            match self.poll_egress(timestamp, device, sockets) {
+                PollResult::None => break,
+                PollResult::SocketStateChanged => res = PollResult::SocketStateChanged,
+            }
         }
 
         res
@@ -1297,7 +1304,9 @@ impl InterfaceInner {
 
                     #[cfg(not(feature = "proto-ipv4-fragmentation"))]
                     {
-                        net_debug!("Enable the `proto-ipv4-fragmentation` feature for fragmentation support.");
+                        net_debug!(
+                            "Enable the `proto-ipv4-fragmentation` feature for fragmentation support."
+                        );
                         Ok(())
                     }
                 } else {

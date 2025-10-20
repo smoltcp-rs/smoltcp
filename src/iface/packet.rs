@@ -130,7 +130,10 @@ impl<'p> Packet<'p> {
             }
 
             #[cfg(feature = "socket-raw")]
-            IpPayload::Raw(raw_packet) => payload.copy_from_slice(raw_packet),
+            IpPayload::Raw(raw_packet) => {
+                let len = raw_packet.len();
+                payload[..len].copy_from_slice(raw_packet)
+            }
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
             IpPayload::Udp(udp_repr, inner_payload) => udp_repr.emit(
                 &mut UdpPacket::new_unchecked(payload),
@@ -141,7 +144,7 @@ impl<'p> Packet<'p> {
                 &caps.checksum,
             ),
             #[cfg(feature = "socket-tcp")]
-            IpPayload::Tcp(mut tcp_repr) => {
+            &IpPayload::Tcp(mut tcp_repr) => {
                 // This is a terrible hack to make TCP performance more acceptable on systems
                 // where the TCP buffers are significantly larger than network buffers,
                 // e.g. a 64 kB TCP receive buffer (and so, when empty, a 64k window)

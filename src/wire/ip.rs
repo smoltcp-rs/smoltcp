@@ -533,6 +533,60 @@ impl From<Ipv6Repr> for Repr {
     }
 }
 
+/// A read/write wrapper around a generic Internet Protocol packet buffer.
+#[derive(Debug, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Packet<T: AsRef<[u8]>> {
+    buffer: T,
+}
+
+mod field {
+    use crate::wire::field::*;
+    // 4-bit version number
+    pub const VER: Field = 0..1;
+}
+
+impl<T: AsRef<[u8]>> Packet<T> {
+    /// Create a raw octet buffer with an IP packet structure. This packet structure can be either
+    /// IPv4 or Ipv6
+    pub const fn new_unchecked(buffer: T) -> Packet<T> {
+        Packet { buffer }
+    }
+
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Packet<T>> {
+        let packet = Self::new_unchecked(buffer);
+        packet.check_len()?;
+        Ok(packet)
+    }
+
+    /// Ensure that reading the version field of the buffer will not panic if called.
+    /// Returns `Err(Error)` if the buffer is too short.
+    pub fn check_len(&self) -> Result<()> {
+        // Both IPv4 and IPv6 headers contain Internet Protocol version in the upper nibble of the
+        // first packet byte
+        if self.buffer.as_ref().len() < field::VER.end {
+            Err(Error)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Consume the packet, returning the underlying buffer
+    pub fn into_inner(self) -> T {
+        self.buffer
+    }
+
+    /// Returns the version field.
+    pub fn version(&self) -> u8 {
+        let data = self.buffer.as_ref();
+        data[field::VER.start] >> 4
+    }
+}
+
 impl Repr {
     /// Create a new IpRepr, choosing the right IP version for the src/dst addrs.
     ///
@@ -565,6 +619,34 @@ impl Repr {
             }),
             #[allow(unreachable_patterns)]
             _ => panic!("IP version mismatch: src={src_addr:?} dst={dst_addr:?}"),
+        }
+    }
+
+    /// Parse an Internet Protocol packet and return an [IpRepr] containing either an Internet
+    /// Protocol version 4 or Internet Protocol version 6 packet. Delegates the parsing to the
+    /// specific Internet Protocol parsing function. Includes [ChecksumCapabilities] to handle
+    /// Internet Protocol version 4 parsing.
+    /// Returns `Err(Error)` if the packet does not include a valid IPv4 or IPv6 packet, or if the
+    /// specific Internet Protocol version feature is not enabled for the supplied packet
+    pub fn parse<T: AsRef<[u8]> + ?Sized>(
+        packet: &Packet<&T>,
+        checksum_caps: &ChecksumCapabilities,
+    ) -> Result<Repr> {
+        packet.check_len()?;
+        match packet.version() {
+            #[cfg(feature = "proto-ipv4")]
+            4 => {
+                let packet = Ipv4Packet::new_checked(packet.buffer)?;
+                let ipv4_repr = Ipv4Repr::parse(&packet, checksum_caps)?;
+                Ok(Repr::Ipv4(ipv4_repr))
+            }
+            #[cfg(feature = "proto-ipv6")]
+            6 => {
+                let packet = Ipv6Packet::new_checked(packet.buffer)?;
+                let ipv6_repr = Ipv6Repr::parse(&packet)?;
+                Ok(Repr::Ipv6(ipv6_repr))
+            }
+            _ => Err(Error),
         }
     }
 
@@ -806,9 +888,9 @@ pub fn pretty_print_ip_payload<T: Into<Repr>>(
 ) -> fmt::Result {
     #[cfg(feature = "proto-ipv4")]
     use super::pretty_print::PrettyPrint;
-    use crate::wire::ip::checksum::format_checksum;
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::Icmpv4Packet;
+    use crate::wire::ip::checksum::format_checksum;
     use crate::wire::{TcpPacket, TcpRepr, UdpPacket, UdpRepr};
 
     let checksum_caps = ChecksumCapabilities::ignored();
@@ -884,7 +966,7 @@ pub(crate) mod test {
     #![allow(unused)]
 
     use super::*;
-    use crate::wire::{IpAddress, IpCidr, IpProtocol};
+    use crate::wire::{IpAddress, IpCidr, IpProtocol, IpRepr};
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::{Ipv4Address, Ipv4Repr};
 
@@ -965,5 +1047,106 @@ pub(crate) mod test {
             ))
             .prefix_len()
         );
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+    fn parse_ipv4_packet() {
+        let ipv4_packet_bytes: [u8; 20] = [
+            0x45, 0x00, 0x00, 0x14, 0x00, 0x01, 0x40, 0x00, 0x40, 0x01, 0xd2, 0x7c, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24,
+        ];
+
+        let expected = Ipv4Repr {
+            src_addr: crate::wire::ipv4::Address::new(0x11, 0x12, 0x13, 0x14),
+            dst_addr: crate::wire::ipv4::Address::new(0x21, 0x22, 0x23, 0x24),
+            next_header: Protocol::Icmp,
+            payload_len: 0,
+            hop_limit: 64,
+        };
+
+        let packet = Packet::new_unchecked(&ipv4_packet_bytes[..]);
+        let ip_repr = IpRepr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        assert_eq!(ip_repr.version(), Version::Ipv4);
+        let IpRepr::Ipv4(ipv4_repr) = ip_repr else {
+            panic!("expected Ipv4Repr");
+        };
+        assert_eq!(ipv4_repr, expected);
+        assert_eq!(packet.into_inner(), ipv4_packet_bytes);
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+    fn parse_ipv4_packet_error() {
+        let ipv4_packet_bytes: [u8; 29] = [
+            0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x6e, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00,
+        ];
+
+        let packet = Packet::new_unchecked(&ipv4_packet_bytes[..]);
+        let ip_repr_result = IpRepr::parse(&packet, &ChecksumCapabilities::default());
+        assert!(ip_repr_result.is_err());
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+    fn parse_ipv6_packet() {
+        let ipv6_packet_bytes: [u8; 52] = [
+            0x60, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x11, 0x40, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0x02, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x02, 0x00, 0x0c, 0x02, 0x4e, 0xff, 0xff, 0xff, 0xff,
+        ];
+
+        let expected = Ipv6Repr {
+            src_addr: crate::wire::ipv6::Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            dst_addr: crate::wire::ipv6::Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1),
+            next_header: Protocol::Udp,
+            payload_len: 12,
+            hop_limit: 64,
+        };
+
+        let packet = Packet::new_unchecked(&ipv6_packet_bytes[..]);
+        let ip_repr = IpRepr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        assert_eq!(ip_repr.version(), Version::Ipv6);
+        let IpRepr::Ipv6(ipv6_repr) = ip_repr else {
+            panic!("expected Ipv6Repr");
+        };
+        assert_eq!(ipv6_repr, expected);
+        assert_eq!(packet.into_inner(), ipv6_packet_bytes);
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+    fn parse_ipv6_packet_error() {
+        let ipv6_packet_bytes: [u8; 51] = [
+            0x60, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x11, 0x40, 0xfe, 0x80, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0x02, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
+            0x00, 0x02, 0x00, 0x0c, 0x02, 0x4e, 0xff, 0xff, 0xff,
+        ];
+
+        let packet = Packet::new_unchecked(&ipv6_packet_bytes[..]);
+        let ip_repr_result = IpRepr::parse(&packet, &ChecksumCapabilities::default());
+        assert!(ip_repr_result.is_err());
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+    fn parse_packet_too_short() {
+        // Test empty packet where no version can be parsed
+        let ip_packet = [0u8; 0];
+        let packet_result = Packet::new_checked(&ip_packet[..]);
+        assert!(packet_result.is_err());
+    }
+
+    #[test]
+    #[cfg(all(feature = "proto-ipv4", feature = "proto-ipv6"))]
+    fn parse_packet_invalid_version() {
+        let packet_bytes: [u8; 1] = [0xFF];
+        let packet = Packet::new_unchecked(&packet_bytes[..]);
+        let ip_repr_result = IpRepr::parse(&packet, &ChecksumCapabilities::default());
+        assert!(ip_repr_result.is_err());
     }
 }

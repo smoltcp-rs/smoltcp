@@ -144,7 +144,7 @@ pub use self::pretty_print::PrettyPrinter;
 #[cfg(feature = "medium-ethernet")]
 pub use self::ethernet::{
     Address as EthernetAddress, EtherType as EthernetProtocol, Frame as EthernetFrame,
-    Repr as EthernetRepr, HEADER_LEN as ETHERNET_HEADER_LEN,
+    HEADER_LEN as ETHERNET_HEADER_LEN, Repr as EthernetRepr,
 };
 
 #[cfg(all(feature = "proto-ipv4", feature = "medium-ethernet"))]
@@ -154,13 +154,14 @@ pub use self::arp::{
 
 #[cfg(feature = "proto-rpl")]
 pub use self::rpl::{
-    data::HopByHopOption as RplHopByHopRepr, data::Packet as RplHopByHopPacket,
-    options::Packet as RplOptionPacket, options::Repr as RplOptionRepr,
-    InstanceId as RplInstanceId, Repr as RplRepr,
+    InstanceId as RplInstanceId, Repr as RplRepr, data::HopByHopOption as RplHopByHopRepr,
+    data::Packet as RplHopByHopPacket, options::Packet as RplOptionPacket,
+    options::Repr as RplOptionRepr,
 };
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 pub use self::sixlowpan::{
+    AddressContext as SixlowpanAddressContext, NextHeader as SixlowpanNextHeader, SixlowpanPacket,
     frag::{Key as SixlowpanFragKey, Packet as SixlowpanFragPacket, Repr as SixlowpanFragRepr},
     iphc::{Packet as SixlowpanIphcPacket, Repr as SixlowpanIphcRepr},
     nhc::{
@@ -168,7 +169,6 @@ pub use self::sixlowpan::{
         ExtHeaderRepr as SixlowpanExtHeaderRepr, NhcPacket as SixlowpanNhcPacket,
         UdpNhcPacket as SixlowpanUdpNhcPacket, UdpNhcRepr as SixlowpanUdpNhcRepr,
     },
-    AddressContext as SixlowpanAddressContext, NextHeader as SixlowpanNextHeader, SixlowpanPacket,
 };
 
 #[cfg(feature = "medium-ieee802154")]
@@ -186,10 +186,9 @@ pub use self::ip::{
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::ipv4::{
-    Address as Ipv4Address, Cidr as Ipv4Cidr, Key as Ipv4FragKey, Packet as Ipv4Packet,
-    Repr as Ipv4Repr, HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
-    MULTICAST_ALL_ROUTERS as IPV4_MULTICAST_ALL_ROUTERS,
-    MULTICAST_ALL_SYSTEMS as IPV4_MULTICAST_ALL_SYSTEMS,
+    Address as Ipv4Address, Cidr as Ipv4Cidr, HEADER_LEN as IPV4_HEADER_LEN, Key as Ipv4FragKey,
+    MIN_MTU as IPV4_MIN_MTU, MULTICAST_ALL_ROUTERS as IPV4_MULTICAST_ALL_ROUTERS,
+    MULTICAST_ALL_SYSTEMS as IPV4_MULTICAST_ALL_SYSTEMS, Packet as Ipv4Packet, Repr as Ipv4Repr,
 };
 
 #[cfg(feature = "proto-ipv4")]
@@ -197,12 +196,12 @@ pub(crate) use self::ipv4::AddressExt as Ipv4AddressExt;
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{
-    Address as Ipv6Address, Cidr as Ipv6Cidr, Packet as Ipv6Packet, Repr as Ipv6Repr,
-    HEADER_LEN as IPV6_HEADER_LEN,
+    Address as Ipv6Address, Cidr as Ipv6Cidr, HEADER_LEN as IPV6_HEADER_LEN,
     LINK_LOCAL_ALL_MLDV2_ROUTERS as IPV6_LINK_LOCAL_ALL_MLDV2_ROUTERS,
     LINK_LOCAL_ALL_NODES as IPV6_LINK_LOCAL_ALL_NODES,
     LINK_LOCAL_ALL_ROUTERS as IPV6_LINK_LOCAL_ALL_ROUTERS,
     LINK_LOCAL_ALL_RPL_NODES as IPV6_LINK_LOCAL_ALL_RPL_NODES, MIN_MTU as IPV6_MIN_MTU,
+    Packet as Ipv6Packet, Repr as Ipv6Repr,
 };
 #[cfg(feature = "proto-ipv6")]
 pub(crate) use self::ipv6::{AddressExt as Ipv6AddressExt, MulticastScope as Ipv6MulticastScope};
@@ -270,18 +269,18 @@ pub use self::mld::{
     RecordType as MldRecordType, Repr as MldRepr,
 };
 
-pub use self::udp::{Packet as UdpPacket, Repr as UdpRepr, HEADER_LEN as UDP_HEADER_LEN};
+pub use self::udp::{HEADER_LEN as UDP_HEADER_LEN, Packet as UdpPacket, Repr as UdpRepr};
 
 pub use self::tcp::{
-    Control as TcpControl, Packet as TcpPacket, Repr as TcpRepr, SeqNumber as TcpSeqNumber,
-    TcpOption, TcpTimestampGenerator, TcpTimestampRepr, HEADER_LEN as TCP_HEADER_LEN,
+    Control as TcpControl, HEADER_LEN as TCP_HEADER_LEN, Packet as TcpPacket, Repr as TcpRepr,
+    SeqNumber as TcpSeqNumber, TcpOption, TcpTimestampGenerator, TcpTimestampRepr,
 };
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{
-    DhcpOption, DhcpOptionWriter, Flags as DhcpFlags, MessageType as DhcpMessageType,
-    OpCode as DhcpOpCode, Packet as DhcpPacket, Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
-    MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
+    CLIENT_PORT as DHCP_CLIENT_PORT, DhcpOption, DhcpOptionWriter, Flags as DhcpFlags,
+    MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, MessageType as DhcpMessageType,
+    OpCode as DhcpOpCode, Packet as DhcpPacket, Repr as DhcpRepr, SERVER_PORT as DHCP_SERVER_PORT,
 };
 
 #[cfg(feature = "proto-dns")]

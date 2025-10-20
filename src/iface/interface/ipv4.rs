@@ -38,17 +38,27 @@ impl InterfaceInner {
 
     /// Get an IPv4 source address based on a destination address.
     ///
-    /// **NOTE**: unlike for IPv6, no specific selection algorithm is implemented. The first IPv4
-    /// address from the interface is returned.
+    /// This function tries to find the first IPv4 address from the interface
+    /// that is in the same subnet as the destination address. If no such
+    /// address is found, the first IPv4 address from the interface is returned.
     #[allow(unused)]
-    pub(crate) fn get_source_address_ipv4(&self, _dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
+    pub(crate) fn get_source_address_ipv4(&self, dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
+        let mut first_ipv4 = None;
         for cidr in self.ip_addrs.iter() {
             #[allow(irrefutable_let_patterns)] // if only ipv4 is enabled
             if let IpCidr::Ipv4(cidr) = cidr {
-                return Some(cidr.address());
+                // Return immediately if we find an address in the same subnet
+                if cidr.contains_addr(dst_addr) {
+                    return Some(cidr.address());
+                }
+
+                // Remember the first IPv4 address as fallback
+                if first_ipv4.is_none() {
+                    first_ipv4 = Some(cidr.address());
+                }
             }
         }
-        None
+        first_ipv4
     }
 
     /// Checks if an address is broadcast, taking into account ipv4 subnet-local
@@ -224,7 +234,9 @@ impl InterfaceInner {
             }
 
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(sockets, ip_repr, ip_payload),
+            IpProtocol::Tcp => {
+                self.process_tcp(sockets, handled_by_raw_socket, ip_repr, ip_payload)
+            }
 
             _ if handled_by_raw_socket => None,
 
