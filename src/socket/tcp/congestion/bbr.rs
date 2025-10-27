@@ -702,6 +702,10 @@ impl Controller for Bbr {
         let cwnd = self.window();
         self.app_limited = bytes_available < cwnd;
     }
+
+    fn pacing_rate(&self) -> u64 {
+        self.pacing_rate
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

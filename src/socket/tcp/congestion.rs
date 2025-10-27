@@ -39,6 +39,12 @@ pub(super) trait Controller {
     /// This allows the congestion controller to track whether the application
     /// is app-limited (not enough data to send) or cwnd-limited.
     fn on_send_ready(&mut self, now: Instant, bytes_available: usize) {}
+
+    /// Returns the pacing rate in bytes per second.
+    /// Returns 0 if pacing is not supported or not active.
+    fn pacing_rate(&self) -> u64 {
+        0
+    }
 }
 
 #[derive(Debug)]

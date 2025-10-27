@@ -598,6 +598,10 @@ pub struct Socket<'a> {
     /// The congestion control algorithm.
     congestion_controller: congestion::AnyController,
 
+    /// Pacing: next time a packet can be sent (for rate limiting).
+    /// If None, pacing is not active.
+    pacing_next_send_at: Option<Instant>,
+
     /// tsval generator - if some, tcp timestamp is enabled
     tsval_generator: Option<TcpTimestampGenerator>,
 
@@ -670,6 +674,7 @@ impl<'a> Socket<'a> {
             tsval_generator: None,
             last_remote_tsval: 0,
             congestion_controller: congestion::AnyController::new(),
+            pacing_next_send_at: None,
 
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
@@ -2479,6 +2484,15 @@ impl<'a> Socket<'a> {
             return Ok(());
         }
 
+        // Check if pacing delays transmission
+        if let Some(next_send_at) = self.pacing_next_send_at {
+            if cx.now() < next_send_at && self.seq_to_transmit(cx) {
+                // Pacing prevents us from sending data right now
+                tcp_trace!("pacing delayed until {:?}", next_send_at);
+                return Ok(());
+            }
+        }
+
         // Decide whether we're sending a packet.
         if self.seq_to_transmit(cx) {
             // If we have data to transmit and it fits into partner's window, do it.
@@ -2720,6 +2734,26 @@ impl<'a> Socket<'a> {
             self.congestion_controller
                 .inner_mut()
                 .post_transmit(cx.now(), repr.segment_len());
+
+            // Update pacing: calculate when the next packet can be sent
+            let pacing_rate = self.congestion_controller.inner_mut().pacing_rate();
+            if pacing_rate > 0 {
+                // Calculate delay: (packet_size_bytes * 1_000_000) / pacing_rate_bytes_per_sec
+                // This gives us microseconds until the next packet can be sent
+                let packet_size = repr.segment_len() as u64;
+                let delay_micros = (packet_size * 1_000_000) / pacing_rate;
+                let delay = crate::time::Duration::from_micros(delay_micros);
+                self.pacing_next_send_at = Some(cx.now() + delay);
+                tcp_trace!(
+                    "pacing: sent {} bytes at rate {} bytes/s, next send at {:?}",
+                    packet_size,
+                    pacing_rate,
+                    self.pacing_next_send_at
+                );
+            } else {
+                // No pacing
+                self.pacing_next_send_at = None;
+            }
         }
 
         if repr.segment_len() > 0 && !self.timer.is_retransmit() {
@@ -2757,7 +2791,11 @@ impl<'a> Socket<'a> {
             PollAt::Now
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
-            PollAt::Now
+            // Check if pacing delays it.
+            match self.pacing_next_send_at {
+                Some(next_send_at) if cx.now() < next_send_at => PollAt::Time(next_send_at),
+                _ => PollAt::Now,
+            }
         } else if self.window_to_update() {
             // The receive window has been raised significantly.
             PollAt::Now
