@@ -161,6 +161,11 @@ const RTTE_MIN_RTO: u32 = 1000;
 // seconds
 const RTTE_MAX_RTO: u32 = 60_000;
 
+// BBR: Window length for min_rtt filter (in seconds)
+// This matches the Linux kernel BBR implementation (tcp_bbr.c:135)
+#[cfg(feature = "socket-tcp-bbr")]
+const BBR_MIN_RTT_WIN_SEC: u64 = 10;
+
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct RttEstimator {
@@ -176,6 +181,12 @@ struct RttEstimator {
     timestamp: Option<(Instant, TcpSeqNumber)>,
     max_seq_sent: Option<TcpSeqNumber>,
     rto_count: u8,
+    /// BBR: Minimum RTT observed in the last 10 seconds
+    #[cfg(feature = "socket-tcp-bbr")]
+    min_rtt_value: u32,
+    /// BBR: Timestamp when min_rtt was last updated
+    #[cfg(feature = "socket-tcp-bbr")]
+    min_rtt_stamp: Option<Instant>,
 }
 
 impl Default for RttEstimator {
@@ -188,6 +199,10 @@ impl Default for RttEstimator {
             timestamp: None,
             max_seq_sent: None,
             rto_count: 0,
+            #[cfg(feature = "socket-tcp-bbr")]
+            min_rtt_value: u32::MAX,
+            #[cfg(feature = "socket-tcp-bbr")]
+            min_rtt_stamp: None,
         }
     }
 }
@@ -197,7 +212,33 @@ impl RttEstimator {
         Duration::from_millis(self.rto as _)
     }
 
-    fn sample(&mut self, new_rtt: u32) {
+    #[cfg(feature = "socket-tcp-bbr")]
+    pub(super) fn min_rtt(&self) -> Duration {
+        // Return the actual minimum RTT observed in the window, not SRTT
+        // If no measurement yet, fall back to SRTT as a reasonable estimate
+        if self.min_rtt_value == u32::MAX {
+            Duration::from_millis(self.srtt as _)
+        } else {
+            Duration::from_millis(self.min_rtt_value as _)
+        }
+    }
+
+    #[cfg(feature = "socket-tcp-bbr")]
+    pub(super) fn is_min_rtt_expired(&self, now: Instant) -> bool {
+        // Check if the min_rtt window has expired (10 seconds)
+        // This matches Linux kernel BBR behavior (tcp_bbr.c:948-949)
+        if let Some(stamp) = self.min_rtt_stamp {
+            if now >= stamp {
+                (now - stamp) > Duration::from_secs(BBR_MIN_RTT_WIN_SEC)
+            } else {
+                false // Time went backwards, don't consider expired
+            }
+        } else {
+            true // No measurement yet, consider expired
+        }
+    }
+
+    fn sample(&mut self, new_rtt: u32, #[allow(unused_variables)] now: Instant) {
         if self.have_measurement {
             // RFC 6298 (2.3) When a subsequent RTT measurement R' is made, a host MUST set (...)
             let diff = (self.srtt as i32 - new_rtt as i32).unsigned_abs();
@@ -215,6 +256,27 @@ impl RttEstimator {
         self.rto = (self.srtt + margin).clamp(RTTE_MIN_RTO, RTTE_MAX_RTO);
 
         self.rto_count = 0;
+
+        // BBR: Track minimum RTT in a sliding 10-second window
+        // This matches Linux kernel BBR behavior (tcp_bbr.c:947-955)
+        #[cfg(feature = "socket-tcp-bbr")]
+        {
+            let expired = self.is_min_rtt_expired(now);
+
+            // Update min_rtt if:
+            // 1. New sample is lower than current minimum, OR
+            // 2. The window has expired (need fresh measurement)
+            if new_rtt < self.min_rtt_value || expired {
+                self.min_rtt_value = new_rtt;
+                self.min_rtt_stamp = Some(now);
+
+                tcp_trace!(
+                    "rtte: min_rtt updated to {:?}ms (expired={})",
+                    new_rtt,
+                    expired
+                );
+            }
+        }
 
         tcp_trace!(
             "rtte: sample={:?} srtt={:?} rttvar={:?} rto={:?}",
@@ -242,7 +304,7 @@ impl RttEstimator {
     fn on_ack(&mut self, timestamp: Instant, seq: TcpSeqNumber) {
         if let Some((sent_timestamp, sent_seq)) = self.timestamp {
             if seq >= sent_seq {
-                self.sample((timestamp - sent_timestamp).total_millis() as u32);
+                self.sample((timestamp - sent_timestamp).total_millis() as u32, timestamp);
                 self.timestamp = None;
             }
         }
@@ -454,6 +516,9 @@ pub enum CongestionControl {
 
     #[cfg(feature = "socket-tcp-cubic")]
     Cubic,
+
+    #[cfg(feature = "socket-tcp-bbr")]
+    Bbr,
 }
 
 /// A Transmission Control Protocol socket.
@@ -657,6 +722,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-cubic")]
             CongestionControl::Cubic => AnyController::Cubic(cubic::Cubic::new()),
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            CongestionControl::Bbr => AnyController::Bbr(bbr::Bbr::new()),
         }
     }
 
@@ -672,6 +740,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-cubic")]
             AnyController::Cubic(_) => CongestionControl::Cubic,
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            AnyController::Bbr(_) => CongestionControl::Bbr,
         }
     }
 
@@ -2367,6 +2438,12 @@ impl<'a> Socket<'a> {
         self.congestion_controller
             .inner_mut()
             .pre_transmit(cx.now());
+
+        // Notify congestion controller about available data for app-limited tracking
+        let bytes_available = self.tx_buffer.len();
+        self.congestion_controller
+            .inner_mut()
+            .on_send_ready(cx.now(), bytes_available);
 
         // Check if any state needs to be changed because of a timer.
         if self.timed_out(cx.now()) {
@@ -8570,9 +8647,11 @@ mod test {
             2076, 2060, 2048, 2036, 2028, 2024, 2020, 2016, 2012, 2012,
         ];
 
+        let mut now = Instant::from_millis(0);
         for &rto in rtos {
-            r.sample(2000);
+            r.sample(2000, now);
             assert_eq!(r.retransmission_timeout(), Duration::from_millis(rto));
+            now += Duration::from_millis(100); // Advance time
         }
     }
 

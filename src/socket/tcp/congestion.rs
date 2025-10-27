@@ -10,6 +10,9 @@ pub(super) mod cubic;
 #[cfg(feature = "socket-tcp-reno")]
 pub(super) mod reno;
 
+#[cfg(feature = "socket-tcp-bbr")]
+pub(super) mod bbr;
+
 #[allow(unused_variables)]
 pub(super) trait Controller {
     /// Returns the number of bytes that can be sent.
@@ -30,10 +33,17 @@ pub(super) trait Controller {
 
     /// Set the maximum segment size.
     fn set_mss(&mut self, mss: usize) {}
+
+    /// Called when the socket is about to send data.
+    /// `bytes_available` indicates how many bytes are waiting in the send buffer.
+    /// This allows the congestion controller to track whether the application
+    /// is app-limited (not enough data to send) or cwnd-limited.
+    fn on_send_ready(&mut self, now: Instant, bytes_available: usize) {}
 }
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(clippy::large_enum_variant)]
 pub(super) enum AnyController {
     None(no_control::NoControl),
 
@@ -42,15 +52,20 @@ pub(super) enum AnyController {
 
     #[cfg(feature = "socket-tcp-cubic")]
     Cubic(cubic::Cubic),
+
+    #[cfg(feature = "socket-tcp-bbr")]
+    Bbr(bbr::Bbr),
 }
 
 impl AnyController {
     /// Create a new congestion controller.
     /// `AnyController::new()` selects the best congestion controller based on the features.
     ///
+    /// - If `socket-tcp-bbr` feature is enabled, it will use `Bbr`.
     /// - If `socket-tcp-cubic` feature is enabled, it will use `Cubic`.
     /// - If `socket-tcp-reno` feature is enabled, it will use `Reno`.
-    /// - If both `socket-tcp-cubic` and `socket-tcp-reno` features are enabled, it will use `Cubic`.
+    /// - Priority: BBR > Cubic > Reno > NoControl
+    ///    - `BBR` is optimized for high bandwidth-delay product networks.
     ///    - `Cubic` is more efficient regarding throughput.
     ///    - `Reno` is more conservative and is suitable for low-power devices.
     /// - If no congestion controller is available, it will use `NoControl`.
@@ -60,6 +75,11 @@ impl AnyController {
     #[allow(unreachable_code)]
     #[inline]
     pub fn new() -> Self {
+        #[cfg(feature = "socket-tcp-bbr")]
+        {
+            return AnyController::Bbr(bbr::Bbr::new());
+        }
+
         #[cfg(feature = "socket-tcp-cubic")]
         {
             return AnyController::Cubic(cubic::Cubic::new());
@@ -83,6 +103,9 @@ impl AnyController {
 
             #[cfg(feature = "socket-tcp-cubic")]
             AnyController::Cubic(c) => c,
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            AnyController::Bbr(b) => b,
         }
     }
 
@@ -96,6 +119,9 @@ impl AnyController {
 
             #[cfg(feature = "socket-tcp-cubic")]
             AnyController::Cubic(c) => c,
+
+            #[cfg(feature = "socket-tcp-bbr")]
+            AnyController::Bbr(b) => b,
         }
     }
 }
