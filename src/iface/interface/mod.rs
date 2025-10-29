@@ -1199,8 +1199,6 @@ impl InterfaceInner {
                 #[cfg(feature = "proto-ipv6")]
                 IpVersion::Ipv6 => frame.set_ethertype(EthernetProtocol::Ipv6),
             }
-
-            Ok(())
         };
 
         // Emit function for the IP header and payload.
@@ -1272,7 +1270,7 @@ impl InterfaceInner {
                         tx_token.consume(tx_len, |mut tx_buffer| {
                             #[cfg(feature = "medium-ethernet")]
                             if matches!(self.caps.medium, Medium::Ethernet) {
-                                emit_ethernet(&ip_repr, tx_buffer)?;
+                                emit_ethernet(&ip_repr, tx_buffer);
                                 tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
                             }
 
@@ -1282,9 +1280,9 @@ impl InterfaceInner {
                             // Copy the IP header and the payload.
                             tx_buffer[..first_frag_ip_len]
                                 .copy_from_slice(&frag.buffer[..first_frag_ip_len]);
+                        });
 
-                            Ok(())
-                        })
+                        Ok(())
                     }
 
                     #[cfg(not(feature = "proto-ipv4-fragmentation"))]
@@ -1301,13 +1299,14 @@ impl InterfaceInner {
                     tx_token.consume(total_len, |mut tx_buffer| {
                         #[cfg(feature = "medium-ethernet")]
                         if matches!(self.caps.medium, Medium::Ethernet) {
-                            emit_ethernet(&ip_repr, tx_buffer)?;
+                            emit_ethernet(&ip_repr, tx_buffer);
                             tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
                         }
 
                         emit_ip(&ip_repr, tx_buffer);
-                        Ok(())
-                    })
+                    });
+
+                    Ok(())
                 }
             }
             // We don't support IPv6 fragmentation yet.
@@ -1321,13 +1320,13 @@ impl InterfaceInner {
                     tx_token.consume(total_len, |mut tx_buffer| {
                         #[cfg(feature = "medium-ethernet")]
                         if matches!(self.caps.medium, Medium::Ethernet) {
-                            emit_ethernet(&ip_repr, tx_buffer)?;
+                            emit_ethernet(&ip_repr, tx_buffer);
                             tx_buffer = &mut tx_buffer[EthernetFrame::<&[u8]>::header_len()..];
                         }
 
                         emit_ip(&ip_repr, tx_buffer);
-                        Ok(())
-                    })
+                    });
+                    Ok(())
                 }
             }
         }
