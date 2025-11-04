@@ -824,6 +824,8 @@ pub(crate) mod test {
             dst_addr: Address::new(0x21, 0x22, 0x23, 0x24),
             next_header: Protocol::Icmp,
             payload_len: 4,
+            dscp: 0,
+            ecn: 0,
             hop_limit: 64,
         }
     }
