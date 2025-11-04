@@ -682,6 +682,8 @@ mod test {
         dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     });
 
@@ -690,6 +692,8 @@ mod test {
         dst_addr: LOCAL_ADDR,
         next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     });
 
@@ -698,6 +702,8 @@ mod test {
         dst_addr: OTHER_ADDR,
         next_header: IpProtocol::Udp,
         payload_len: 8 + 6,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     });
 
@@ -988,6 +994,8 @@ mod test {
                         dst_addr: REMOTE_ADDR,
                         next_header: IpProtocol::Udp,
                         payload_len: 8 + 6,
+                        dscp: 0,
+                        ecn: 0,
                         hop_limit: 0x2a,
                     })
                 );

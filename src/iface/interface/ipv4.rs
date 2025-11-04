@@ -387,6 +387,8 @@ impl InterfaceInner {
                 dst_addr: ipv4_repr.src_addr,
                 next_header: IpProtocol::Icmp,
                 payload_len: icmp_repr.buffer_len(),
+                dscp: 0,
+                ecn: 0,
                 hop_limit: 64,
             };
             Some(Packet::new_ipv4(
@@ -403,6 +405,8 @@ impl InterfaceInner {
                             dst_addr: ipv4_repr.src_addr,
                             next_header: IpProtocol::Icmp,
                             payload_len: icmp_repr.buffer_len(),
+                            dscp: 0,
+                            ecn: 0,
                             hop_limit: 64,
                         };
                         Some(Packet::new_ipv4(

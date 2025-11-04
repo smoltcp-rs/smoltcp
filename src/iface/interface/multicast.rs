@@ -480,6 +480,8 @@ impl InterfaceInner {
                 dst_addr: group_addr,
                 next_header: IpProtocol::Igmp,
                 payload_len: igmp_repr.buffer_len(),
+                dscp: 0,
+                ecn: 0,
                 hop_limit: 1,
                 // [#183](https://github.com/m-labs/smoltcp/issues/183).
             },
@@ -498,6 +500,8 @@ impl InterfaceInner {
                     dst_addr: IPV4_MULTICAST_ALL_ROUTERS,
                     next_header: IpProtocol::Igmp,
                     payload_len: igmp_repr.buffer_len(),
+                    dscp: 0,
+                    ecn: 0,
                     hop_limit: 1,
                 },
                 IpPayload::Igmp(igmp_repr),

@@ -611,6 +611,8 @@ impl<'a> Socket<'a> {
             dst_addr: Ipv4Address::BROADCAST,
             next_header: IpProtocol::Udp,
             payload_len: 0, // filled right before emit
+            dscp: 0,
+            ecn: 0,
             hop_limit: 64,
         };
 
@@ -910,6 +912,8 @@ mod test {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
         payload_len: 0,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     };
 
@@ -918,6 +922,8 @@ mod test {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
         payload_len: 0,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     };
 
@@ -926,6 +932,8 @@ mod test {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
         payload_len: 0,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     };
 
@@ -934,6 +942,8 @@ mod test {
         dst_addr: MY_IP,
         next_header: IpProtocol::Udp,
         payload_len: 0,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     };
 
@@ -942,6 +952,8 @@ mod test {
         dst_addr: SERVER_IP,
         next_header: IpProtocol::Udp,
         payload_len: 0,
+        dscp: 0,
+        ecn: 0,
         hop_limit: 64,
     };
 

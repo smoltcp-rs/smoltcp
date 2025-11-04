@@ -332,6 +332,8 @@ mod tests {
             dst_addr: Ipv4Address::new(10, 0, 0, 2),
             next_header: IpProtocol::Unknown(255),
             payload_len: 0,
+            dscp: 0,
+            ecn: 0,
             hop_limit: 64,
         };
 
