@@ -545,6 +545,8 @@ pub struct Repr {
     pub dst_addr: Address,
     pub next_header: Protocol,
     pub payload_len: usize,
+    pub dscp: u8,
+    pub ecn: u8,
     pub hop_limit: u8,
 }
 
@@ -580,6 +582,8 @@ impl Repr {
             dst_addr: packet.dst_addr(),
             next_header: packet.next_header(),
             payload_len,
+            dscp: packet.dscp(),
+            ecn: packet.ecn(),
             hop_limit: packet.hop_limit(),
         })
     }
