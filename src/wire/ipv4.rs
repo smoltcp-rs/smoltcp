@@ -610,15 +610,15 @@ impl Repr {
     ) {
         packet.set_version(4);
         packet.set_header_len(field::DST_ADDR.end as u8);
-        packet.set_dscp(0);
-        packet.set_ecn(0);
+        packet.set_dscp(self.dscp);
+        packet.set_ecn(self.ecn);
         let total_len = packet.header_len() as u16 + self.payload_len as u16;
         packet.set_total_len(total_len);
-        packet.set_ident(0);
+        packet.set_ident(self.ident);
         packet.clear_flags();
-        packet.set_more_frags(false);
-        packet.set_dont_frag(true);
-        packet.set_frag_offset(0);
+        packet.set_more_frags(self.more_frags);
+        packet.set_dont_frag(self.dont_frag);
+        packet.set_frag_offset(self.frag_offset);
         packet.set_hop_limit(self.hop_limit);
         packet.set_next_header(self.next_header);
         packet.set_src_addr(self.src_addr);
