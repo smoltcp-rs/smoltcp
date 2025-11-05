@@ -127,7 +127,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
         dscp: 0,
         ecn: 0,
         ident: 0,
-        dont_frag: false,
+        dont_frag: true,
         more_frags: false,
         frag_offset: 0,
         hop_limit: 0x40,
