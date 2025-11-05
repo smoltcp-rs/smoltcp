@@ -547,6 +547,10 @@ pub struct Repr {
     pub payload_len: usize,
     pub dscp: u8,
     pub ecn: u8,
+    pub ident: u16,
+    pub dont_frag: bool,
+    pub more_frags: bool,
+    pub frag_offset: u16,
     pub hop_limit: u8,
 }
 
@@ -584,6 +588,10 @@ impl Repr {
             payload_len,
             dscp: packet.dscp(),
             ecn: packet.ecn(),
+            ident: packet.ident(),
+            dont_frag: packet.dont_frag(),
+            more_frags: packet.more_frags(),
+            frag_offset: packet.frag_offset(),
             hop_limit: packet.hop_limit(),
         })
     }
