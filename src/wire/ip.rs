@@ -609,6 +609,10 @@ impl Repr {
                 payload_len,
                 dscp: 0,
                 ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit,
             }),
             #[cfg(feature = "proto-ipv6")]
@@ -1066,6 +1070,10 @@ pub(crate) mod test {
             payload_len: 0,
             dscp: 0,
             ecn: 0,
+            ident: 1,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         };
 

@@ -600,6 +600,10 @@ impl<'a> Socket<'a> {
                         payload_len: repr.buffer_len(),
                         dscp: 0,
                         ecn: 0,
+                        ident: 0,
+                        dont_frag: false,
+                        more_frags: false,
+                        frag_offset: 0,
                         hop_limit,
                     });
                     emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
@@ -710,6 +714,10 @@ mod test_ipv4 {
         payload_len: 24,
         dscp: 0,
         ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 0x40,
     });
 
@@ -720,6 +728,10 @@ mod test_ipv4 {
         payload_len: 24,
         dscp: 0,
         ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 0x40,
     };
 
@@ -820,6 +832,10 @@ mod test_ipv4 {
                         payload_len: ECHOV4_REPR.buffer_len(),
                         dscp: 0,
                         ecn: 0,
+                        ident: 0,
+                        dont_frag: false,
+                        more_frags: false,
+                        frag_offset: 0,
                         hop_limit: 0x2a,
                     })
                 );
@@ -919,6 +935,10 @@ mod test_ipv4 {
                 payload_len: 12,
                 dscp: 0,
                 ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit: 0x40,
             },
             data,
@@ -930,6 +950,10 @@ mod test_ipv4 {
             payload_len: icmp_repr.buffer_len(),
             dscp: 0,
             ecn: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 0x40,
         };
 

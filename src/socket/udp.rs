@@ -684,6 +684,10 @@ mod test {
         payload_len: 8 + 6,
         dscp: 0,
         ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
     });
 
@@ -694,6 +698,10 @@ mod test {
         payload_len: 8 + 6,
         dscp: 0,
         ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
     });
 
@@ -704,6 +712,10 @@ mod test {
         payload_len: 8 + 6,
         dscp: 0,
         ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
     });
 
@@ -996,6 +1008,10 @@ mod test {
                         payload_len: 8 + 6,
                         dscp: 0,
                         ecn: 0,
+                        ident: 0,
+                        dont_frag: false,
+                        more_frags: false,
+                        frag_offset: 0,
                         hop_limit: 0x2a,
                     })
                 );

@@ -834,6 +834,10 @@ pub(crate) mod test {
             payload_len: 4,
             dscp: 0,
             ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         }
     }
