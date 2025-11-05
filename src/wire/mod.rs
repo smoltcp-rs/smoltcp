@@ -54,6 +54,10 @@ let repr = Ipv4Repr {
     payload_len: 10,
     dscp: 0,
     ecn: 0,
+    ident: 0,
+    dont_frag: true,
+    more_frags: false,
+    frag_offset: 0,
     hop_limit:   64,
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
