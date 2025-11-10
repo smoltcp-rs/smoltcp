@@ -84,6 +84,12 @@ mod wire {
             dst_addr: Ipv4Address::new(192, 168, 1, 2),
             next_header: IpProtocol::Tcp,
             payload_len: 100,
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];

@@ -515,6 +515,12 @@ mod test {
             dst_addr: Ipv4Address::new(10, 0, 0, 2),
             next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         });
         pub const PACKET_BYTES: [u8; 24] = [
@@ -930,6 +936,12 @@ mod test {
                 dst_addr: Ipv4Address::new(10, 0, 0, 2),
                 next_header: proto,
                 payload_len: 4,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit: 64,
             });
             assert!(socket.accepts(&header_repr));

@@ -333,6 +333,12 @@ impl Fragmenter {
                     dst_addr: Ipv4Address::new(0, 0, 0, 0),
                     next_header: IpProtocol::Unknown(0),
                     payload_len: 0,
+                    dscp: 0,
+                    ecn: 0,
+                    ident: 0,
+                    dont_frag: false,
+                    more_frags: false,
+                    frag_offset: 0,
                     hop_limit: 0,
                 },
                 #[cfg(feature = "medium-ethernet")]
@@ -378,6 +384,12 @@ impl Fragmenter {
                 next_header: IpProtocol::Unknown(0),
                 payload_len: 0,
                 hop_limit: 0,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
             };
             #[cfg(feature = "medium-ethernet")]
             {

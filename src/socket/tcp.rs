@@ -2796,6 +2796,12 @@ mod test {
         dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Tcp,
         payload_len: 20,
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
     });
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
@@ -2817,6 +2823,12 @@ mod test {
         dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Tcp,
         payload_len: 20,
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
     });
     const RECV_TEMPL: TcpRepr<'static> = TcpRepr {
@@ -2869,6 +2881,12 @@ mod test {
             dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: repr.buffer_len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         });
         net_trace!("send: {}", repr);
@@ -8516,6 +8534,12 @@ mod test {
             dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         });
         assert!(s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
@@ -8525,6 +8549,12 @@ mod test {
             dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_src, &tcp_repr));
@@ -8534,6 +8564,12 @@ mod test {
             dst_addr: OTHER_ADDR,
             next_header: IpProtocol::Tcp,
             payload_len: tcp_repr.buffer_len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_dst, &tcp_repr));

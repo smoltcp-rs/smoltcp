@@ -109,6 +109,10 @@ fn test_handle_udp_broadcast(#[case] medium: Medium) {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 0x40,
     });
     let dst_addr = ip_repr.dst_addr();
