@@ -80,6 +80,12 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Unknown(0x0c),
         payload_len: 0,
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 0x40,
     });
 
@@ -118,6 +124,12 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
         dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Unknown(0x0c),
         payload_len: 0,
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: true,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 0x40,
     });
 
@@ -134,6 +146,12 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             next_header: IpProtocol::Unknown(12),
             payload_len: 0,
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         },
         data: &NO_BYTES,
@@ -145,6 +163,12 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         },
         IpPayload::Icmpv4(icmp_repr),
@@ -298,6 +322,12 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
     });
 
@@ -322,6 +352,12 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         },
         data,
@@ -332,6 +368,12 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         },
         IpPayload::Icmpv4(icmp_repr),
@@ -351,7 +393,13 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
+        dscp: 0,
+        ecn: 0,
     });
 
     // Emit the representations to a packet
@@ -405,8 +453,14 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
         src_addr: src_ipv4_addr,
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Icmp,
+        ident: 0,
+        dont_frag: true,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
         payload_len: icmpv4_repr.buffer_len(),
+        dscp: 0,
+        ecn: 0,
     };
 
     // Emit to ip frame
@@ -433,8 +487,14 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
         src_addr: our_ipv4_addr,
         dst_addr: src_ipv4_addr,
         next_header: IpProtocol::Icmp,
+        ident: 0,
+        dont_frag: true,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
         payload_len: expected_icmpv4_repr.buffer_len(),
+        dscp: 0,
+        ecn: 0,
     };
     let expected_packet =
         Packet::new_ipv4(expected_ipv4_repr, IpPayload::Icmpv4(expected_icmpv4_repr));
@@ -665,6 +725,12 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Icmp,
         payload_len: 24,
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: true,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
     };
 
@@ -842,7 +908,13 @@ fn test_packet_len(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(127, 0, 0, 1),
             next_header: IpProtocol::Udp,
             payload_len: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
+            dscp: 0,
+            ecn: 0,
         };
         let udp_repr = UdpRepr {
             src_port: 12345,
@@ -920,8 +992,14 @@ fn test_raw_socket_no_reply_udp(#[case] medium: Medium) {
         src_addr,
         dst_addr,
         next_header: IpProtocol::Udp,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
         payload_len: udp_repr.header_len() + PAYLOAD_LEN,
+        dscp: 0,
+        ecn: 0,
     };
 
     // Emit to frame
@@ -978,8 +1056,14 @@ fn test_raw_socket_no_reply_tcp(#[case] medium: Medium) {
         src_addr,
         dst_addr,
         next_header: IpProtocol::Tcp,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
         payload_len: tcp_repr.header_len() + PAYLOAD_LEN,
+        dscp: 0,
+        ecn: 0,
     };
 
     // Emit to frame
@@ -1065,8 +1149,14 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         src_addr,
         dst_addr,
         next_header: IpProtocol::Udp,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+        dscp: 0,
+        ecn: 0,
     };
 
     // Emit to frame
@@ -1162,8 +1252,14 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
             src_addr: Ipv4Address::new(192, 168, 1, 3),
             dst_addr: Ipv4Address::BROADCAST,
             next_header: IpProtocol::Unknown(92),
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
             payload_len,
+            dscp: 0,
+            ecn: 0,
         };
         let ip_payload = IpPayload::Raw(&payload);
         let packet = Packet::new_ipv4(ip_repr, ip_payload);
@@ -1218,8 +1314,14 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         src_addr,
         dst_addr,
         next_header: IpProtocol::Udp,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
         payload_len: udp_repr.header_len() + MAX_PAYLOAD_LEN,
+        dscp: 0,
+        ecn: 0,
     };
     let payload = packet.into_inner();
 
@@ -1233,8 +1335,14 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         src_addr: dst_addr,
         dst_addr: src_addr,
         next_header: IpProtocol::Icmp,
+        ident: 0,
+        dont_frag: true,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 64,
         payload_len: expected_icmp_repr.buffer_len(),
+        dscp: 0,
+        ecn: 0,
     };
 
     assert_eq!(

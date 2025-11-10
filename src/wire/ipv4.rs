@@ -545,6 +545,12 @@ pub struct Repr {
     pub dst_addr: Address,
     pub next_header: Protocol,
     pub payload_len: usize,
+    pub dscp: u8,
+    pub ecn: u8,
+    pub ident: u16,
+    pub dont_frag: bool,
+    pub more_frags: bool,
+    pub frag_offset: u16,
     pub hop_limit: u8,
 }
 
@@ -580,6 +586,12 @@ impl Repr {
             dst_addr: packet.dst_addr(),
             next_header: packet.next_header(),
             payload_len,
+            dscp: packet.dscp(),
+            ecn: packet.ecn(),
+            ident: packet.ident(),
+            dont_frag: packet.dont_frag(),
+            more_frags: packet.more_frags(),
+            frag_offset: packet.frag_offset(),
             hop_limit: packet.hop_limit(),
         })
     }
@@ -598,15 +610,15 @@ impl Repr {
     ) {
         packet.set_version(4);
         packet.set_header_len(field::DST_ADDR.end as u8);
-        packet.set_dscp(0);
-        packet.set_ecn(0);
+        packet.set_dscp(self.dscp);
+        packet.set_ecn(self.ecn);
         let total_len = packet.header_len() as u16 + self.payload_len as u16;
         packet.set_total_len(total_len);
-        packet.set_ident(0);
+        packet.set_ident(self.ident);
         packet.clear_flags();
-        packet.set_more_frags(false);
-        packet.set_dont_frag(true);
-        packet.set_frag_offset(0);
+        packet.set_more_frags(self.more_frags);
+        packet.set_dont_frag(self.dont_frag);
+        packet.set_frag_offset(self.frag_offset);
         packet.set_hop_limit(self.hop_limit);
         packet.set_next_header(self.next_header);
         packet.set_src_addr(self.src_addr);
@@ -732,7 +744,7 @@ pub(crate) mod test {
     pub(crate) const MOCK_UNSPECIFIED: Address = Address::UNSPECIFIED;
 
     static PACKET_BYTES: [u8; 30] = [
-        0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x6e, 0x11, 0x12, 0x13,
+        0x45, 0x21, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x4d, 0x11, 0x12, 0x13,
         0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
     ];
 
@@ -743,8 +755,8 @@ pub(crate) mod test {
         let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
         assert_eq!(packet.version(), 4);
         assert_eq!(packet.header_len(), 20);
-        assert_eq!(packet.dscp(), 0);
-        assert_eq!(packet.ecn(), 0);
+        assert_eq!(packet.dscp(), 8);
+        assert_eq!(packet.ecn(), 1);
         assert_eq!(packet.total_len(), 30);
         assert_eq!(packet.ident(), 0x102);
         assert!(packet.more_frags());
@@ -752,7 +764,7 @@ pub(crate) mod test {
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.hop_limit(), 0x1a);
         assert_eq!(packet.next_header(), Protocol::Icmp);
-        assert_eq!(packet.checksum(), 0xd56e);
+        assert_eq!(packet.checksum(), 0xd54d);
         assert_eq!(packet.src_addr(), Address::new(0x11, 0x12, 0x13, 0x14));
         assert_eq!(packet.dst_addr(), Address::new(0x21, 0x22, 0x23, 0x24));
         assert!(packet.verify_checksum());
@@ -766,8 +778,8 @@ pub(crate) mod test {
         packet.set_version(4);
         packet.set_header_len(20);
         packet.clear_flags();
-        packet.set_dscp(0);
-        packet.set_ecn(0);
+        packet.set_dscp(8);
+        packet.set_ecn(1);
         packet.set_total_len(30);
         packet.set_ident(0x102);
         packet.set_more_frags(true);
@@ -820,6 +832,12 @@ pub(crate) mod test {
             dst_addr: Address::new(0x21, 0x22, 0x23, 0x24),
             next_header: Protocol::Icmp,
             payload_len: 4,
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
         }
     }
