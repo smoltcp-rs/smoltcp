@@ -1,3 +1,6 @@
 /target
 Cargo.lock
 *.pcap
+/scripts
+/*.md
+*.log

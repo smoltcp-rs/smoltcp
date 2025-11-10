@@ -60,6 +60,7 @@ impl MinMax {
         self.samples.fill(sample);
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.fill(Default::default())
     }

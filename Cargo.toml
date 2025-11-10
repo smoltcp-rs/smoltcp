@@ -327,6 +327,14 @@ name = "benchmark"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-raw", "socket-udp"]
 
 [[example]]
+name = "perf_server"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-tcp", "socket-tcp-cubic", "socket-tcp-bbr"]
+
+[[example]]
+name = "perf_client"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-tcp", "socket-tcp-cubic", "socket-tcp-bbr"]
+
+[[example]]
 name = "dhcp_client"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "proto-dhcpv4", "socket-raw"]
 

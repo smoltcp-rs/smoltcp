@@ -1870,9 +1870,17 @@ impl<'a> Socket<'a> {
                 }
 
                 self.rtte.on_ack(cx.now(), ack_number);
+                // bytes_in_flight should be the bytes remaining in flight AFTER this ACK
+                // This is: (last sent seq) - (seq being ACKed) = data sent but not yet ACKed
+                // This excludes data still buffered but not yet sent (important for BBR Drain exit)
+                let bytes_in_flight = if self.remote_last_seq >= ack_number {
+                    (self.remote_last_seq - ack_number) as usize
+                } else {
+                    0
+                };
                 self.congestion_controller
                     .inner_mut()
-                    .on_ack(cx.now(), ack_len, &self.rtte);
+                    .on_ack(cx.now(), ack_len, &self.rtte, bytes_in_flight);
             }
         }
 

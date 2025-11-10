@@ -300,12 +300,28 @@ impl Bbr {
 
     fn maybe_exit_startup_or_drain(&mut self, now: Instant, in_flight: usize) {
         if self.mode == Mode::Startup && self.is_at_full_bandwidth {
+            #[cfg(feature = "log")]
+            log::info!("[BBR MODE] Startup → Drain | pacing_gain={:.2}", self.drain_gain);
+
             self.mode = Mode::Drain;
             self.pacing_gain = self.drain_gain;
             self.cwnd_gain = self.high_cwnd_gain;
         }
-        if self.mode == Mode::Drain && in_flight <= self.get_target_cwnd(1.0) {
-            self.enter_probe_bandwidth_mode(now);
+        if self.mode == Mode::Drain {
+            let target = self.get_target_cwnd(1.0);
+            #[cfg(feature = "log")]
+            if self.round_start {
+                log::debug!("[BBR DRAIN] in_flight={} | target_cwnd={} | will_exit={}",
+                    in_flight, target, in_flight <= target);
+            }
+
+            if in_flight <= target {
+                #[cfg(feature = "log")]
+                log::info!("[BBR MODE] Drain → ProbeBw | in_flight={} | target_cwnd={}",
+                    in_flight, target);
+
+                self.enter_probe_bandwidth_mode(now);
+            }
         }
     }
 
@@ -320,7 +336,7 @@ impl Bbr {
                         false
                     }
                 })
-                .unwrap_or(true)
+                .unwrap_or(false)  // Never entered ProbeRtt before -> not expired
     }
 
     fn maybe_enter_or_exit_probe_rtt(
@@ -332,8 +348,9 @@ impl Bbr {
     ) {
         let min_rtt_expired = self.is_min_rtt_expired(now);
         // Enter ProbeRTT if min_rtt expired, not restarting from idle, and not already in ProbeRTT
+        // CRITICAL: Don't enter ProbeRtt during Startup - let BBR probe bandwidth first!
         // Matches tcp_bbr.c:957-962
-        if min_rtt_expired && !self.idle_restart && self.mode != Mode::ProbeRtt {
+        if min_rtt_expired && !self.idle_restart && self.mode != Mode::ProbeRtt && self.mode != Mode::Startup {
             // Save cwnd before entering ProbeRTT (matches Linux BBR tcp_bbr.c:960)
             self.save_cwnd();
             self.mode = Mode::ProbeRtt;
@@ -342,6 +359,18 @@ impl Bbr {
             // |bytes_in_flight| is at the target small value.
             self.exit_probe_rtt_at = None;
             self.probe_rtt_last_started_at = Some(now);
+
+            // CRITICAL FIX: Actually reduce cwnd when entering ProbeRtt!
+            // This is what makes bytes_in_flight drain down
+            self.cwnd = self.get_probe_rtt_cwnd();
+
+            #[cfg(feature = "log")]
+            log::info!(
+                "[BBR ProbeRtt] ENTERED ProbeRtt | old_cwnd saved | new_cwnd={} | bytes_in_flight={} | target={}",
+                self.cwnd,
+                bytes_in_flight,
+                self.get_probe_rtt_cwnd() + MAX_SEGMENT_SIZE
+            );
         }
 
         if self.mode == Mode::ProbeRtt {
@@ -350,15 +379,43 @@ impl Bbr {
                 // ProbeRtt.  The CWND during ProbeRtt is
                 // kMinimumCongestionWindow, but we allow an extra packet since QUIC
                 // checks CWND before sending a packet.
+
+                #[cfg(feature = "log")]
+                if bytes_in_flight >= self.get_probe_rtt_cwnd() + MAX_SEGMENT_SIZE {
+                    log::debug!(
+                        "[BBR ProbeRtt] WAITING for cwnd drain | bytes_in_flight={} | target={} | cwnd={}",
+                        bytes_in_flight,
+                        self.get_probe_rtt_cwnd() + MAX_SEGMENT_SIZE,
+                        self.cwnd
+                    );
+                }
+
                 if bytes_in_flight < self.get_probe_rtt_cwnd() + MAX_SEGMENT_SIZE {
                     const K_PROBE_RTT_TIME: Duration = Duration::from_millis(200);
                     self.exit_probe_rtt_at = Some(now + K_PROBE_RTT_TIME);
+
+                    #[cfg(feature = "log")]
+                    log::debug!(
+                        "[BBR ProbeRtt] SCHEDULED EXIT in 200ms | bytes_in_flight={} | target={}",
+                        bytes_in_flight,
+                        self.get_probe_rtt_cwnd() + MAX_SEGMENT_SIZE
+                    );
                 }
-            } else if is_round_start {
+            } else {
+                // Check if we can exit ProbeRtt (after 200ms has passed)
                 if let Some(exit_time) = self.exit_probe_rtt_at {
                     if now >= exit_time {
                         // Restore cwnd when exiting ProbeRTT (matches Linux BBR tcp_bbr.c:918)
                         self.restore_cwnd();
+
+                        #[cfg(feature = "log")]
+                        log::info!(
+                            "[BBR ProbeRtt] EXITING ProbeRtt | restored_cwnd={} | is_at_full_bandwidth={} | is_round_start={}",
+                            self.cwnd,
+                            self.is_at_full_bandwidth,
+                            is_round_start
+                        );
+
                         if !self.is_at_full_bandwidth {
                             self.enter_startup_mode();
                         } else {
@@ -392,7 +449,37 @@ impl Bbr {
 
     fn calculate_pacing_rate(&mut self) {
         let bw = self.max_bandwidth.get_estimate();
+
+        // If no bandwidth estimate yet, initialize pacing rate from cwnd/RTT
+        // Matches Linux BBR bbr_init_pacing_rate_from_rtt (tcp_bbr.c:266-283)
         if bw == 0 {
+            // Use measured RTT if available, otherwise use 1ms default (like Linux)
+            let rtt_us = if self.min_rtt.total_micros() != 0 {
+                self.min_rtt.total_micros()
+            } else {
+                1000  // 1ms default RTT (USEC_PER_MSEC)
+            };
+
+            // Calculate initial bandwidth: init_cwnd / RTT
+            let rtt_duration = Duration::from_micros(rtt_us);
+            let initial_bw = BandwidthEstimation::bw_from_delta(self.init_cwnd as u64, rtt_duration)
+                .unwrap_or(0);
+
+            if initial_bw > 0 {
+                // Apply high_gain to initial pacing rate (Startup mode)
+                let initial_rate = (initial_bw as f64 * self.pacing_gain as f64) as u64;
+                self.pacing_rate = initial_rate;
+
+                #[cfg(feature = "log")]
+                log::debug!(
+                    "[BBR PACING] Initial pacing rate: cwnd={} / rtt={}us * gain={:.2} = {} B/s ({:.3} Mbps)",
+                    self.init_cwnd,
+                    rtt_us,
+                    self.pacing_gain,
+                    self.pacing_rate,
+                    (self.pacing_rate as f64 * 8.0) / 1_000_000.0
+                );
+            }
             return;
         }
 
@@ -403,21 +490,24 @@ impl Bbr {
         // This matches Linux BBR (tcp_bbr.c:251) to reduce queue buildup at bottleneck
         target_rate = (target_rate * (100 - BBR_PACING_MARGIN_PERCENT as u64)) / 100;
 
+        #[cfg(feature = "log")]
+        log::trace!(
+            "[BBR PACING] bw_estimate={} B/s ({:.3} Mbps) | pacing_gain={} | target_rate={} B/s ({:.3} Mbps) | mode={:?}",
+            bw,
+            (bw as f64 * 8.0) / 1_000_000.0,
+            self.pacing_gain,
+            target_rate,
+            (target_rate as f64 * 8.0) / 1_000_000.0,
+            self.mode
+        );
+
         if self.is_at_full_bandwidth {
             self.pacing_rate = target_rate;
             return;
         }
 
-        // Pace at the rate of initial_window / RTT as soon as RTT measurements are
-        // available.
-        if self.pacing_rate == 0 && self.min_rtt.total_micros() != 0 {
-            self.pacing_rate =
-                BandwidthEstimation::bw_from_delta(self.init_cwnd as u64, self.min_rtt)
-                    .unwrap_or(0);
-            return;
-        }
-
         // Do not decrease the pacing rate during startup.
+        // Matches Linux BBR (tcp_bbr.c:294)
         if self.pacing_rate < target_rate {
             self.pacing_rate = target_rate;
         }
@@ -535,30 +625,79 @@ impl Bbr {
         }
         let target = (self.bw_at_last_round as f64 * K_STARTUP_GROWTH_TARGET as f64) as u64;
         let bw = self.max_bandwidth.get_estimate();
+
+        #[cfg(feature = "log")]
+        log::info!(
+            "[BBR STARTUP] Check full BW: current={} B/s ({:.1} Mbps) | target={} B/s ({:.1} Mbps) | last={} B/s | rounds_wo_gain={} | in_recovery={}",
+            bw, (bw as f64 * 8.0) / 1e6,
+            target, (target as f64 * 8.0) / 1e6,
+            self.bw_at_last_round,
+            self.round_wo_bw_gain,
+            self.recovery_state.in_recovery()
+        );
+
         if bw >= target {
             self.bw_at_last_round = bw;
             self.round_wo_bw_gain = 0;
             // Reset ACK aggregation tracking when bandwidth increases
             self.ack_aggregation.extra_acked = [0, 0];
             self.ack_aggregation.extra_acked_win_rtts = 0;
+
+            #[cfg(feature = "log")]
+            log::info!("[BBR STARTUP] Bandwidth grew! Resetting counter");
             return;
         }
 
         self.round_wo_bw_gain += 1;
+
+        #[cfg(feature = "log")]
+        log::info!("[BBR STARTUP] No growth, counter now: {}", self.round_wo_bw_gain);
+
         if self.round_wo_bw_gain >= K_ROUND_TRIPS_WITHOUT_GROWTH_BEFORE_EXITING_STARTUP as u64
             || (self.recovery_state.in_recovery())
         {
             self.is_at_full_bandwidth = true;
+
+            #[cfg(feature = "log")]
+            log::info!("[BBR STARTUP] *** EXITING STARTUP *** is_at_full_bandwidth=true");
         }
     }
 
-    fn on_ack_impl(&mut self, now: Instant, len: usize, rtt: &RttEstimator) {
+    fn on_ack_impl(&mut self, now: Instant, len: usize, rtt: &RttEstimator, bytes_in_flight: usize) {
         let bytes = len as u64;
         // Simulate packet numbers using bytes
         let packet_number = self.max_acked_packet_number + 1;
         self.max_acked_packet_number = packet_number;
 
+        // Track round start BEFORE updating bandwidth estimation
+        // This ensures bandwidth estimation sees the correct round number
+        // Matches tcp_bbr.c:767, 772-777
+        self.round_start = false;
+        let is_round_start =
+            self.max_acked_packet_number > self.current_round_trip_end_packet_number;
+
+        if is_round_start {
+            self.round_start = true;
+            self.current_round_trip_end_packet_number = self.max_sent_packet_number;
+            self.round_count += 1;
+            // Reset packet conservation on round start
+            // Matches tcp_bbr.c:776
+            self.packet_conservation = false;
+
+            #[cfg(feature = "log")]
+            log::trace!(
+                "[BBR ROUND] round={} | is_round_start={} | max_acked={} | round_end={} | max_sent={} | mode={:?}",
+                self.round_count,
+                is_round_start,
+                self.max_acked_packet_number,
+                self.current_round_trip_end_packet_number,
+                self.max_sent_packet_number,
+                self.mode
+            );
+        }
+
         // Update bandwidth estimation with app_limited state
+        // Now uses the UPDATED round_count if we just started a new round
         self.max_bandwidth
             .on_ack(now, now, bytes, self.round_count, self.app_limited);
         self.acked_bytes += bytes;
@@ -576,22 +715,6 @@ impl Bbr {
         self.max_bandwidth
             .end_acks(self.round_count, self.app_limited);
 
-        // Track round start
-        // Matches tcp_bbr.c:767, 772-777
-        self.round_start = false;
-        if bytes_acked > 0 {
-            let is_round_start =
-                self.max_acked_packet_number > self.current_round_trip_end_packet_number;
-            if is_round_start {
-                self.round_start = true;
-                self.current_round_trip_end_packet_number = self.max_sent_packet_number;
-                self.round_count += 1;
-                // Reset packet conservation on round start
-                // Matches tcp_bbr.c:776
-                self.packet_conservation = false;
-            }
-        }
-
         self.update_recovery_state(self.round_start);
 
         // Update ACK aggregation tracking
@@ -605,16 +728,16 @@ impl Bbr {
         );
 
         if self.mode == Mode::ProbeBw {
-            self.update_gain_cycle_phase(now, self.cwnd);
+            self.update_gain_cycle_phase(now, bytes_in_flight);
         }
 
         if self.round_start && !self.is_at_full_bandwidth {
             self.check_if_full_bw_reached();
         }
 
-        self.maybe_exit_startup_or_drain(now, self.cwnd);
+        self.maybe_exit_startup_or_drain(now, bytes_in_flight);
 
-        self.maybe_enter_or_exit_probe_rtt(now, self.round_start, self.cwnd, self.app_limited);
+        self.maybe_enter_or_exit_probe_rtt(now, self.round_start, bytes_in_flight, self.app_limited);
 
         // After the model is updated, recalculate the pacing rate and congestion window.
         self.calculate_pacing_rate();
@@ -627,7 +750,7 @@ impl Bbr {
             self.idle_restart = false;
         }
 
-        self.prev_in_flight_count = self.cwnd;
+        self.prev_in_flight_count = bytes_in_flight;
         self.loss_state.reset();
     }
 
@@ -657,8 +780,8 @@ impl Controller for Bbr {
         }
     }
 
-    fn on_ack(&mut self, now: Instant, len: usize, rtt: &RttEstimator) {
-        self.on_ack_impl(now, len, rtt);
+    fn on_ack(&mut self, now: Instant, len: usize, rtt: &RttEstimator, bytes_in_flight: usize) {
+        self.on_ack_impl(now, len, rtt, bytes_in_flight);
     }
 
     fn on_retransmit(&mut self, _now: Instant) {

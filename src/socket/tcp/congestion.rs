@@ -21,7 +21,7 @@ pub(super) trait Controller {
     /// Set the remote window size.
     fn set_remote_window(&mut self, remote_window: usize) {}
 
-    fn on_ack(&mut self, now: Instant, len: usize, rtt: &RttEstimator) {}
+    fn on_ack(&mut self, now: Instant, len: usize, rtt: &RttEstimator, bytes_in_flight: usize) {}
 
     fn on_retransmit(&mut self, now: Instant) {}
 

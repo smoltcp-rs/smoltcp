@@ -56,7 +56,7 @@ impl Controller for Cubic {
         }
     }
 
-    fn on_ack(&mut self, _now: Instant, len: usize, _rtt: &crate::socket::tcp::RttEstimator) {
+    fn on_ack(&mut self, _now: Instant, len: usize, _rtt: &crate::socket::tcp::RttEstimator, _bytes_in_flight: usize) {
         // Slow start.
         if self.cwnd < self.ssthresh {
             self.cwnd = self

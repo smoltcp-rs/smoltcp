@@ -44,10 +44,10 @@ fn main() {
             .push(IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24))
             .unwrap();
         ip_addrs
-            .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64))
+            .push(IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 2), 64))
             .unwrap();
         ip_addrs
-            .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 64))
+            .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 2), 64))
             .unwrap();
     });
     iface

@@ -27,7 +27,7 @@ impl Controller for Reno {
         self.cwnd
     }
 
-    fn on_ack(&mut self, _now: Instant, len: usize, _rtt: &RttEstimator) {
+    fn on_ack(&mut self, _now: Instant, len: usize, _rtt: &RttEstimator, _bytes_in_flight: usize) {
         let len = if self.cwnd < self.ssthresh {
             // Slow start.
             len
