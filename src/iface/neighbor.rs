@@ -1,6 +1,7 @@
 // Heads up! Before working on this file you should read, at least,
 // the parts of RFC 1122 that discuss ARP.
 
+use core::iter::Iterator;
 use heapless::LinearMap;
 
 use crate::config::IFACE_NEIGHBOR_CACHE_COUNT;
@@ -18,10 +19,22 @@ pub struct Neighbor {
     expires_at: Instant,
 }
 
+impl Neighbor {
+    /// Returns the hardware address of this neighbor.
+    pub fn hardware_addr(&self) -> HardwareAddress {
+        self.hardware_addr
+    }
+
+    /// Returns the expiration time of this neighbor entry.
+    pub fn expires_at(&self) -> Instant {
+        self.expires_at
+    }
+}
+
 /// An answer to a neighbor cache lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) enum Answer {
+pub enum Answer {
     /// The neighbor address is in the cache and not expired.
     Found(HardwareAddress),
     /// The neighbor address is not in the cache, or has expired.
@@ -33,7 +46,7 @@ pub(crate) enum Answer {
 
 impl Answer {
     /// Returns whether a valid address was found.
-    pub(crate) fn found(&self) -> bool {
+    pub fn found(&self) -> bool {
         match self {
             Answer::Found(_) => true,
             _ => false,
@@ -63,6 +76,12 @@ impl Cache {
         }
     }
 
+    /// Resets the expiration time of an existing neighbor entry.
+    ///
+    /// If the cache contains an entry for the given protocol address with a matching
+    /// hardware address, its expiration time is reset to the default lifetime from
+    /// the current timestamp. If the hardware address doesn't match or the entry
+    /// doesn't exist, this function does nothing.
     pub fn reset_expiry_if_existing(
         &mut self,
         protocol_addr: IpAddress,
@@ -80,6 +99,10 @@ impl Cache {
         }
     }
 
+    /// Adds or updates a neighbor entry in the cache.
+    ///
+    /// The entry will expire after the default lifetime (60 seconds) from the given timestamp.
+    /// If the cache is full, the entry with the earliest expiration time will be evicted.
     pub fn fill(
         &mut self,
         protocol_addr: IpAddress,
@@ -93,6 +116,11 @@ impl Cache {
         self.fill_with_expiration(protocol_addr, hardware_addr, expires_at);
     }
 
+    /// Adds or updates a neighbor entry with a custom expiration time.
+    ///
+    /// This is similar to `fill()` but allows specifying a custom expiration time
+    /// instead of using the default lifetime. If the cache is full, the entry with
+    /// the earliest expiration time will be evicted.
     pub fn fill_with_expiration(
         &mut self,
         protocol_addr: IpAddress,
@@ -147,7 +175,12 @@ impl Cache {
         }
     }
 
-    pub(crate) fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
+    /// Looks up a neighbor entry in the cache.
+    ///
+    /// Returns `Answer::Found` with the hardware address if the entry exists and hasn't expired,
+    /// `Answer::RateLimited` if a lookup was recently performed and rate limiting is active,
+    /// or `Answer::NotFound` if the entry doesn't exist or has expired.
+    pub fn lookup(&self, protocol_addr: &IpAddress, timestamp: Instant) -> Answer {
         assert!(protocol_addr.is_unicast());
 
         if let Some(&Neighbor {
@@ -173,6 +206,23 @@ impl Cache {
 
     pub(crate) fn flush(&mut self) {
         self.storage.clear()
+    }
+
+    /// Returns an iterator over all the neighbors in the cache.
+    ///
+    /// The iterator yields tuples of `(ip_address, neighbor)`.
+    pub fn iter(&self) -> impl Iterator<Item = (&IpAddress, &Neighbor)> {
+        self.storage.iter()
+    }
+
+    /// Returns the number of entries in the neighbor cache.
+    pub fn len(&self) -> usize {
+        self.storage.len()
+    }
+
+    /// Returns true if the neighbor cache is empty.
+    pub fn is_empty(&self) -> bool {
+        self.storage.is_empty()
     }
 }
 
@@ -344,5 +394,47 @@ mod test {
                 .lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0))
                 .found()
         );
+    }
+
+    #[test]
+    fn test_iter_and_length() {
+        let mut cache = Cache::new();
+
+        // Empty cache
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.iter().count(), 0);
+
+        // Add entries
+        cache.fill(MOCK_IP_ADDR_1.into(), HADDR_A, Instant::from_millis(100));
+        cache.fill(MOCK_IP_ADDR_2.into(), HADDR_B, Instant::from_millis(200));
+
+        // Check iterator and length
+        assert!(!cache.is_empty());
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.iter().count(), 2);
+
+        // Verify iterator contents (unordered)
+        let mut found_a = false;
+        let mut found_b = false;
+
+        for (ip, neighbor) in cache.iter() {
+            if *ip == MOCK_IP_ADDR_1.into() {
+                found_a = true;
+                assert_eq!(neighbor.hardware_addr(), HADDR_A);
+            } else if *ip == MOCK_IP_ADDR_2.into() {
+                found_b = true;
+                assert_eq!(neighbor.hardware_addr(), HADDR_B);
+            }
+        }
+
+        assert!(found_a, "Iterator should contain MOCK_IP_ADDR_1");
+        assert!(found_b, "Iterator should contain MOCK_IP_ADDR_2");
+
+        // Clear the cache and verify it's empty
+        cache.flush();
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.iter().count(), 0);
     }
 }

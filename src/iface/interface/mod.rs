@@ -183,6 +183,49 @@ impl Config {
 }
 
 impl Interface {
+    /// Returns a reference to the neighbor cache (ARP table).
+    ///
+    /// This method provides access to the neighbor cache, which maps between IP addresses
+    /// and hardware addresses (MAC addresses). For Ethernet networks, this is effectively
+    /// the ARP table.
+    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+    pub fn neighbor_cache(&self) -> &NeighborCache {
+        self.inner.neighbor_cache()
+    }
+
+    /// Manually trigger an ARP request for a specific IPv4 address.
+    ///
+    /// This is useful when you need to proactively resolve an IPv4 address to its
+    /// corresponding hardware address before sending packets to it. The function will
+    /// attempt to send an ARP request and return whether it was successful.
+    ///
+    /// # Arguments
+    /// * `device` - The network device to use for sending the ARP request
+    /// * `addr` - The IPv4 address to resolve
+    /// * `timestamp` - The current timestamp
+    ///
+    /// # Returns
+    /// * `Ok(())` if the ARP request was successfully sent
+    /// * `Err(DispatchError)` if the ARP request could not be sent
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
+    pub fn send_arp_request<D>(
+        &mut self,
+        device: &mut D,
+        addr: Ipv4Address,
+        timestamp: Instant,
+    ) -> Result<(), DispatchError>
+    where
+        D: Device + ?Sized,
+    {
+        self.inner.now = timestamp;
+
+        if let Some(tx_token) = device.transmit(timestamp) {
+            self.inner.send_arp_request(tx_token, addr)
+        } else {
+            Err(DispatchError::Exhausted)
+        }
+    }
+
     /// Create a network interface using the previously provided configuration.
     ///
     /// # Panics
@@ -1132,6 +1175,49 @@ impl InterfaceInner {
         self.neighbor_cache.flush()
     }
 
+    /// Returns a reference to the neighbor cache.
+    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+    pub fn neighbor_cache(&self) -> &NeighborCache {
+        &self.neighbor_cache
+    }
+
+    /// Send an ARP request for a given IPv4 address.
+    #[cfg(all(feature = "medium-ethernet", feature = "proto-ipv4"))]
+    pub(crate) fn send_arp_request<Tx>(
+        &mut self,
+        tx_token: Tx,
+        target_addr: Ipv4Address,
+    ) -> Result<(), DispatchError>
+    where
+        Tx: TxToken,
+    {
+        if !matches!(self.caps.medium, Medium::Ethernet) {
+            return Err(DispatchError::Unaddressable);
+        }
+
+        // Get our hardware and source IP addresses
+        let src_hardware_addr = self.hardware_addr.ethernet_or_panic();
+        let source_protocol_addr = match self.get_source_address_ipv4(&target_addr) {
+            Some(addr) => addr,
+            None => return Err(DispatchError::NoRoute),
+        };
+
+        let arp_repr = ArpRepr::EthernetIpv4 {
+            operation: ArpOperation::Request,
+            source_hardware_addr: src_hardware_addr,
+            source_protocol_addr,
+            target_hardware_addr: EthernetAddress::BROADCAST,
+            target_protocol_addr: target_addr,
+        };
+
+        self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
+            frame.set_dst_addr(EthernetAddress::BROADCAST);
+            frame.set_ethertype(EthernetProtocol::Arp);
+
+            arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
+        })
+    }
+
     fn dispatch_ip<Tx: TxToken>(
         &mut self,
         // NOTE(unused_mut): tx_token isn't always mutated, depending on
@@ -1336,7 +1422,7 @@ impl InterfaceInner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum DispatchError {
+pub enum DispatchError {
     /// No route to dispatch this packet. Retrying won't help unless
     /// configuration is changed.
     NoRoute,
@@ -1344,4 +1430,8 @@ enum DispatchError {
     /// the neighbor for it yet. Discovery has been initiated, dispatch
     /// should be retried later.
     NeighborPending,
+    /// The device has no transmit capability left.
+    Exhausted,
+    /// The destination is not addressable on this network interface.
+    Unaddressable,
 }
