@@ -4,6 +4,7 @@ use core::{cmp, fmt};
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 use crate::wire::ip::checksum;
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 use crate::wire::{Ipv4Packet, Ipv4Repr};
 
 enum_with_unknown! {
@@ -435,6 +436,7 @@ impl<'a> Repr<'a> {
                         src_addr: ip_packet.src_addr(),
                         dst_addr: ip_packet.dst_addr(),
                         next_header: ip_packet.next_header(),
+                        header_len: ip_packet.header_len() as usize,
                         payload_len: payload.len(),
                         dscp: 0,
                         ecn: 0,
@@ -443,6 +445,7 @@ impl<'a> Repr<'a> {
                         more_frags: false,
                         frag_offset: 0,
                         hop_limit: ip_packet.hop_limit(),
+                        options: [0u8; MAX_OPTIONS_SIZE],
                     },
                     data: payload,
                 })
@@ -464,6 +467,7 @@ impl<'a> Repr<'a> {
                         src_addr: ip_packet.src_addr(),
                         dst_addr: ip_packet.dst_addr(),
                         next_header: ip_packet.next_header(),
+                        header_len: ip_packet.header_len() as usize,
                         payload_len: payload.len(),
                         dscp: 0,
                         ecn: 0,
@@ -472,6 +476,7 @@ impl<'a> Repr<'a> {
                         more_frags: false,
                         frag_offset: 0,
                         hop_limit: ip_packet.hop_limit(),
+                        options: [0u8; MAX_OPTIONS_SIZE],
                     },
                     data: payload,
                 })

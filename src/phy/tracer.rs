@@ -217,6 +217,8 @@ mod tests {
     use super::*;
 
     use crate::phy::ChecksumCapabilities;
+    use crate::wire::IPV4_HEADER_LEN;
+    use crate::wire::ipv4::MAX_OPTIONS_SIZE;
     use crate::{
         phy::{Device, Loopback, RxToken, TxToken},
         time::Instant,
@@ -331,6 +333,7 @@ mod tests {
             src_addr: Ipv4Address::new(10, 0, 0, 1),
             dst_addr: Ipv4Address::new(10, 0, 0, 2),
             next_header: IpProtocol::Unknown(255),
+            header_len: IPV4_HEADER_LEN,
             payload_len: 0,
             dscp: 0,
             ecn: 0,
@@ -339,6 +342,7 @@ mod tests {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         };
 
         let mut buffer = vec![0_u8; repr.buffer_len()];

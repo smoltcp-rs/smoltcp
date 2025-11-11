@@ -1,4 +1,5 @@
 use super::*;
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 
 impl Interface {
     /// Process fragments that still need to be sent for IPv4 packets.
@@ -386,6 +387,7 @@ impl InterfaceInner {
                 src_addr: ipv4_repr.dst_addr,
                 dst_addr: ipv4_repr.src_addr,
                 next_header: IpProtocol::Icmp,
+                header_len: IPV4_HEADER_LEN,
                 payload_len: icmp_repr.buffer_len(),
                 dscp: 0,
                 ecn: 0,
@@ -394,6 +396,7 @@ impl InterfaceInner {
                 more_frags: false,
                 frag_offset: 0,
                 hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
             };
             Some(Packet::new_ipv4(
                 ipv4_reply_repr,
@@ -408,6 +411,7 @@ impl InterfaceInner {
                             src_addr,
                             dst_addr: ipv4_repr.src_addr,
                             next_header: IpProtocol::Icmp,
+                            header_len: IPV4_HEADER_LEN,
                             payload_len: icmp_repr.buffer_len(),
                             dscp: 0,
                             ecn: 0,
@@ -416,6 +420,7 @@ impl InterfaceInner {
                             more_frags: false,
                             frag_offset: 0,
                             hop_limit: 64,
+                            options: [0u8; MAX_OPTIONS_SIZE],
                         };
                         Some(Packet::new_ipv4(
                             ipv4_reply_repr,

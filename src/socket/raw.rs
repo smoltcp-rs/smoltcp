@@ -483,7 +483,8 @@ mod test {
     use rstest::*;
 
     use super::*;
-    use crate::wire::IpRepr;
+    use crate::wire::ipv4::MAX_OPTIONS_SIZE;
+    use crate::wire::{IPV4_HEADER_LEN, IpRepr};
     #[cfg(feature = "proto-ipv4")]
     use crate::wire::{Ipv4Address, Ipv4Repr};
     #[cfg(feature = "proto-ipv6")]
@@ -496,6 +497,8 @@ mod test {
     #[cfg(feature = "proto-ipv4")]
     mod ipv4_locals {
         use super::*;
+        use crate::wire::IPV4_HEADER_LEN;
+        use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 
         pub fn socket(
             rx_buffer: PacketBuffer<'static>,
@@ -514,6 +517,7 @@ mod test {
             src_addr: Ipv4Address::new(10, 0, 0, 1),
             dst_addr: Ipv4Address::new(10, 0, 0, 2),
             next_header: IpProtocol::Unknown(IP_PROTO),
+            header_len: IPV4_HEADER_LEN,
             payload_len: 4,
             dscp: 0,
             ecn: 0,
@@ -522,6 +526,7 @@ mod test {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         });
         pub const PACKET_BYTES: [u8; 24] = [
             0x45, 0x00, 0x00, 0x18, 0x00, 0x00, 0x40, 0x00, 0x40, 0x3f, 0x00, 0x00, 0x0a, 0x00,
@@ -935,6 +940,7 @@ mod test {
                 src_addr: Ipv4Address::new(10, 0, 0, 1),
                 dst_addr: Ipv4Address::new(10, 0, 0, 2),
                 next_header: proto,
+                header_len: IPV4_HEADER_LEN,
                 payload_len: 4,
                 dscp: 0,
                 ecn: 0,
@@ -943,6 +949,7 @@ mod test {
                 more_frags: false,
                 frag_offset: 0,
                 hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
             });
             assert!(socket.accepts(&header_repr));
         }

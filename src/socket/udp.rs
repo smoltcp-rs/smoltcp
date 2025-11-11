@@ -606,10 +606,11 @@ impl<'a> Socket<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::wire::{IpRepr, UdpRepr};
+    use crate::wire::{IPV4_HEADER_LEN, IpRepr, UdpRepr};
 
     use crate::phy::Medium;
     use crate::tests::setup;
+    use crate::wire::ipv4::MAX_OPTIONS_SIZE;
     use rstest::*;
 
     fn buffer(packets: usize) -> PacketBuffer<'static> {
@@ -681,6 +682,7 @@ mod test {
         src_addr: LOCAL_ADDR,
         dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 8 + 6,
         dscp: 0,
         ecn: 0,
@@ -689,12 +691,14 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     pub const REMOTE_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
         src_addr: REMOTE_ADDR,
         dst_addr: LOCAL_ADDR,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 8 + 6,
         dscp: 0,
         ecn: 0,
@@ -703,12 +707,14 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     pub const BAD_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
         src_addr: REMOTE_ADDR,
         dst_addr: OTHER_ADDR,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 8 + 6,
         dscp: 0,
         ecn: 0,
@@ -717,6 +723,7 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     const LOCAL_UDP_REPR: UdpRepr = UdpRepr {
@@ -1005,6 +1012,7 @@ mod test {
                         src_addr: LOCAL_ADDR,
                         dst_addr: REMOTE_ADDR,
                         next_header: IpProtocol::Udp,
+                        header_len: IPV4_HEADER_LEN,
                         payload_len: 8 + 6,
                         dscp: 0,
                         ecn: 0,
@@ -1013,6 +1021,7 @@ mod test {
                         more_frags: false,
                         frag_offset: 0,
                         hop_limit: 0x2a,
+                        options: [0u8; MAX_OPTIONS_SIZE],
                     })
                 );
                 Ok::<_, ()>(())

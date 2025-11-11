@@ -1,4 +1,5 @@
 use super::*;
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 
 #[rstest]
 #[case(Medium::Ethernet)]
@@ -80,6 +81,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Unknown(0x0c),
         payload_len: 0,
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
         ident: 0,
@@ -87,6 +89,7 @@ fn test_no_icmp_no_unicast(#[case] medium: Medium) {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 0x40,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     let mut bytes = vec![0u8; 54];
@@ -124,6 +127,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
         dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Unknown(0x0c),
         payload_len: 0,
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
         ident: 0,
@@ -131,6 +135,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 0x40,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     let mut bytes = vec![0u8; 34];
@@ -146,6 +151,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             next_header: IpProtocol::Unknown(12),
             payload_len: 0,
+            header_len: IPV4_HEADER_LEN,
             dscp: 0,
             ecn: 0,
             ident: 0,
@@ -153,6 +159,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         },
         data: &NO_BYTES,
     };
@@ -163,6 +170,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
+            header_len: IPV4_HEADER_LEN,
             dscp: 0,
             ecn: 0,
             ident: 0,
@@ -170,6 +178,7 @@ fn test_icmp_error_no_payload(#[case] medium: Medium) {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         },
         IpPayload::Icmpv4(icmp_repr),
     );
@@ -322,6 +331,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
         ident: 0,
@@ -329,6 +339,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     // Emit the representations to a packet
@@ -352,6 +363,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
             next_header: IpProtocol::Udp,
             payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+            header_len: IPV4_HEADER_LEN,
             dscp: 0,
             ecn: 0,
             ident: 0,
@@ -359,6 +371,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         },
         data,
     };
@@ -368,6 +381,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x02),
             next_header: IpProtocol::Icmp,
             payload_len: icmp_repr.buffer_len(),
+            header_len: IPV4_HEADER_LEN,
             dscp: 0,
             ecn: 0,
             ident: 0,
@@ -375,6 +389,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         },
         IpPayload::Icmpv4(icmp_repr),
     );
@@ -393,6 +408,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+        header_len: IPV4_HEADER_LEN,
         ident: 0,
         dont_frag: false,
         more_frags: false,
@@ -400,6 +416,7 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
         hop_limit: 64,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     // Emit the representations to a packet
@@ -459,8 +476,10 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
         frag_offset: 0,
         hop_limit: 64,
         payload_len: icmpv4_repr.buffer_len(),
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     // Emit to ip frame
@@ -493,8 +512,10 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
         frag_offset: 0,
         hop_limit: 64,
         payload_len: expected_icmpv4_repr.buffer_len(),
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
     let expected_packet =
         Packet::new_ipv4(expected_ipv4_repr, IpPayload::Icmpv4(expected_icmpv4_repr));
@@ -725,6 +746,7 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         dst_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
         next_header: IpProtocol::Icmp,
         payload_len: 24,
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
         ident: 0,
@@ -732,6 +754,7 @@ fn test_icmpv4_socket(#[case] medium: Medium) {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     // Open a socket and ensure the packet is handled due to the listening
@@ -908,6 +931,7 @@ fn test_packet_len(#[case] medium: Medium) {
             dst_addr: Ipv4Address::new(127, 0, 0, 1),
             next_header: IpProtocol::Udp,
             payload_len: 0,
+            header_len: IPV4_HEADER_LEN,
             ident: 0,
             dont_frag: false,
             more_frags: false,
@@ -915,6 +939,7 @@ fn test_packet_len(#[case] medium: Medium) {
             hop_limit: 64,
             dscp: 0,
             ecn: 0,
+            options: [0u8; MAX_OPTIONS_SIZE],
         };
         let udp_repr = UdpRepr {
             src_port: 12345,
@@ -975,6 +1000,49 @@ fn check_no_reply_raw_socket(medium: Medium, frame: &crate::wire::ipv4::Packet<&
 #[cfg(all(feature = "socket-raw", feature = "medium-ip"))]
 #[case(Medium::Ethernet)]
 #[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]
+/// Test raw socket will process options to receiving device
+fn test_raw_socket_process_with_option(#[case] medium: Medium) {
+    const PACKET_BYTES: &[u8] = &[
+        0x46, 0x21, 0x00, 0x22, 0x01, 0x02, 0x40, 0x00, 0x1a, 0x01, 0x13, 0xf0, 0x11, 0x12, 0x13,
+        0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+        0x88, 0x02, 0x5a, 0x5a, // Stream Identifier option
+        0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload
+    ];
+
+    let packet = crate::wire::ipv4::Packet::new_unchecked(&PACKET_BYTES[..]);
+
+    let (mut iface, mut sockets, _) = setup(medium);
+
+    let packet_count = 1;
+    let rx_buffer = raw::PacketBuffer::new(
+        vec![raw::PacketMetadata::EMPTY; packet_count],
+        vec![0; PACKET_BYTES.len()],
+    );
+    let tx_buffer = raw::PacketBuffer::new(
+        vec![raw::PacketMetadata::EMPTY; packet_count],
+        vec![0; PACKET_BYTES.len()],
+    );
+    let raw_socket = raw::Socket::new(Some(IpVersion::Ipv4), None, rx_buffer, tx_buffer);
+    let handle = sockets.add(raw_socket);
+
+    let result = iface.inner.process_ipv4(
+        &mut sockets,
+        PacketMeta::default(),
+        HardwareAddress::default(),
+        &packet,
+        &mut iface.fragments,
+    );
+    assert_eq!(result, None);
+    let socket = sockets.get_mut::<raw::Socket>(handle);
+    assert_eq!(socket.recv_queue(), PACKET_BYTES.len());
+    assert_eq!(socket.recv().unwrap(), PACKET_BYTES);
+}
+
+#[rstest]
+#[case(Medium::Ip)]
+#[cfg(all(feature = "socket-raw", feature = "medium-ip"))]
+#[case(Medium::Ethernet)]
+#[cfg(all(feature = "socket-raw", feature = "medium-ethernet"))]
 /// Test no reply to received UDP when using raw socket which accepts all protocols
 fn test_raw_socket_no_reply_udp(#[case] medium: Medium) {
     use crate::wire::{UdpPacket, UdpRepr};
@@ -998,8 +1066,10 @@ fn test_raw_socket_no_reply_udp(#[case] medium: Medium) {
         frag_offset: 0,
         hop_limit: 64,
         payload_len: udp_repr.header_len() + PAYLOAD_LEN,
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     // Emit to frame
@@ -1062,8 +1132,10 @@ fn test_raw_socket_no_reply_tcp(#[case] medium: Medium) {
         frag_offset: 0,
         hop_limit: 64,
         payload_len: tcp_repr.header_len() + PAYLOAD_LEN,
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     // Emit to frame
@@ -1155,8 +1227,10 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
         frag_offset: 0,
         hop_limit: 64,
         payload_len: udp_repr.header_len() + UDP_PAYLOAD.len(),
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     // Emit to frame
@@ -1204,6 +1278,60 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
 }
 
 #[rstest]
+#[cfg(all(feature = "socket-raw", feature = "medium-ip"))]
+fn test_raw_socket_tx_with_option() {
+    let (mut iface, _, _) = setup(Medium::Ip);
+
+    static PAYLOAD: &[u8] = &[0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff];
+    static OPTION: &[u8] = &[0x88, 0x02, 0x5a, 0x5a];
+
+    let mut ip_repr = Ipv4Repr {
+        src_addr: Ipv4Address::new(192, 168, 1, 3),
+        dst_addr: Ipv4Address::BROADCAST,
+        next_header: IpProtocol::Icmp,
+        header_len: IPV4_HEADER_LEN + OPTION.len(),
+        ident: 0,
+        dont_frag: true,
+        more_frags: false,
+        frag_offset: 0,
+        hop_limit: 64,
+        payload_len: 10,
+        dscp: 0,
+        ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
+    };
+    ip_repr.set_options(OPTION).unwrap();
+    let ip_payload = IpPayload::Raw(PAYLOAD);
+    let packet = Packet::new_ipv4(ip_repr, ip_payload);
+
+    struct TestTxToken;
+
+    impl TxToken for TestTxToken {
+        fn consume<R, F>(self, len: usize, f: F) -> R
+        where
+            F: FnOnce(&mut [u8]) -> R,
+        {
+            let mut buffer = [0; 64];
+            let result = f(&mut buffer[..len]);
+            let option_end = IPV4_HEADER_LEN + OPTION.len();
+            let payload_end = option_end + PAYLOAD.len();
+            assert_eq!(buffer[IPV4_HEADER_LEN..option_end], *OPTION);
+            assert_eq!(buffer[option_end..payload_end], *PAYLOAD);
+            result
+        }
+    }
+
+    let result = iface.inner.dispatch_ip(
+        TestTxToken {},
+        PacketMeta::default(),
+        packet,
+        &mut iface.fragmenter,
+    );
+
+    assert!(result.is_ok());
+}
+
+#[rstest]
 #[case(Medium::Ip)]
 #[cfg(all(
     feature = "socket-raw",
@@ -1245,13 +1373,14 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
         mtu * 9 / 4, // Much larger, requires two fragments
     ];
     for packet_size in tx_packet_sizes {
-        let payload_len = packet_size - IPV4_HEADER_LEN;
+        let payload_len = packet_size - IPV4_HEADER_LEN as usize;
         let payload = vec![0u8; payload_len];
 
         let ip_repr = Ipv4Repr {
             src_addr: Ipv4Address::new(192, 168, 1, 3),
             dst_addr: Ipv4Address::BROADCAST,
             next_header: IpProtocol::Unknown(92),
+            header_len: IPV4_HEADER_LEN,
             ident: 0,
             dont_frag: false,
             more_frags: false,
@@ -1260,6 +1389,7 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
             payload_len,
             dscp: 0,
             ecn: 0,
+            options: [0u8; MAX_OPTIONS_SIZE],
         };
         let ip_payload = IpPayload::Raw(&payload);
         let packet = Packet::new_ipv4(ip_repr, ip_payload);
@@ -1320,8 +1450,10 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         frag_offset: 0,
         hop_limit: 64,
         payload_len: udp_repr.header_len() + MAX_PAYLOAD_LEN,
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
     let payload = packet.into_inner();
 
@@ -1341,8 +1473,10 @@ fn test_icmp_reply_size(#[case] medium: Medium) {
         frag_offset: 0,
         hop_limit: 64,
         payload_len: expected_icmp_repr.buffer_len(),
+        header_len: IPV4_HEADER_LEN,
         dscp: 0,
         ecn: 0,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     assert_eq!(
