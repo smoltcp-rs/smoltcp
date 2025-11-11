@@ -9,6 +9,7 @@ use crate::storage::Assembler;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 use core::result::Result;
 
 #[cfg(feature = "alloc")]
@@ -332,6 +333,7 @@ impl Fragmenter {
                     src_addr: Ipv4Address::new(0, 0, 0, 0),
                     dst_addr: Ipv4Address::new(0, 0, 0, 0),
                     next_header: IpProtocol::Unknown(0),
+                    header_len: IPV4_HEADER_LEN,
                     payload_len: 0,
                     dscp: 0,
                     ecn: 0,
@@ -340,6 +342,7 @@ impl Fragmenter {
                     more_frags: false,
                     frag_offset: 0,
                     hop_limit: 0,
+                    options: [0u8; MAX_OPTIONS_SIZE],
                 },
                 #[cfg(feature = "medium-ethernet")]
                 dst_hardware_addr: EthernetAddress::default(),
@@ -382,6 +385,7 @@ impl Fragmenter {
                 src_addr: Ipv4Address::new(0, 0, 0, 0),
                 dst_addr: Ipv4Address::new(0, 0, 0, 0),
                 next_header: IpProtocol::Unknown(0),
+                header_len: IPV4_HEADER_LEN,
                 payload_len: 0,
                 hop_limit: 0,
                 dscp: 0,
@@ -390,6 +394,7 @@ impl Fragmenter {
                 dont_frag: false,
                 more_frags: false,
                 frag_offset: 0,
+                options: [0u8; MAX_OPTIONS_SIZE],
             };
             #[cfg(feature = "medium-ethernet")]
             {

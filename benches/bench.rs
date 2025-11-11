@@ -2,7 +2,7 @@
 
 mod wire {
     use smoltcp::phy::ChecksumCapabilities;
-    use smoltcp::wire::{IpAddress, IpProtocol};
+    use smoltcp::wire::{IPV4_HEADER_LEN, IPV4_MAX_OPTIONS_SIZE, IpAddress, IpProtocol};
     #[cfg(feature = "proto-ipv4")]
     use smoltcp::wire::{Ipv4Address, Ipv4Packet, Ipv4Repr};
     #[cfg(feature = "proto-ipv6")]
@@ -83,6 +83,7 @@ mod wire {
             src_addr: Ipv4Address::new(192, 168, 1, 1),
             dst_addr: Ipv4Address::new(192, 168, 1, 2),
             next_header: IpProtocol::Tcp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: 100,
             dscp: 0,
             ecn: 0,
@@ -91,6 +92,7 @@ mod wire {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; IPV4_MAX_OPTIONS_SIZE],
         };
         let mut bytes = vec![0xa5; repr.buffer_len()];
 

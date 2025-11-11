@@ -2728,10 +2728,10 @@ impl<'a> fmt::Write for Socket<'a> {
 #[cfg(all(test, feature = "medium-ip"))]
 mod test {
     use super::*;
-    use crate::wire::IpRepr;
+    use crate::wire::ipv4::MAX_OPTIONS_SIZE;
+    use crate::wire::{IPV4_HEADER_LEN, IpRepr};
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
-
     // =========================================================================================//
     // Constants
     // =========================================================================================//
@@ -2795,6 +2795,7 @@ mod test {
         src_addr: LOCAL_ADDR,
         dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Tcp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 20,
         dscp: 0,
         ecn: 0,
@@ -2803,6 +2804,7 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT,
@@ -2822,6 +2824,7 @@ mod test {
         src_addr: LOCAL_ADDR,
         dst_addr: REMOTE_ADDR,
         next_header: IpProtocol::Tcp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 20,
         dscp: 0,
         ecn: 0,
@@ -2830,6 +2833,7 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
     const RECV_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT,
@@ -2880,6 +2884,7 @@ mod test {
             src_addr: REMOTE_ADDR,
             dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: repr.buffer_len(),
             dscp: 0,
             ecn: 0,
@@ -2888,6 +2893,7 @@ mod test {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         });
         net_trace!("send: {}", repr);
 
@@ -8533,6 +8539,7 @@ mod test {
             src_addr: REMOTE_ADDR,
             dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: tcp_repr.buffer_len(),
             dscp: 0,
             ecn: 0,
@@ -8541,6 +8548,7 @@ mod test {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         });
         assert!(s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
 
@@ -8548,6 +8556,7 @@ mod test {
             src_addr: OTHER_ADDR,
             dst_addr: LOCAL_ADDR,
             next_header: IpProtocol::Tcp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: tcp_repr.buffer_len(),
             dscp: 0,
             ecn: 0,
@@ -8556,6 +8565,7 @@ mod test {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_src, &tcp_repr));
 
@@ -8563,6 +8573,7 @@ mod test {
             src_addr: REMOTE_ADDR,
             dst_addr: OTHER_ADDR,
             next_header: IpProtocol::Tcp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: tcp_repr.buffer_len(),
             dscp: 0,
             ecn: 0,
@@ -8571,6 +8582,7 @@ mod test {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         });
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_dst, &tcp_repr));
     }

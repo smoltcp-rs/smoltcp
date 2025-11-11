@@ -1,19 +1,19 @@
 #[cfg(feature = "async")]
 use core::task::Waker;
 
+#[cfg(feature = "async")]
+use super::WakerRegistration;
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 use crate::wire::{
     DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, DhcpMessageType, DhcpPacket,
-    DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Repr,
-    UDP_HEADER_LEN, UdpRepr,
+    DhcpRepr, IPV4_HEADER_LEN, IpAddress, IpProtocol, Ipv4Address, Ipv4AddressExt, Ipv4Cidr,
+    Ipv4Repr, UDP_HEADER_LEN, UdpRepr,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
 use heapless::Vec;
-
-#[cfg(feature = "async")]
-use super::WakerRegistration;
 
 use super::PollAt;
 
@@ -610,6 +610,7 @@ impl<'a> Socket<'a> {
             src_addr: Ipv4Address::UNSPECIFIED,
             dst_addr: Ipv4Address::BROADCAST,
             next_header: IpProtocol::Udp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: 0, // filled right before emit
             dscp: 0,
             ecn: 0,
@@ -618,6 +619,7 @@ impl<'a> Socket<'a> {
             more_frags: false,
             frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         };
 
         match &mut self.state {
@@ -802,7 +804,7 @@ mod test {
     use std::ops::{Deref, DerefMut};
 
     use super::*;
-    use crate::wire::EthernetAddress;
+    use crate::wire::{EthernetAddress, IPV4_HEADER_LEN};
 
     // =========================================================================================//
     // Helper functions
@@ -915,6 +917,7 @@ mod test {
         src_addr: Ipv4Address::UNSPECIFIED,
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 0,
         dscp: 0,
         ecn: 0,
@@ -923,12 +926,14 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     const IP_BROADCAST_ADDRESSED: Ipv4Repr = Ipv4Repr {
         src_addr: MY_IP,
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 0,
         dscp: 0,
         ecn: 0,
@@ -937,12 +942,14 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     const IP_SERVER_BROADCAST: Ipv4Repr = Ipv4Repr {
         src_addr: SERVER_IP,
         dst_addr: Ipv4Address::BROADCAST,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 0,
         dscp: 0,
         ecn: 0,
@@ -951,12 +958,14 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     const IP_RECV: Ipv4Repr = Ipv4Repr {
         src_addr: SERVER_IP,
         dst_addr: MY_IP,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 0,
         dscp: 0,
         ecn: 0,
@@ -965,12 +974,14 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     const IP_SEND: Ipv4Repr = Ipv4Repr {
         src_addr: MY_IP,
         dst_addr: SERVER_IP,
         next_header: IpProtocol::Udp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 0,
         dscp: 0,
         ecn: 0,
@@ -979,6 +990,7 @@ mod test {
         more_frags: false,
         frag_offset: 0,
         hop_limit: 64,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     const UDP_SEND: UdpRepr = UdpRepr {

@@ -51,6 +51,7 @@ let repr = Ipv4Repr {
     src_addr:    Ipv4Address::new(10, 0, 0, 1),
     dst_addr:    Ipv4Address::new(10, 0, 0, 2),
     next_header: IpProtocol::Tcp,
+    header_len: IPV4_HEADER_LEN,
     payload_len: 10,
     dscp: 0,
     ecn: 0,
@@ -59,6 +60,7 @@ let repr = Ipv4Repr {
     more_frags: false,
     frag_offset: 0,
     hop_limit:   64,
+    options: [0u8; IPV4_MAX_OPTIONS_SIZE],
 };
 let mut buffer = vec![0; repr.buffer_len() + repr.payload_len];
 { // emission
@@ -193,7 +195,8 @@ pub use self::ip::{
 #[cfg(feature = "proto-ipv4")]
 pub use self::ipv4::{
     Address as Ipv4Address, Cidr as Ipv4Cidr, HEADER_LEN as IPV4_HEADER_LEN, Key as Ipv4FragKey,
-    MIN_MTU as IPV4_MIN_MTU, MULTICAST_ALL_ROUTERS as IPV4_MULTICAST_ALL_ROUTERS,
+    MAX_OPTIONS_SIZE as IPV4_MAX_OPTIONS_SIZE, MIN_MTU as IPV4_MIN_MTU,
+    MULTICAST_ALL_ROUTERS as IPV4_MULTICAST_ALL_ROUTERS,
     MULTICAST_ALL_SYSTEMS as IPV4_MULTICAST_ALL_SYSTEMS, Packet as Ipv4Packet, Repr as Ipv4Repr,
 };
 
