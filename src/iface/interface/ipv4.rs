@@ -101,7 +101,7 @@ impl InterfaceInner {
         ipv4_packet: &Ipv4Packet<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<Packet<'a>> {
-        let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
+        let mut ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
             net_debug!("non-unicast or unspecified source address");
@@ -134,10 +134,10 @@ impl InterfaceInner {
                     return None;
                 }
 
-                // NOTE: according to the standard, the total length needs to be
-                // recomputed, as well as the checksum. However, we don't really use
-                // the IPv4 header after the packet is reassembled.
-                f.assemble()?
+                let payload = f.assemble()?;
+                // Update the payload length, so that the raw sockets get the correct value.
+                ipv4_repr.payload_len = payload.len();
+                payload
             } else {
                 ipv4_packet.payload()
             }
