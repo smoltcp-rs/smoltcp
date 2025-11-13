@@ -1299,6 +1299,7 @@ impl InterfaceInner {
                         let misalignment = repr.payload_len % ipv4::PAYLOAD_FRAGMENT_ALIGNMENT;
                         repr.payload_len -= misalignment;
                         let first_frag_ip_len = first_frag_ip_len - misalignment;
+                        let tx_len = tx_len - misalignment;
 
                         // Save the number of bytes we will send now.
                         frag.sent_bytes = first_frag_ip_len;
