@@ -7,7 +7,7 @@ provides lookup and caching of hardware addresses, and handles management packet
 mod fragmentation;
 mod interface;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-mod neighbor;
+pub mod neighbor;
 mod route;
 #[cfg(feature = "proto-rpl")]
 mod rpl;
