@@ -1292,11 +1292,16 @@ impl InterfaceInner {
                         // Save the IP header for other fragments.
                         frag.ipv4.repr = *repr;
 
-                        // Save how much bytes we will send now.
-                        frag.sent_bytes = first_frag_ip_len;
-
                         // Modify the IP header
                         repr.payload_len = first_frag_ip_len - repr.buffer_len();
+
+                        // Align the fragment size.
+                        let misalignment = repr.payload_len % ipv4::PAYLOAD_FRAGMENT_ALIGNMENT;
+                        repr.payload_len -= misalignment;
+                        let first_frag_ip_len = first_frag_ip_len - misalignment;
+
+                        // Save the number of bytes we will send now.
+                        frag.sent_bytes = first_frag_ip_len;
 
                         // Emit the IP header to the buffer.
                         emit_ip(&ip_repr, &mut frag.buffer);

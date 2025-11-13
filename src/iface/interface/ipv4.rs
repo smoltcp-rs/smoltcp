@@ -1,5 +1,7 @@
 use super::*;
 
+pub(crate) const PAYLOAD_FRAGMENT_ALIGNMENT: usize = 8;
+
 impl Interface {
     /// Process fragments that still need to be sent for IPv4 packets.
     ///
@@ -427,6 +429,11 @@ impl InterfaceInner {
         let mtu_max = self.ip_mtu();
         let ip_len = (frag.packet_len - frag.sent_bytes + frag.ipv4.repr.buffer_len()).min(mtu_max);
         let payload_len = ip_len - frag.ipv4.repr.buffer_len();
+
+        // Align the fragment size.
+        let misalignment = payload_len % PAYLOAD_FRAGMENT_ALIGNMENT;
+        let ip_len = ip_len - misalignment;
+        let payload_len = payload_len - misalignment;
 
         let more_frags = (frag.packet_len - frag.sent_bytes) != payload_len;
         frag.ipv4.repr.payload_len = payload_len;
