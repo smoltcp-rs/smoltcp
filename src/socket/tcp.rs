@@ -1185,7 +1185,7 @@ impl<'a> Socket<'a> {
             // we still can receive indefinitely.
             State::FinWait1 | State::FinWait2 => true,
             // If we have something in the receive buffer, we can receive that.
-            _ if !self.rx_buffer.is_empty() => true,
+            _ if self.can_recv() => true,
             _ => false,
         }
     }
@@ -1213,14 +1213,9 @@ impl<'a> Socket<'a> {
         self.tx_buffer.capacity()
     }
 
-    /// Check whether the receive half of the full-duplex connection buffer is open
-    /// (see [may_recv](#method.may_recv)), and the receive buffer is not empty.
+    /// Check whether the receive buffer is not empty.
     #[inline]
     pub fn can_recv(&self) -> bool {
-        if !self.may_recv() {
-            return false;
-        }
-
         !self.rx_buffer.is_empty()
     }
 
