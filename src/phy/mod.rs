@@ -287,6 +287,16 @@ impl DeviceCapabilities {
             Medium::Ieee802154 => self.max_transmission_unit, // TODO(thvdveld): what is the MTU for Medium::IEEE802
         }
     }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    pub fn max_ipv4_fragment_size(
+        &self,
+        ip_header_len: usize,
+        ip_payload_alignment: usize,
+    ) -> usize {
+        let ip_mtu = self.ip_mtu() - ip_header_len;
+        ip_mtu - (ip_mtu % ip_payload_alignment)
+    }
 }
 
 /// Type of medium of a device.

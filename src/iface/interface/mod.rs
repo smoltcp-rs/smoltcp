@@ -31,6 +31,8 @@ use heapless::Vec;
 
 #[cfg(feature = "_proto-fragmentation")]
 use super::fragmentation::FragKey;
+#[cfg(feature = "proto-ipv4-fragmentation")]
+use super::fragmentation::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 use super::fragmentation::PacketAssemblerSet;
 use super::fragmentation::{Fragmenter, FragmentsBuffer};
@@ -1267,10 +1269,14 @@ impl InterfaceInner {
                         net_debug!("start fragmentation");
 
                         // Calculate how much we will send now (including the Ethernet header).
-                        let tx_len = self.caps.max_transmission_unit;
 
                         let ip_header_len = repr.buffer_len();
-                        let first_frag_ip_len = self.caps.ip_mtu();
+                        let first_frag_data_len = self.caps.max_ipv4_fragment_size(
+                            repr.buffer_len(),
+                            IPV4_FRAGMENT_PAYLOAD_ALIGNMENT,
+                        );
+                        let first_frag_ip_len = first_frag_data_len + ip_header_len;
+                        let tx_len = first_frag_ip_len + EthernetFrame::<&[u8]>::header_len();
 
                         if frag.buffer.len() < total_ip_len {
                             net_debug!(
@@ -1293,13 +1299,7 @@ impl InterfaceInner {
                         frag.ipv4.repr = *repr;
 
                         // Modify the IP header
-                        repr.payload_len = first_frag_ip_len - repr.buffer_len();
-
-                        // Align the fragment size.
-                        let misalignment = repr.payload_len % ipv4::PAYLOAD_FRAGMENT_ALIGNMENT;
-                        repr.payload_len -= misalignment;
-                        let first_frag_ip_len = first_frag_ip_len - misalignment;
-                        let tx_len = tx_len - misalignment;
+                        repr.payload_len = first_frag_data_len;
 
                         // Save the number of bytes we will send now.
                         frag.sent_bytes = first_frag_ip_len;
