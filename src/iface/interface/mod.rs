@@ -31,8 +31,6 @@ use heapless::Vec;
 
 #[cfg(feature = "_proto-fragmentation")]
 use super::fragmentation::FragKey;
-#[cfg(feature = "proto-ipv4-fragmentation")]
-use super::fragmentation::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 #[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
 use super::fragmentation::PacketAssemblerSet;
 use super::fragmentation::{Fragmenter, FragmentsBuffer};
@@ -1273,7 +1271,6 @@ impl InterfaceInner {
                         let ip_header_len = repr.buffer_len();
                         let first_frag_data_len = self.caps.max_ipv4_fragment_size(
                             repr.buffer_len(),
-                            IPV4_FRAGMENT_PAYLOAD_ALIGNMENT,
                         );
                         let first_frag_ip_len = first_frag_data_len + ip_header_len;
                         let tx_len = first_frag_ip_len + EthernetFrame::<&[u8]>::header_len();
