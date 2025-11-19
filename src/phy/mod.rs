@@ -294,10 +294,7 @@ impl DeviceCapabilities {
 
     /// Special case method to determine the maximum payload size that is based on the MTU and also aligned per spec.
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub fn max_ipv4_fragment_size(
-        &self,
-        ip_header_len: usize,
-    ) -> usize {
+    pub fn max_ipv4_fragment_size(&self, ip_header_len: usize) -> usize {
         let payload_mtu = self.ip_mtu() - ip_header_len;
         payload_mtu - (payload_mtu % IPV4_FRAGMENT_PAYLOAD_ALIGNMENT)
     }

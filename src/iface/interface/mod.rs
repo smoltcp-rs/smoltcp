@@ -1269,9 +1269,8 @@ impl InterfaceInner {
                         // Calculate how much we will send now (including the Ethernet header).
 
                         let ip_header_len = repr.buffer_len();
-                        let first_frag_data_len = self.caps.max_ipv4_fragment_size(
-                            repr.buffer_len(),
-                        );
+                        let first_frag_data_len =
+                            self.caps.max_ipv4_fragment_size(repr.buffer_len());
                         let first_frag_ip_len = first_frag_data_len + ip_header_len;
                         let mut tx_len = first_frag_ip_len;
                         #[cfg(feature = "medium-ethernet")]

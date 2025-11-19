@@ -1,5 +1,5 @@
-use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 use super::*;
+use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 
 #[rstest]
 #[case(Medium::Ethernet)]
@@ -1470,10 +1470,7 @@ fn get_source_address_empty_interface(#[case] medium: Medium) {
 }
 
 #[rstest]
-#[cfg(all(
-    feature = "medium-ip",
-    feature = "proto-ipv4-fragmentation",
-))]
+#[cfg(all(feature = "medium-ip", feature = "proto-ipv4-fragmentation",))]
 fn test_ipv4_fragment_size() {
     let (_, _, device) = setup(Medium::Ip);
     let caps = device.capabilities();
