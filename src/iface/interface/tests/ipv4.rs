@@ -1,3 +1,4 @@
+use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 use super::*;
 
 #[rstest]

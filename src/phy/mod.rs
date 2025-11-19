@@ -298,8 +298,8 @@ impl DeviceCapabilities {
         &self,
         ip_header_len: usize,
     ) -> usize {
-        let ip_mtu = self.ip_mtu() - ip_header_len;
-        ip_mtu - (ip_mtu % IPV4_FRAGMENT_PAYLOAD_ALIGNMENT)
+        let payload_mtu = self.ip_mtu() - ip_header_len;
+        payload_mtu - (payload_mtu % IPV4_FRAGMENT_PAYLOAD_ALIGNMENT)
     }
 }
 
