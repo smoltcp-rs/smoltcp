@@ -626,9 +626,17 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ip)]
-#[cfg(all(feature = "socket-icmp", feature = "medium-ip", not(feature = "no-auto-response")))]
+#[cfg(all(
+    feature = "socket-icmp",
+    feature = "medium-ip",
+    not(feature = "no-auto-response")
+))]
 #[case(Medium::Ethernet)]
-#[cfg(all(feature = "socket-icmp", feature = "medium-ethernet", not(feature = "no-auto-response")))]
+#[cfg(all(
+    feature = "socket-icmp",
+    feature = "medium-ethernet",
+    not(feature = "no-auto-response")
+))]
 fn test_icmpv4_socket(#[case] medium: Medium) {
     use crate::wire::Icmpv4Packet;
 

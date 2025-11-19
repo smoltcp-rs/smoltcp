@@ -410,9 +410,13 @@ impl InterfaceInner {
                     data,
                 };
                 self.icmpv6_reply(ip_repr, icmp_reply_repr)
-            },
+            }
             #[cfg(feature = "no-auto-response")]
-            Icmpv6Repr::EchoRequest { ident: _, seq_no: _, data: _, } => { None },
+            Icmpv6Repr::EchoRequest {
+                ident: _,
+                seq_no: _,
+                data: _,
+            } => None,
 
             // Ignore any echo replies.
             Icmpv6Repr::EchoReply { .. } => None,

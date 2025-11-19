@@ -359,7 +359,11 @@ impl InterfaceInner {
                 self.icmpv4_reply(ip_repr, icmp_reply_repr)
             }
             #[cfg(all(feature = "proto-ipv4", feature = "no-auto-response"))]
-            Icmpv4Repr::EchoRequest { ident: _, seq_no: _, data: _ } => None,
+            Icmpv4Repr::EchoRequest {
+                ident: _,
+                seq_no: _,
+                data: _,
+            } => None,
 
             // Ignore any echo replies.
             Icmpv4Repr::EchoReply { .. } => None,
