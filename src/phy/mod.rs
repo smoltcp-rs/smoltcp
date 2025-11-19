@@ -132,7 +132,7 @@ pub use self::tracer::{Tracer, TracerDirection, TracerPacket};
 ))]
 pub use self::tuntap_interface::TunTapInterface;
 
-/// Fragmented IPV4 payload sizes must be increments of this value.
+/// The IPV4 payload fragment size must be an increment of this value.
 #[cfg(feature = "proto-ipv4-fragmentation")]
 pub const IPV4_FRAGMENT_PAYLOAD_ALIGNMENT: usize = 8;
 
