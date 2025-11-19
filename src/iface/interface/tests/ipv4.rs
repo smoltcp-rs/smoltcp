@@ -1467,3 +1467,16 @@ fn get_source_address_empty_interface(#[case] medium: Medium) {
         None
     );
 }
+
+#[rstest]
+#[cfg(all(
+    feature = "medium-ip",
+    feature = "proto-ipv4-fragmentation",
+))]
+fn test_ipv4_fragment_size() {
+    let (_, _, device) = setup(Medium::Ip);
+    let caps = device.capabilities();
+    assert_eq!(caps.ip_mtu(), 1500); // this is assumed
+    assert_eq!(caps.max_ipv4_fragment_size(20), 1480);
+    assert_eq!(caps.max_ipv4_fragment_size(32), 1464);
+}
