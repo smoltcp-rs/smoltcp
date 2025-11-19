@@ -1273,7 +1273,11 @@ impl InterfaceInner {
                             repr.buffer_len(),
                         );
                         let first_frag_ip_len = first_frag_data_len + ip_header_len;
-                        let tx_len = first_frag_ip_len + EthernetFrame::<&[u8]>::header_len();
+                        let mut tx_len = first_frag_ip_len;
+                        #[cfg(feature = "medium-ethernet")]
+                        if matches!(caps.medium, Medium::Ethernet) {
+                            tx_len += EthernetFrame::<&[u8]>::header_len();
+                        }
 
                         if frag.buffer.len() < total_ip_len {
                             net_debug!(
