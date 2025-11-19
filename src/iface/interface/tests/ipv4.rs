@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(feature = "proto-ipv4-fragmentation")]
 use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 
 #[rstest]
