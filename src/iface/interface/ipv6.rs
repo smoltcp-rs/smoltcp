@@ -398,7 +398,7 @@ impl InterfaceInner {
 
         match icmp_repr {
             // Respond to echo requests.
-            #[cfg(not(feature = "no-auto-response"))]
+            #[cfg(feature = "auto-icmp-echo-reply")]
             Icmpv6Repr::EchoRequest {
                 ident,
                 seq_no,
@@ -411,7 +411,7 @@ impl InterfaceInner {
                 };
                 self.icmpv6_reply(ip_repr, icmp_reply_repr)
             }
-            #[cfg(feature = "no-auto-response")]
+            #[cfg(not(feature = "auto-icmp-echo-reply"))]
             Icmpv6Repr::EchoRequest {
                 ident: _,
                 seq_no: _,
