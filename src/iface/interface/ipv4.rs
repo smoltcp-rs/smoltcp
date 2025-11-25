@@ -358,12 +358,6 @@ impl InterfaceInner {
                 };
                 self.icmpv4_reply(ip_repr, icmp_reply_repr)
             }
-            #[cfg(all(feature = "proto-ipv4", not(feature = "auto-icmp-echo-reply")))]
-            Icmpv4Repr::EchoRequest {
-                ident: _,
-                seq_no: _,
-                data: _,
-            } => None,
 
             // Ignore any echo replies.
             Icmpv4Repr::EchoReply { .. } => None,
@@ -374,6 +368,7 @@ impl InterfaceInner {
             _ if handled_by_icmp_socket => None,
 
             // FIXME: do something correct here?
+            // By doing nothing, this arm handles the case when auto echo replies are disabled.
             _ => None,
         }
     }

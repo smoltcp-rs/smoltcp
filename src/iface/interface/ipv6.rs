@@ -411,12 +411,6 @@ impl InterfaceInner {
                 };
                 self.icmpv6_reply(ip_repr, icmp_reply_repr)
             }
-            #[cfg(not(feature = "auto-icmp-echo-reply"))]
-            Icmpv6Repr::EchoRequest {
-                ident: _,
-                seq_no: _,
-                data: _,
-            } => None,
 
             // Ignore any echo replies.
             Icmpv6Repr::EchoReply { .. } => None,
@@ -448,6 +442,7 @@ impl InterfaceInner {
             _ if handled_by_icmp_socket => None,
 
             // FIXME: do something correct here?
+            // By doing nothing, this arm handles the case when auto echo replies are disabled.
             _ => None,
         }
     }
