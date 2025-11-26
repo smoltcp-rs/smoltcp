@@ -132,6 +132,10 @@ pub use self::tracer::{Tracer, TracerDirection, TracerPacket};
 ))]
 pub use self::tuntap_interface::TunTapInterface;
 
+/// The IPV4 payload fragment size must be an increment of this value.
+#[cfg(feature = "proto-ipv4-fragmentation")]
+pub const IPV4_FRAGMENT_PAYLOAD_ALIGNMENT: usize = 8;
+
 /// Metadata associated to a packet.
 ///
 /// The packet metadata is a set of attributes associated to network packets
@@ -286,6 +290,13 @@ impl DeviceCapabilities {
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => self.max_transmission_unit, // TODO(thvdveld): what is the MTU for Medium::IEEE802
         }
+    }
+
+    /// Special case method to determine the maximum payload size that is based on the MTU and also aligned per spec.
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    pub fn max_ipv4_fragment_size(&self, ip_header_len: usize) -> usize {
+        let payload_mtu = self.ip_mtu() - ip_header_len;
+        payload_mtu - (payload_mtu % IPV4_FRAGMENT_PAYLOAD_ALIGNMENT)
     }
 }
 
