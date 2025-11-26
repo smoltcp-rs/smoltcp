@@ -268,6 +268,12 @@ pub(crate) struct FragmentsBuffer {
 
     #[cfg(feature = "_proto-fragmentation")]
     pub reassembly_timeout: Duration,
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    pub options_buffer: [u8; MAX_OPTIONS_SIZE],
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    pub options_len: usize,
 }
 
 #[cfg(not(feature = "_proto-fragmentation"))]

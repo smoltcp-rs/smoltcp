@@ -63,6 +63,7 @@ macro_rules! check {
         }
     };
 }
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 use check;
 
 /// Result returned by [`Interface::poll`].
@@ -239,6 +240,12 @@ impl Interface {
                 assembler: PacketAssemblerSet::new(),
                 #[cfg(feature = "_proto-fragmentation")]
                 reassembly_timeout: Duration::from_secs(60),
+
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                options_buffer: [0u8; MAX_OPTIONS_SIZE],
+
+                #[cfg(feature = "proto-ipv4-fragmentation")]
+                options_len: 0,
             },
             fragmenter: Fragmenter::new(),
             inner: InterfaceInner {
