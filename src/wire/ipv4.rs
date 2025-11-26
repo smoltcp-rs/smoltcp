@@ -883,7 +883,7 @@ pub(crate) mod test {
         assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }
     const OPTION_PACKET_BYTES: [u8; 34] = [
-        0x46, 0x21, 0x00, 0x22, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xf1, 0xea, 0x11, 0x12, 0x13,
+        0x46, 0x21, 0x00, 0x22, 0x01, 0x02, 0x40, 0x00, 0x1a, 0x01, 0x13, 0xee, 0x11, 0x12, 0x13,
         0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
         0x88, 0x04, 0x5a, 0x5a, // Stream Identifier option
         0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload
@@ -903,12 +903,12 @@ pub(crate) mod test {
         assert_eq!(packet.ecn(), 1);
         assert_eq!(packet.total_len(), 34);
         assert_eq!(packet.ident(), 0x102);
-        assert!(packet.more_frags());
+        assert!(!packet.more_frags());
         assert!(packet.dont_frag());
-        assert_eq!(packet.frag_offset(), 0x203 * 8);
+        assert_eq!(packet.frag_offset(), 0);
         assert_eq!(packet.hop_limit(), 0x1a);
         assert_eq!(packet.next_header(), Protocol::Icmp);
-        assert_eq!(packet.checksum(), 0xf1ea);
+        assert_eq!(packet.checksum(), 0x13ee);
         assert_eq!(packet.src_addr(), Address::new(0x11, 0x12, 0x13, 0x14));
         assert_eq!(packet.dst_addr(), Address::new(0x21, 0x22, 0x23, 0x24));
         assert!(packet.verify_checksum());
@@ -926,9 +926,9 @@ pub(crate) mod test {
         packet.set_ecn(1);
         packet.set_total_len(34);
         packet.set_ident(0x102);
-        packet.set_more_frags(true);
+        packet.set_more_frags(false);
         packet.set_dont_frag(true);
-        packet.set_frag_offset(0x203 * 8);
+        packet.set_frag_offset(0);
         packet.set_hop_limit(0x1a);
         packet.set_next_header(Protocol::Icmp);
         packet.set_src_addr(Address::new(0x11, 0x12, 0x13, 0x14));
@@ -1014,8 +1014,8 @@ pub(crate) mod test {
                 ecn: 1,
                 ident: 0x102,
                 dont_frag: true,
-                more_frags: true,
-                frag_offset: 0x203 * 8,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit: 0x1a,
                 options: [
                     0x88, 0x04, 0x5a, 0x5a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1041,7 +1041,7 @@ pub(crate) mod test {
     fn test_parse_bad_option_no_padding() {
         // Checksum is correct, length indicates packet should be 38 octets.
         const PACKET_BYTES: [u8; 37] = [
-            0x47, 0x21, 0x00, 0x22, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xc2, 0x3e, 0x11, 0x12,
+            0x47, 0x21, 0x00, 0x22, 0x01, 0x02, 0x40, 0x00, 0x1a, 0x01, 0xe4, 0x41, 0x11, 0x12,
             0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
             0x07, 0x07, 0x04, 0x01, 0x02, 0x03, 0x04, // Route Record, missing pad byte at end
             0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload

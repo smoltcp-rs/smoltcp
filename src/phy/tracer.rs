@@ -217,8 +217,8 @@ mod tests {
     use super::*;
 
     use crate::phy::ChecksumCapabilities;
-    use crate::wire::IPV4_HEADER_LEN;
-    use crate::wire::ipv4::MAX_OPTIONS_SIZE;
+    #[cfg(feature = "proto-ipv4")]
+    use crate::wire::{IPV4_HEADER_LEN, ipv4::MAX_OPTIONS_SIZE};
     use crate::{
         phy::{Device, Loopback, RxToken, TxToken},
         time::Instant,

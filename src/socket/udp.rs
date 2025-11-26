@@ -606,10 +606,11 @@ impl<'a> Socket<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::wire::{IPV4_HEADER_LEN, IpRepr, UdpRepr};
+    use crate::wire::{IpRepr, UdpRepr};
 
     use crate::phy::Medium;
     use crate::tests::setup;
+    #[cfg(feature = "proto-ipv4")]
     use crate::wire::ipv4::MAX_OPTIONS_SIZE;
     use rstest::*;
 
@@ -636,6 +637,7 @@ mod test {
         if #[cfg(feature = "proto-ipv4")] {
             use crate::wire::Ipv4Address as IpvXAddress;
             use crate::wire::Ipv4Repr as IpvXRepr;
+            use crate::wire::IPV4_HEADER_LEN;
             use IpRepr::Ipv4 as IpReprIpvX;
 
             const LOCAL_ADDR: IpvXAddress = IpvXAddress::new(192, 168, 1, 1);
@@ -678,53 +680,89 @@ mod test {
         }
     }
 
-    pub const LOCAL_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
-        src_addr: LOCAL_ADDR,
-        dst_addr: REMOTE_ADDR,
-        next_header: IpProtocol::Udp,
-        header_len: IPV4_HEADER_LEN,
-        payload_len: 8 + 6,
-        dscp: 0,
-        ecn: 0,
-        ident: 0,
-        dont_frag: false,
-        more_frags: false,
-        frag_offset: 0,
-        hop_limit: 64,
-        options: [0u8; MAX_OPTIONS_SIZE],
-    });
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "proto-ipv4")] {
+            pub const LOCAL_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: LOCAL_ADDR,
+                dst_addr: REMOTE_ADDR,
+                next_header: IpProtocol::Udp,
+                header_len: IPV4_HEADER_LEN,
+                payload_len: 8 + 6,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
+                hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
+            });
+        } else {
+            pub const LOCAL_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: LOCAL_ADDR,
+                dst_addr: REMOTE_ADDR,
+                next_header: IpProtocol::Udp,
+                payload_len: 8 + 6,
+                hop_limit: 64,
+            });
+        }
+    }
 
-    pub const REMOTE_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
-        src_addr: REMOTE_ADDR,
-        dst_addr: LOCAL_ADDR,
-        next_header: IpProtocol::Udp,
-        header_len: IPV4_HEADER_LEN,
-        payload_len: 8 + 6,
-        dscp: 0,
-        ecn: 0,
-        ident: 0,
-        dont_frag: false,
-        more_frags: false,
-        frag_offset: 0,
-        hop_limit: 64,
-        options: [0u8; MAX_OPTIONS_SIZE],
-    });
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "proto-ipv4")] {
+            pub const REMOTE_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: REMOTE_ADDR,
+                dst_addr: LOCAL_ADDR,
+                next_header: IpProtocol::Udp,
+                header_len: IPV4_HEADER_LEN,
+                payload_len: 8 + 6,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
+                hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
+            });
+        } else {
+            pub const REMOTE_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: REMOTE_ADDR,
+                dst_addr: LOCAL_ADDR,
+                next_header: IpProtocol::Udp,
+                payload_len: 8 + 6,
+                hop_limit: 64,
+            });
+        }
+    }
 
-    pub const BAD_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
-        src_addr: REMOTE_ADDR,
-        dst_addr: OTHER_ADDR,
-        next_header: IpProtocol::Udp,
-        header_len: IPV4_HEADER_LEN,
-        payload_len: 8 + 6,
-        dscp: 0,
-        ecn: 0,
-        ident: 0,
-        dont_frag: false,
-        more_frags: false,
-        frag_offset: 0,
-        hop_limit: 64,
-        options: [0u8; MAX_OPTIONS_SIZE],
-    });
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "proto-ipv4")] {
+            pub const BAD_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: REMOTE_ADDR,
+                dst_addr: OTHER_ADDR,
+                next_header: IpProtocol::Udp,
+                header_len: IPV4_HEADER_LEN,
+                payload_len: 8 + 6,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
+                hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
+            });
+        } else {
+            pub const BAD_IP_REPR: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: REMOTE_ADDR,
+                dst_addr: OTHER_ADDR,
+                next_header: IpProtocol::Udp,
+                payload_len: 8 + 6,
+                hop_limit: 64,
+            });
+        }
+    }
 
     const LOCAL_UDP_REPR: UdpRepr = UdpRepr {
         src_port: LOCAL_PORT,
@@ -1004,26 +1042,37 @@ mod test {
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(s.send_slice(b"abcdef", REMOTE_END), Ok(()));
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "proto-ipv4")] {
+                let expected = IpReprIpvX(IpvXRepr {
+                    src_addr: LOCAL_ADDR,
+                    dst_addr: REMOTE_ADDR,
+                    next_header: IpProtocol::Udp,
+                    header_len: IPV4_HEADER_LEN,
+                    payload_len: 8 + 6,
+                    dscp: 0,
+                    ecn: 0,
+                    ident: 0,
+                    dont_frag: false,
+                    more_frags: false,
+                    frag_offset: 0,
+                    hop_limit: 0x2a,
+                    options: [0u8; MAX_OPTIONS_SIZE],
+                });
+            }
+            else {
+                let expected = IpReprIpvX(IpvXRepr {
+                    src_addr: LOCAL_ADDR,
+                    dst_addr: REMOTE_ADDR,
+                    next_header: IpProtocol::Udp,
+                    payload_len: 8 + 6,
+                    hop_limit: 0x2a,
+                });
+            }
+        }
         assert_eq!(
             s.dispatch(cx, |_, _, (ip_repr, _, _)| {
-                assert_eq!(
-                    ip_repr,
-                    IpReprIpvX(IpvXRepr {
-                        src_addr: LOCAL_ADDR,
-                        dst_addr: REMOTE_ADDR,
-                        next_header: IpProtocol::Udp,
-                        header_len: IPV4_HEADER_LEN,
-                        payload_len: 8 + 6,
-                        dscp: 0,
-                        ecn: 0,
-                        ident: 0,
-                        dont_frag: false,
-                        more_frags: false,
-                        frag_offset: 0,
-                        hop_limit: 0x2a,
-                        options: [0u8; MAX_OPTIONS_SIZE],
-                    })
-                );
+                assert_eq!(ip_repr, expected);
                 Ok::<_, ()>(())
             }),
             Ok(())

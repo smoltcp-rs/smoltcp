@@ -6,6 +6,7 @@ use super::{Interface, InterfaceInner};
 use super::{IpPayload, Packet, check};
 use crate::config::{IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT};
 use crate::phy::{Device, PacketMeta};
+#[cfg(feature = "proto-ipv4")]
 use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 use crate::wire::*;
 

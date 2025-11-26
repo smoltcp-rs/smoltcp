@@ -8,10 +8,9 @@ use crate::socket::WakerRegistration;
 use crate::socket::{Context, PollAt};
 
 use crate::storage::Empty;
-use crate::wire::ipv4::MAX_OPTIONS_SIZE;
-use crate::wire::{IPV4_HEADER_LEN, IcmpRepr};
+use crate::wire::IcmpRepr;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Repr};
+use crate::wire::{IPV4_HEADER_LEN, Icmpv4Packet, Icmpv4Repr, Ipv4Repr, ipv4::MAX_OPTIONS_SIZE};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Repr};
 use crate::wire::{IpAddress, IpListenEndpoint, IpProtocol, IpRepr};

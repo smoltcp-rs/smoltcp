@@ -11,6 +11,7 @@ use crate::wire::*;
 
 use crate::iface::interface::DispatchError;
 use crate::phy::ChecksumCapabilities;
+#[cfg(feature = "proto-ipv4")]
 use crate::wire::ipv4::{ALIGNMENT_32_BITS, HEADER_LEN, MAX_OPTIONS_SIZE, Packet, Repr};
 use core::result::Result;
 
@@ -425,6 +426,7 @@ impl Fragmenter {
     }
 }
 
+#[cfg(feature = "proto-ipv4-fragmentation")]
 #[derive(PartialEq)]
 enum OptionCopyBehavior {
     // This option is copied for every fragment
@@ -433,6 +435,7 @@ enum OptionCopyBehavior {
     DontCopy,
 }
 
+#[cfg(feature = "proto-ipv4-fragmentation")]
 #[derive(PartialEq)]
 enum OptionLengthType {
     // This option has an octet specifying the length of the option
@@ -441,7 +444,7 @@ enum OptionLengthType {
     NoLength,
 }
 
-#[cfg(feature = "_proto-fragmentation")]
+#[cfg(feature = "proto-ipv4-fragmentation")]
 impl Ipv4Fragmenter {
     /// Determines two characteristics of the option from the type octet.
     /// Returns (OptionCopyBehavior, OptionLengthType)
@@ -533,6 +536,7 @@ impl Ipv4Fragmenter {
 mod tests {
     use super::*;
     use crate::phy::ChecksumCapabilities;
+    #[cfg(feature = "proto-ipv4")]
     use crate::wire::ipv4::{Packet, Repr};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
@@ -639,6 +643,7 @@ mod tests {
         assert_eq!(assr.assemble(), Some(&[0x00, 0x01][..]));
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_no_options_present() {
         const PACKET_BYTES: [u8; 30] = [
@@ -654,6 +659,7 @@ mod tests {
         assert_eq!(repr, frag.ipv4.repr);
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_one_persisted_option_present() {
         const PACKET_BYTES: [u8; 34] = [
@@ -679,6 +685,7 @@ mod tests {
         assert_eq!(frag.ipv4.repr.payload_len, 10);
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_one_discarded_option_present_with_noop_padding() {
         const PACKET_BYTES: [u8; 38] = [
@@ -699,6 +706,7 @@ mod tests {
         assert_eq!(frag.ipv4.repr.payload_len, 10);
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_one_discarded_and_one_persisted_with_middle_padding() {
         const PACKET_BYTES: [u8; 42] = [
@@ -721,6 +729,7 @@ mod tests {
         assert_eq!(frag.ipv4.repr.payload_len, 10);
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_max_options_present() {
         const PACKET_BYTES: [u8; 70] = [
@@ -746,6 +755,7 @@ mod tests {
         assert_eq!(frag.ipv4.repr.payload_len, 10);
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_bad_option_at_end_does_not_cause_panic() {
         const PACKET_BYTES: [u8; 70] = [
@@ -766,6 +776,7 @@ mod tests {
         assert!(frag.ipv4.filter_options().is_err());
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_one_discarded_and_one_persisted_with_padding_required_of_different_length() {
         const PACKET_BYTES: [u8; 46] = [
@@ -792,6 +803,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "proto-ipv4-fragmentation")]
     #[test]
     fn filter_options_length_octet_overflow() {
         const PACKET_BYTES: [u8; 70] = [

@@ -2728,8 +2728,9 @@ impl<'a> fmt::Write for Socket<'a> {
 #[cfg(all(test, feature = "medium-ip"))]
 mod test {
     use super::*;
-    use crate::wire::ipv4::MAX_OPTIONS_SIZE;
-    use crate::wire::{IPV4_HEADER_LEN, IpRepr};
+    use crate::wire::IpRepr;
+    #[cfg(feature = "proto-ipv4")]
+    use crate::wire::{IPV4_HEADER_LEN, ipv4::MAX_OPTIONS_SIZE};
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
     // =========================================================================================//
@@ -2791,21 +2792,33 @@ mod test {
         }
     }
 
-    const SEND_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
-        src_addr: LOCAL_ADDR,
-        dst_addr: REMOTE_ADDR,
-        next_header: IpProtocol::Tcp,
-        header_len: IPV4_HEADER_LEN,
-        payload_len: 20,
-        dscp: 0,
-        ecn: 0,
-        ident: 0,
-        dont_frag: false,
-        more_frags: false,
-        frag_offset: 0,
-        hop_limit: 64,
-        options: [0u8; MAX_OPTIONS_SIZE],
-    });
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "proto-ipv4")] {
+            const SEND_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: LOCAL_ADDR,
+                dst_addr: REMOTE_ADDR,
+                next_header: IpProtocol::Tcp,
+                header_len: IPV4_HEADER_LEN,
+                payload_len: 20,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
+                hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
+            });
+        } else {
+            const SEND_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: LOCAL_ADDR,
+                dst_addr: REMOTE_ADDR,
+                next_header: IpProtocol::Tcp,
+                payload_len: 20,
+                hop_limit: 64,
+            });
+        }
+    }
     const SEND_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: REMOTE_PORT,
         dst_port: LOCAL_PORT,
@@ -2820,21 +2833,33 @@ mod test {
         timestamp: None,
         payload: &[],
     };
-    const _RECV_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
-        src_addr: LOCAL_ADDR,
-        dst_addr: REMOTE_ADDR,
-        next_header: IpProtocol::Tcp,
-        header_len: IPV4_HEADER_LEN,
-        payload_len: 20,
-        dscp: 0,
-        ecn: 0,
-        ident: 0,
-        dont_frag: false,
-        more_frags: false,
-        frag_offset: 0,
-        hop_limit: 64,
-        options: [0u8; MAX_OPTIONS_SIZE],
-    });
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "proto-ipv4")] {
+            const _RECV_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: LOCAL_ADDR,
+                dst_addr: REMOTE_ADDR,
+                next_header: IpProtocol::Tcp,
+                header_len: IPV4_HEADER_LEN,
+                payload_len: 20,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
+                hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
+            });
+        } else {
+            const _RECV_IP_TEMPL: IpRepr = IpReprIpvX(IpvXRepr {
+                src_addr: LOCAL_ADDR,
+                dst_addr: REMOTE_ADDR,
+                next_header: IpProtocol::Tcp,
+                payload_len: 20,
+                hop_limit: 64,
+            });
+        }
+    }
     const RECV_TEMPL: TcpRepr<'static> = TcpRepr {
         src_port: LOCAL_PORT,
         dst_port: REMOTE_PORT,
@@ -2880,21 +2905,33 @@ mod test {
     ) -> Option<TcpRepr<'static>> {
         socket.cx.set_now(timestamp);
 
-        let ip_repr = IpReprIpvX(IpvXRepr {
-            src_addr: REMOTE_ADDR,
-            dst_addr: LOCAL_ADDR,
-            next_header: IpProtocol::Tcp,
-            header_len: IPV4_HEADER_LEN,
-            payload_len: repr.buffer_len(),
-            dscp: 0,
-            ecn: 0,
-            ident: 0,
-            dont_frag: false,
-            more_frags: false,
-            frag_offset: 0,
-            hop_limit: 64,
-            options: [0u8; MAX_OPTIONS_SIZE],
-        });
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "proto-ipv4")] {
+                let ip_repr = IpReprIpvX(IpvXRepr {
+                    src_addr: REMOTE_ADDR,
+                    dst_addr: LOCAL_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    header_len: IPV4_HEADER_LEN,
+                    payload_len: repr.buffer_len(),
+                    dscp: 0,
+                    ecn: 0,
+                    ident: 0,
+                    dont_frag: false,
+                    more_frags: false,
+                    frag_offset: 0,
+                    hop_limit: 64,
+                    options: [0u8; MAX_OPTIONS_SIZE],
+                });
+            } else {
+                let ip_repr = IpReprIpvX(IpvXRepr {
+                    src_addr: REMOTE_ADDR,
+                    dst_addr: LOCAL_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    payload_len: repr.buffer_len(),
+                    hop_limit: 64,
+                });
+            }
+        }
         net_trace!("send: {}", repr);
 
         assert!(socket.socket.accepts(&mut socket.cx, &ip_repr, repr));
@@ -8535,55 +8572,91 @@ mod test {
             ..SEND_TEMPL
         };
 
-        let ip_repr = IpReprIpvX(IpvXRepr {
-            src_addr: REMOTE_ADDR,
-            dst_addr: LOCAL_ADDR,
-            next_header: IpProtocol::Tcp,
-            header_len: IPV4_HEADER_LEN,
-            payload_len: tcp_repr.buffer_len(),
-            dscp: 0,
-            ecn: 0,
-            ident: 0,
-            dont_frag: false,
-            more_frags: false,
-            frag_offset: 0,
-            hop_limit: 64,
-            options: [0u8; MAX_OPTIONS_SIZE],
-        });
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "proto-ipv4")] {
+                let ip_repr = IpReprIpvX(IpvXRepr {
+                    src_addr: REMOTE_ADDR,
+                    dst_addr: LOCAL_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    header_len: IPV4_HEADER_LEN,
+                    payload_len: tcp_repr.buffer_len(),
+                    dscp: 0,
+                    ecn: 0,
+                    ident: 0,
+                    dont_frag: false,
+                    more_frags: false,
+                    frag_offset: 0,
+                    hop_limit: 64,
+                    options: [0u8; MAX_OPTIONS_SIZE],
+                });
+            } else {
+                let ip_repr = IpReprIpvX(IpvXRepr {
+                    src_addr: REMOTE_ADDR,
+                    dst_addr: LOCAL_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    payload_len: tcp_repr.buffer_len(),
+                    hop_limit: 64,
+                });
+            }
+        }
         assert!(s.socket.accepts(&mut s.cx, &ip_repr, &tcp_repr));
 
-        let ip_repr_wrong_src = IpReprIpvX(IpvXRepr {
-            src_addr: OTHER_ADDR,
-            dst_addr: LOCAL_ADDR,
-            next_header: IpProtocol::Tcp,
-            header_len: IPV4_HEADER_LEN,
-            payload_len: tcp_repr.buffer_len(),
-            dscp: 0,
-            ecn: 0,
-            ident: 0,
-            dont_frag: false,
-            more_frags: false,
-            frag_offset: 0,
-            hop_limit: 64,
-            options: [0u8; MAX_OPTIONS_SIZE],
-        });
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "proto-ipv4")] {
+                let ip_repr_wrong_src = IpReprIpvX(IpvXRepr {
+                    src_addr: OTHER_ADDR,
+                    dst_addr: LOCAL_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    header_len: IPV4_HEADER_LEN,
+                    payload_len: tcp_repr.buffer_len(),
+                    dscp: 0,
+                    ecn: 0,
+                    ident: 0,
+                    dont_frag: false,
+                    more_frags: false,
+                    frag_offset: 0,
+                    hop_limit: 64,
+                    options: [0u8; MAX_OPTIONS_SIZE],
+                });
+            } else {
+                let ip_repr_wrong_src = IpReprIpvX(IpvXRepr {
+                    src_addr: OTHER_ADDR,
+                    dst_addr: LOCAL_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    payload_len: tcp_repr.buffer_len(),
+                    hop_limit: 64,
+                });
+            }
+        }
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_src, &tcp_repr));
 
-        let ip_repr_wrong_dst = IpReprIpvX(IpvXRepr {
-            src_addr: REMOTE_ADDR,
-            dst_addr: OTHER_ADDR,
-            next_header: IpProtocol::Tcp,
-            header_len: IPV4_HEADER_LEN,
-            payload_len: tcp_repr.buffer_len(),
-            dscp: 0,
-            ecn: 0,
-            ident: 0,
-            dont_frag: false,
-            more_frags: false,
-            frag_offset: 0,
-            hop_limit: 64,
-            options: [0u8; MAX_OPTIONS_SIZE],
-        });
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "proto-ipv4")] {
+                let ip_repr_wrong_dst = IpReprIpvX(IpvXRepr {
+                    src_addr: REMOTE_ADDR,
+                    dst_addr: OTHER_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    header_len: IPV4_HEADER_LEN,
+                    payload_len: tcp_repr.buffer_len(),
+                    dscp: 0,
+                    ecn: 0,
+                    ident: 0,
+                    dont_frag: false,
+                    more_frags: false,
+                    frag_offset: 0,
+                    hop_limit: 64,
+                    options: [0u8; MAX_OPTIONS_SIZE],
+                });
+            } else {
+                let ip_repr_wrong_dst = IpReprIpvX(IpvXRepr {
+                    src_addr: REMOTE_ADDR,
+                    dst_addr: OTHER_ADDR,
+                    next_header: IpProtocol::Tcp,
+                    payload_len: tcp_repr.buffer_len(),
+                    hop_limit: 64,
+                });
+            }
+        }
         assert!(!s.socket.accepts(&mut s.cx, &ip_repr_wrong_dst, &tcp_repr));
     }
 

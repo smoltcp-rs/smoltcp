@@ -1009,7 +1009,7 @@ fn test_raw_socket_process_with_option(#[case] medium: Medium) {
         0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload
     ];
 
-    let packet = crate::wire::ipv4::Packet::new_unchecked(&PACKET_BYTES[..]);
+    let packet = crate::wire::ipv4::Packet::new_unchecked(PACKET_BYTES);
 
     let (mut iface, mut sockets, _) = setup(medium);
 
@@ -1342,7 +1342,7 @@ fn test_raw_socket_tx_with_bad_option() {
     // Form the packet to be sent.
 
     let packet_size = mtu * 5 / 4; // Larger than MTU, requires fragment
-    let payload_len = packet_size - IPV4_HEADER_LEN as usize;
+    let payload_len = packet_size - IPV4_HEADER_LEN;
     let payload = vec![0xa5u8; payload_len];
 
     let mut ip_repr = Ipv4Repr {
@@ -1434,7 +1434,7 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
         mtu * 9 / 4, // Much larger, requires two fragments
     ];
     for packet_size in tx_packet_sizes {
-        let payload_len = packet_size - IPV4_HEADER_LEN as usize;
+        let payload_len = packet_size - IPV4_HEADER_LEN;
         let payload = vec![0u8; payload_len];
 
         let ip_repr = Ipv4Repr {
@@ -1502,7 +1502,7 @@ fn test_raw_socket_tx_fragmentation_with_options() {
     // Form the packet to be sent.
 
     let packet_size = mtu * 9 / 4; // Larger than MTU, requires two fragments
-    let payload_len = packet_size - IPV4_HEADER_LEN as usize;
+    let payload_len = packet_size - IPV4_HEADER_LEN;
     let payload = vec![0xa5u8; payload_len];
 
     let mut ip_repr = Ipv4Repr {
