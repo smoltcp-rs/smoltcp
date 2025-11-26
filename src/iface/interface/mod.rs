@@ -1257,6 +1257,14 @@ impl InterfaceInner {
                         // Emit the IP header to the buffer.
                         emit_ip(&ip_repr, &mut frag.buffer);
 
+                        // Verify that we can filter the options for the subsequent packets.
+                        if let Err(_) = frag.ipv4.filter_options() {
+                            net_debug!(
+                                "Could not fragment packet because options cannot be filtered. Dropping."
+                            );
+                            return Ok(());
+                        };
+
                         let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut frag.buffer[..]);
                         frag.ipv4.ident = ipv4_id;
                         ipv4_packet.set_ident(ipv4_id);
@@ -1344,4 +1352,10 @@ enum DispatchError {
     /// the neighbor for it yet. Discovery has been initiated, dispatch
     /// should be retried later.
     NeighborPending,
+    /// The device has no transmit capability left.
+    Exhausted,
+    /// The destination is not addressable on this network interface.
+    Unaddressable,
+    /// The packet must be fragmented but there was a parse error.
+    CannotFragment,
 }
