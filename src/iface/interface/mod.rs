@@ -1358,7 +1358,7 @@ impl InterfaceInner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum DispatchError {
+pub enum DispatchError {
     /// No route to dispatch this packet. Retrying won't help unless
     /// configuration is changed.
     NoRoute,
@@ -1366,10 +1366,6 @@ enum DispatchError {
     /// the neighbor for it yet. Discovery has been initiated, dispatch
     /// should be retried later.
     NeighborPending,
-    /// The device has no transmit capability left.
-    Exhausted,
-    /// The destination is not addressable on this network interface.
-    Unaddressable,
     /// The packet must be fragmented but there was a parse error.
     CannotFragment,
 }
