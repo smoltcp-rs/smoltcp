@@ -876,6 +876,7 @@ pub(crate) mod test {
         packet.set_dst_addr(Address::new(0x21, 0x22, 0x23, 0x24));
         packet.fill_checksum();
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
+        assert_eq!(packet.options_mut(), None);
         assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
     }
     const OPTION_PACKET_BYTES: [u8; 34] = [
@@ -934,6 +935,7 @@ pub(crate) mod test {
         packet
             .payload_mut()
             .copy_from_slice(&OPTION_PAYLOAD_BYTES[..]);
+        assert_eq!(packet.options_mut().unwrap(), OPTION_BYTES);
         assert_eq!(&*packet.into_inner(), &OPTION_PACKET_BYTES[..]);
     }
 
