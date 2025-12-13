@@ -271,10 +271,6 @@ impl<T: AsRef<[u8]>> Packet<T> {
             Err(Error)
         } else if len < self.total_len() as usize {
             Err(Error)
-        } else if self.header_len() as usize % ALIGNMENT_32_BITS != 0 {
-            Err(Error)
-        } else if self.header_len() as usize > HEADER_LEN + MAX_OPTIONS_SIZE {
-            Err(Error)
         } else if (self.header_len() as usize) < HEADER_LEN {
             Err(Error)
         } else {
