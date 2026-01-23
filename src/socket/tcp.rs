@@ -2321,12 +2321,29 @@ impl<'a> Socket<'a> {
         }
     }
 
-    /// Return whether we should send ACK immediately due to significant window updates.
+    /// Return whether we should send an ACK to update our advertised window.
     ///
-    /// ACKs with significant window updates should be sent immediately to let the sender know that
-    /// more data can be sent. According to the Linux kernel implementation, "significant" means
-    /// doubling the receive window. The Linux kernel implementation can be found at
-    /// <https://elixir.bootlin.com/linux/v6.9.9/source/net/ipv4/tcp.c#L1472>.
+    /// Implements BSD-style Silly Window Syndrome avoidance to prevent advertising
+    /// tiny windows and to reduce unnecessary window update traffic.
+
+    /// The algorithm sends a window update when EITHER:
+    ///
+    /// 1. The window increased by at least 2 * MSS and one of the follwing is true:
+    ///    - The increase is >= 25% of buffer capacity (significant growth)
+    ///    - The window is <= 12.5% of buffer capacity (nearly closed)
+    ///    - The MSS is >= 12.5% of buffer capacity (small buffer)
+    ///
+    /// 2. The window increased by at least 50% of buffer capacity (always significant)
+    ///
+    /// Case 1 handles constrained scenarios where aggressive updates reduce unnecessary latency.
+    /// Case 2 handles normal operation where rarely changing the window size helps header prediction.
+    ///
+    /// Updates are NEVER sent when a delayed ACK is pending as it will piggyback on that ACK. This
+    /// is enforced in `dispatch()` and `poll_at()`.
+    ///
+    /// For details, see:
+    /// - <https://elixir.bootlin.com/linux/v6.9.9/source/net/ipv4/tcp.c#L190>
+    /// - <https://cgit.freebsd.org/src/tree/sys/netinet/tcp_output.c?h=stable/15#n627>
     fn window_to_update(&self) -> bool {
         match self.state {
             State::SynSent
@@ -2334,9 +2351,17 @@ impl<'a> Socket<'a> {
             | State::Established
             | State::FinWait1
             | State::FinWait2 => {
-                let new_win = self.scaled_window();
                 if let Some(last_win) = self.last_scaled_window() {
-                    new_win > 0 && new_win / 2 >= last_win
+                    let window_len = self.rx_buffer.window();
+                    let window_capacity = self.rx_buffer.capacity();
+                    let last_window_len = (last_win as usize) << self.remote_win_shift;
+                    let window_increase = window_len.saturating_sub(last_window_len);
+
+                    (window_increase >= 2 * self.remote_mss
+                        && (window_increase >= window_capacity / 4
+                            || window_len <= window_capacity / 8
+                            || self.remote_mss >= window_capacity / 8))
+                        || window_increase >= window_capacity / 2
                 } else {
                     false
                 }
@@ -2409,7 +2434,7 @@ impl<'a> Socket<'a> {
         } else if self.ack_to_transmit() && self.delayed_ack_expired(cx.now()) {
             // If we have data to acknowledge, do it.
             tcp_trace!("outgoing segment will acknowledge");
-        } else if self.window_to_update() {
+        } else if self.window_to_update() && self.delayed_ack_expired(cx.now()) {
             // If we have window length increase to advertise, do it.
             tcp_trace!("outgoing segment will update window");
         } else if self.state == State::Closed {
@@ -2681,11 +2706,8 @@ impl<'a> Socket<'a> {
         } else if self.seq_to_transmit(cx) {
             // We have a data or flag packet to transmit.
             PollAt::Now
-        } else if self.window_to_update() {
-            // The receive window has been raised significantly.
-            PollAt::Now
         } else {
-            let want_ack = self.ack_to_transmit();
+            let want_ack = self.ack_to_transmit() || self.window_to_update();
 
             let delayed_ack_poll_at = match (want_ack, self.ack_delay_timer) {
                 (false, _) => PollAt::Ingress,
