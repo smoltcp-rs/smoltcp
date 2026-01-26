@@ -2325,7 +2325,7 @@ impl<'a> Socket<'a> {
     ///
     /// Implements BSD-style Silly Window Syndrome avoidance to prevent advertising
     /// tiny windows and to reduce unnecessary window update traffic.
-
+    ///
     /// The algorithm sends a window update when EITHER:
     ///
     /// 1. The window increased by at least 2 * MSS and one of the follwing is true:
@@ -7148,6 +7148,7 @@ mod test {
         let mut s = socket_established_with_buffer_sizes(6, 6);
         s.ack_delay = Some(Duration::from_millis(10));
 
+        // Fill buffer. Delayed ACK means no immediate window updates are sent.
         send!(
             s,
             TcpRepr {
@@ -7165,36 +7166,56 @@ mod test {
             (2, ())
         })
         .unwrap();
-        recv!(
-            s,
-            time 5,
-            Ok(TcpRepr {
-                seq_number: LOCAL_SEQ + 1,
-                ack_number: Some(REMOTE_SEQ + 1 + 6),
-                window_len: 2,
-                ..RECV_TEMPL
-            })
-        );
 
         s.recv(|buffer| {
             assert_eq!(&buffer[..1], b"c");
             (1, ())
         })
         .unwrap();
-        recv_nothing!(s, time 5);
 
+        // Delayed ACK timer expires. Window update is included in sent ACK.
+        recv!(
+            s,
+            time 10,
+            Ok(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 3,
+                ..RECV_TEMPL
+            })
+        );
+
+        // Increase window by 1 byte. Change not significant enough to trigger a window update.
         s.recv(|buffer| {
             assert_eq!(&buffer[..1], b"d");
             (1, ())
         })
         .unwrap();
+
+        recv_nothing!(s, time 5);
+
+        // Increase window by 1 byte. Change not significant enough to trigger a window update.
+        s.recv(|buffer| {
+            assert_eq!(&buffer[..1], b"e");
+            (1, ())
+        })
+        .unwrap();
+
+        recv_nothing!(s, time 5);
+
+        // Increase window by 1 bytes. Now 50% change in last advertised window triggers update.
+        s.recv(|buffer| {
+            assert_eq!(&buffer[..1], b"f");
+            (1, ())
+        })
+        .unwrap();
+
         recv!(
             s,
-            time 5,
             Ok(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1 + 6),
-                window_len: 4,
+                window_len: 6,
                 ..RECV_TEMPL
             })
         );
