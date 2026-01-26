@@ -15,8 +15,8 @@ RUSTC_VERSIONS=(
 FEATURES_TEST=(
     "default"
     "std,proto-ipv4"
-    "std,medium-ethernet,phy-raw_socket,proto-ipv6,socket-udp,socket-dns"
-    "std,medium-ethernet,phy-tuntap_interface,proto-ipv6,socket-udp"
+    "std,medium-ethernet,proto-ipv6,socket-udp,socket-dns"
+    "std,medium-ethernet,proto-ipv6,socket-udp"
     "std,medium-ethernet,proto-ipv4,proto-ipv4-fragmentation,socket-raw,socket-dns"
     "std,medium-ethernet,proto-ipv4,multicast,socket-raw,socket-dns"
     "std,medium-ethernet,proto-ipv4,socket-udp,socket-tcp,socket-dns"
@@ -40,15 +40,18 @@ FEATURES_TEST_NIGHTLY=(
 )
 
 FEATURES_CHECK=(
-    "medium-ip,medium-ethernet,medium-ieee802154,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,proto-ipsec,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "defmt,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "defmt,alloc,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
-    "medium-ieee802154,proto-sixlowpan,socket-dns"
+    "medium-ip,medium-ethernet,medium-ieee802154,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,proto-ipsec,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip,smoltcp-device/provides-medium-ieee802154"
+    "defmt,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip"
+    "log,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip"
+    "defmt,alloc,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async,smoltcp-device/provides-medium-ethernet,smoltcp-device/provides-medium-ip"
+    "medium-ieee802154,proto-sixlowpan,socket-dns,smoltcp-device/provides-medium-ieee802154"
 )
 
 test() {
     local version=$1
     rustup toolchain install $version
+
+    cargo +$version test -p smoltcp-device
 
     for features in ${FEATURES_TEST[@]}; do
         cargo +$version test --no-default-features --features "$features"
@@ -99,6 +102,8 @@ build_16bit() {
 }
 
 coverage() {
+    cargo llvm-cov --no-report -p smoltcp-device
+    cargo llvm-cov --no-report -p smoltcp-device --features std
     for features in ${FEATURES_TEST[@]}; do
         cargo llvm-cov --no-report --no-default-features --features "$features"
     done

@@ -6,12 +6,11 @@ use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
 use smoltcp::socket::dhcpv4;
+use smoltcp::time::Duration;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpCidr, Ipv4Cidr};
-use smoltcp::{
-    phy::{Device, Medium, wait as phy_wait},
-    time::Duration,
-};
+use smoltcp_device::{Device, Medium};
+use smoltcp_device_unix::wait as phy_wait;
 
 fn main() {
     #[cfg(feature = "log")]

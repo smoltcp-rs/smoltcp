@@ -1,7 +1,7 @@
-use smoltcp::phy::wait as phy_wait;
-use smoltcp::phy::{Device, RawSocket, RxToken};
+use smoltcp::phy::{Device, RxToken};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetFrame, PrettyPrinter};
+use smoltcp_device_unix::{RawSocket, wait as phy_wait};
 use std::env;
 use std::os::unix::io::AsRawFd;
 

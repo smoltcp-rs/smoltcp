@@ -3,11 +3,11 @@ mod utils;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::wait as phy_wait;
 use smoltcp::phy::{Device, Medium};
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv6Address};
+use smoltcp_device_unix::wait as phy_wait;
 
 // Note: If testing with a tap interface in linux, you may need to specify the
 // interface index when addressing. E.g.,

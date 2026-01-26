@@ -8,10 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{Device, Medium, wait as phy_wait};
 use smoltcp::socket::tcp;
 use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr};
+use smoltcp_device::{Device, Medium};
+use smoltcp_device_unix::wait as phy_wait;
 
 const AMOUNT: usize = 1_000_000_000;
 

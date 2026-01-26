@@ -1,5 +1,5 @@
 use super::*;
-use crate::phy::Medium;
+use smoltcp_device::Medium;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::{io, mem};
 
@@ -18,13 +18,16 @@ impl AsRawFd for RawSocketDesc {
 
 impl RawSocketDesc {
     pub fn new(name: &str, medium: Medium) -> io::Result<RawSocketDesc> {
-        let protocol = match medium {
+        #[allow(unreachable_patterns)]
+        let protocol: libc::c_short = match medium {
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => imp::ETH_P_ALL,
             #[cfg(feature = "medium-ip")]
             Medium::Ip => imp::ETH_P_ALL,
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => imp::ETH_P_IEEE802154,
+            // Just in case another crate provides a medium that we don't:
+            _ => unreachable!("Medium {medium:?} is not provided."),
         };
 
         let lower = unsafe {

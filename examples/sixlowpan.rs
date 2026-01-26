@@ -47,11 +47,12 @@ use std::os::unix::io::AsRawFd;
 use std::str;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{Device, Medium, RawSocket, wait as phy_wait};
+use smoltcp::phy::{Device, Medium};
 use smoltcp::socket::tcp;
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, Ieee802154Address, Ieee802154Pan, IpAddress, IpCidr};
+use smoltcp_device_unix::{RawSocket, wait as phy_wait};
 
 fn main() {
     utils::setup_logging("");

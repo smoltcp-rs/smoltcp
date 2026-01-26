@@ -1,5 +1,5 @@
 use super::*;
-use crate::{phy::Medium, wire::EthernetFrame};
+use smoltcp_device::Medium;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -41,14 +41,18 @@ impl TunTapInterfaceDesc {
         medium: Medium,
         ifr: &mut ifreq,
     ) -> io::Result<()> {
-        let mode = match medium {
+        #[allow(unreachable_patterns)]
+        let mode: libc::c_int = match medium {
             #[cfg(feature = "medium-ip")]
             Medium::Ip => imp::IFF_TUN,
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => imp::IFF_TAP,
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => todo!(),
+            // Just in case another crate provides a medium that we don't:
+            _ => unreachable!("Medium {medium:?} is not provided."),
         };
+
         ifr.ifr_data = mode | imp::IFF_NO_PI;
         ifreq_ioctl(lower, ifr, imp::TUNSETIFF).map(|_| ())
     }
@@ -73,13 +77,16 @@ impl TunTapInterfaceDesc {
 
         // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
         // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
+        #[allow(unreachable_patterns)]
         let mtu = match medium {
             #[cfg(feature = "medium-ip")]
             Medium::Ip => ip_mtu,
             #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => ip_mtu + EthernetFrame::<&[u8]>::header_len(),
+            Medium::Ethernet => ip_mtu + ETHERNET_HEADER_LEN,
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => todo!(),
+            // Just in case another crate provides a medium that we don't:
+            _ => unreachable!("Medium {medium:?} is not provided."),
         };
 
         Ok(mtu)
