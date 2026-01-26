@@ -6864,8 +6864,7 @@ mod test {
         s.recv_slice(&mut [0; 1]).unwrap();
         recv_nothing!(s);
 
-        // Now, if the remote wants to send one byte outside of the receive window that we
-        // previously advertised, it should not succeed.
+        // Send 1 byte outside of the advertised received window. No ACK is sent due to ACK delay.
         send!(
             s,
             TcpRepr {
@@ -6876,8 +6875,13 @@ mod test {
                 ..SEND_TEMPL
             }
         );
+
+        recv_nothing!(s);
+
+        // When ACK delay expries, previously sent byte should not be accepted.
         recv!(
             s,
+            time 10,
             Ok(TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 65),
