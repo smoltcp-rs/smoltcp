@@ -205,7 +205,7 @@ Enable `smoltcp::phy::RawSocket` and `smoltcp::phy::TunTapInterface`, respective
 
 These features are enabled by default.
 
-### Features `socket-raw`, `socket-udp`, `socket-tcp`, `socket-icmp`, `socket-dhcpv4`, `socket-dns`
+### Features `socket-eth`, `socket-raw`, `socket-udp`, `socket-tcp`, `socket-icmp`, `socket-dhcpv4`, `socket-dns`
 
 Enable the corresponding socket type.
 

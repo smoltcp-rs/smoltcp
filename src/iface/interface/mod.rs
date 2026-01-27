@@ -674,7 +674,10 @@ impl Interface {
             }
 
             let mut neighbor_addr = None;
-            let mut respond = |inner: &mut InterfaceInner, meta: PacketMeta, response: Packet| {
+            let mut respond = |inner: &mut InterfaceInner,
+                               meta: PacketMeta,
+                               response: Packet|
+             -> Result<(), EgressError> {
                 neighbor_addr = Some(response.ip_repr().dst_addr());
                 let t = device.transmit(inner.now).ok_or_else(|| {
                     net_debug!("failed to transmit IP: device exhausted");
@@ -750,6 +753,26 @@ impl Interface {
                         Packet::new(ip, IpPayload::Udp(udp, dns)),
                     )
                 }),
+                #[cfg(feature = "socket-eth")]
+                Socket::Eth(socket) => {
+                    socket.dispatch(&mut self.inner, |inner, meta, (eth_repr, payload)| {
+                        let mut token = device.transmit(inner.now).ok_or_else(|| {
+                            net_debug!("failed to transmit raw ETH: device exhausted");
+                            EgressError::Exhausted
+                        })?;
+                        token.set_meta(meta);
+                        inner.dispatch_ethernet(token, payload.len(), |mut frame| {
+                            frame.set_dst_addr(eth_repr.dst_addr);
+                            frame.set_src_addr(eth_repr.src_addr);
+                            frame.set_ethertype(eth_repr.ethertype);
+                            frame.payload_mut().copy_from_slice(payload);
+                        });
+
+                        result = PollResult::SocketStateChanged;
+
+                        Ok(())
+                    })
+                }
             };
 
             match result {
@@ -904,6 +927,29 @@ impl InterfaceInner {
         handled_by_raw_socket
     }
 
+    #[cfg(feature = "socket-eth")]
+    fn eth_socket_filter(
+        &mut self,
+        sockets: &mut SocketSet,
+        meta: PacketMeta,
+        eth_repr: &EthernetRepr,
+        eth_payload: &[u8],
+    ) -> bool {
+        let mut handled_by_eth_socket = false;
+
+        // Pass every packet to all eth sockets we have registered.
+        for eth_socket in sockets
+            .items_mut()
+            .filter_map(|i| eth::Socket::downcast_mut(&mut i.socket))
+        {
+            if eth_socket.accepts(eth_repr) {
+                eth_socket.process(self, meta, eth_repr, eth_payload);
+                handled_by_eth_socket = true;
+            }
+        }
+        handled_by_eth_socket
+    }
+
     /// Checks if an address is broadcast, taking into account ipv4 subnet-local
     /// broadcast addresses.
     pub(crate) fn is_broadcast(&self, address: &IpAddress) -> bool {
@@ -941,7 +987,8 @@ impl InterfaceInner {
 
                     let mut packet = ArpPacket::new_unchecked(frame.payload_mut());
                     arp_repr.emit(&mut packet);
-                })
+                });
+                Ok(())
             }
             EthernetPacket::Ip(packet) => {
                 self.dispatch_ip(tx_token, PacketMeta::default(), packet, frag)
@@ -1074,17 +1121,12 @@ impl InterfaceInner {
                     target_protocol_addr: dst_addr,
                 };
 
-                if let Err(e) =
-                    self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
-                        frame.set_dst_addr(EthernetAddress::BROADCAST);
-                        frame.set_ethertype(EthernetProtocol::Arp);
+                self.dispatch_ethernet(tx_token, arp_repr.buffer_len(), |mut frame| {
+                    frame.set_dst_addr(EthernetAddress::BROADCAST);
+                    frame.set_ethertype(EthernetProtocol::Arp);
 
-                        arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
-                    })
-                {
-                    net_debug!("Failed to dispatch ARP request: {:?}", e);
-                    return Err(DispatchError::NeighborPending);
-                }
+                    arp_repr.emit(&mut ArpPacket::new_unchecked(frame.payload_mut()))
+                });
             }
 
             #[cfg(feature = "proto-ipv6")]
