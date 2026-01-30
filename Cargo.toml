@@ -97,6 +97,9 @@ defmt = ["dep:defmt", "heapless/defmt"]
 
 "async" = []
 
+# Automatically reply on an ICMP echo request
+"auto-icmp-echo-reply" = []
+
 default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "medium-ethernet", "medium-ip", "medium-ieee802154",
@@ -104,7 +107,7 @@ default = [
   "proto-ipv4",  "proto-dhcpv4", "proto-ipv6", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
-  "packetmeta-id", "async", "multicast"
+  "packetmeta-id", "async", "multicast", "auto-icmp-echo-reply"
 ]
 
 # Private features

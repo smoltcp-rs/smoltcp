@@ -381,9 +381,9 @@ fn test_icmp_error_port_unreachable(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ip)]
-#[cfg(feature = "medium-ip")]
+#[cfg(all(feature = "medium-ip", feature = "auto-icmp-echo-reply"))]
 #[case(Medium::Ethernet)]
-#[cfg(feature = "medium-ethernet")]
+#[cfg(all(feature = "medium-ethernet", feature = "auto-icmp-echo-reply"))]
 fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
     use crate::wire::{Icmpv4Packet, Icmpv4Repr};
 
@@ -626,9 +626,17 @@ fn test_arp_flush_after_update_ip(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ip)]
-#[cfg(all(feature = "socket-icmp", feature = "medium-ip"))]
+#[cfg(all(
+    feature = "socket-icmp",
+    feature = "medium-ip",
+    feature = "auto-icmp-echo-reply",
+))]
 #[case(Medium::Ethernet)]
-#[cfg(all(feature = "socket-icmp", feature = "medium-ethernet"))]
+#[cfg(all(
+    feature = "socket-icmp",
+    feature = "medium-ethernet",
+    feature = "auto-icmp-echo-reply",
+))]
 fn test_icmpv4_socket(#[case] medium: Medium) {
     use crate::wire::Icmpv4Packet;
 

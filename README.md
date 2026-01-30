@@ -86,7 +86,7 @@ The IGMPv1 and IGMPv2 protocols are supported, and IPv4 multicast is available.
 The ICMPv4 protocol is supported, and ICMP sockets are available.
 
   * ICMPv4 header checksum is supported.
-  * ICMPv4 echo replies are generated in response to echo requests.
+  * ICMPv4 echo replies are generated in response to echo requests by default.
   * ICMP sockets can listen to ICMPv4 Port Unreachable messages, or any ICMPv4 messages with
     a given IPv4 identifier field.
   * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
@@ -97,7 +97,7 @@ The ICMPv4 protocol is supported, and ICMP sockets are available.
 The ICMPv6 protocol is supported, and ICMP sockets are available.
 
   * ICMPv6 header checksum is supported.
-  * ICMPv6 echo replies are generated in response to echo requests.
+  * ICMPv6 echo replies are generated in response to echo requests by default.
   * ICMPv6 protocol unreachable messages are **not** passed to higher layers when received.
 
 #### NDISC

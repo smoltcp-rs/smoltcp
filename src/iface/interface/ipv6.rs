@@ -398,6 +398,7 @@ impl InterfaceInner {
 
         match icmp_repr {
             // Respond to echo requests.
+            #[cfg(feature = "auto-icmp-echo-reply")]
             Icmpv6Repr::EchoRequest {
                 ident,
                 seq_no,
@@ -441,6 +442,7 @@ impl InterfaceInner {
             _ if handled_by_icmp_socket => None,
 
             // FIXME: do something correct here?
+            // By doing nothing, this arm handles the case when auto echo replies are disabled.
             _ => None,
         }
     }
