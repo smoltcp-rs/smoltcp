@@ -1,4 +1,5 @@
 use super::*;
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 
 impl Interface {
     /// Process fragments that still need to be sent for IPv4 packets.
@@ -100,11 +101,19 @@ impl InterfaceInner {
         ipv4_packet: &Ipv4Packet<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<Packet<'a>> {
-        let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
+        let mut ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
             net_debug!("non-unicast or unspecified source address");
             return None;
+        }
+
+        // If this is the first fragment, capture the options.
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        if ipv4_packet.frag_offset() == 0 && ipv4_packet.has_options() {
+            frag.options_buffer[..ipv4_repr.options_len()]
+                .copy_from_slice(&ipv4_repr.options[..ipv4_repr.options_len()]);
+            frag.options_len = ipv4_repr.options_len()
         }
 
         #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -133,10 +142,12 @@ impl InterfaceInner {
                     return None;
                 }
 
-                // NOTE: according to the standard, the total length needs to be
-                // recomputed, as well as the checksum. However, we don't really use
-                // the IPv4 header after the packet is reassembled.
-                f.assemble()?
+                // Returns early if assembly is incomplete.
+                let payload = f.assemble()?;
+
+                // Update the payload length, so that the raw sockets get the correct value.
+                ipv4_repr.payload_len = payload.len();
+                payload
             } else {
                 ipv4_packet.payload()
             }
@@ -144,6 +155,16 @@ impl InterfaceInner {
 
         #[cfg(not(feature = "proto-ipv4-fragmentation"))]
         let ip_payload = ipv4_packet.payload();
+
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        // The first fragment will by definition have all options. The length of the options it
+        // contains will be greater than or equal to size of the options in the other fragments.
+        // Therefore, this is guaranteed to overwrite whatever was captured when the repr object
+        // parsed the current packet.
+        if let Err(e) = ipv4_repr.set_options(&frag.options_buffer[..frag.options_len]) {
+            net_debug!("fragmentation assembler options error: {:?}", e);
+            return None;
+        }
 
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
@@ -386,8 +407,16 @@ impl InterfaceInner {
                 src_addr: ipv4_repr.dst_addr,
                 dst_addr: ipv4_repr.src_addr,
                 next_header: IpProtocol::Icmp,
+                header_len: IPV4_HEADER_LEN,
                 payload_len: icmp_repr.buffer_len(),
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: true,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit: 64,
+                options: [0u8; MAX_OPTIONS_SIZE],
             };
             Some(Packet::new_ipv4(
                 ipv4_reply_repr,
@@ -402,8 +431,16 @@ impl InterfaceInner {
                             src_addr,
                             dst_addr: ipv4_repr.src_addr,
                             next_header: IpProtocol::Icmp,
+                            header_len: IPV4_HEADER_LEN,
                             payload_len: icmp_repr.buffer_len(),
+                            dscp: 0,
+                            ecn: 0,
+                            ident: 0,
+                            dont_frag: true,
+                            more_frags: false,
+                            frag_offset: 0,
                             hop_limit: 64,
+                            options: [0u8; MAX_OPTIONS_SIZE],
                         };
                         Some(Packet::new_ipv4(
                             ipv4_reply_repr,
@@ -423,9 +460,9 @@ impl InterfaceInner {
     pub(super) fn dispatch_ipv4_frag<Tx: TxToken>(&mut self, tx_token: Tx, frag: &mut Fragmenter) {
         let caps = self.caps.clone();
 
-        let mtu_max = self.ip_mtu();
-        let ip_len = (frag.packet_len - frag.sent_bytes + frag.ipv4.repr.buffer_len()).min(mtu_max);
-        let payload_len = ip_len - frag.ipv4.repr.buffer_len();
+        let max_fragment_size = caps.max_ipv4_fragment_size(frag.ipv4.repr.buffer_len());
+        let payload_len = (frag.packet_len - frag.sent_bytes).min(max_fragment_size);
+        let ip_len = payload_len + frag.ipv4.repr.buffer_len();
 
         let more_frags = (frag.packet_len - frag.sent_bytes) != payload_len;
         frag.ipv4.repr.payload_len = payload_len;

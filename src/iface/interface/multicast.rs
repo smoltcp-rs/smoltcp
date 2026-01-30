@@ -6,6 +6,8 @@ use super::{Interface, InterfaceInner};
 use super::{IpPayload, Packet, check};
 use crate::config::{IFACE_MAX_ADDR_COUNT, IFACE_MAX_MULTICAST_GROUP_COUNT};
 use crate::phy::{Device, PacketMeta};
+#[cfg(feature = "proto-ipv4")]
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 use crate::wire::*;
 
 /// Error type for `join_multicast_group`, `leave_multicast_group`.
@@ -480,7 +482,15 @@ impl InterfaceInner {
                 dst_addr: group_addr,
                 next_header: IpProtocol::Igmp,
                 payload_len: igmp_repr.buffer_len(),
+                header_len: IPV4_HEADER_LEN,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit: 1,
+                options: [0u8; MAX_OPTIONS_SIZE],
                 // [#183](https://github.com/m-labs/smoltcp/issues/183).
             },
             IpPayload::Igmp(igmp_repr),
@@ -498,7 +508,15 @@ impl InterfaceInner {
                     dst_addr: IPV4_MULTICAST_ALL_ROUTERS,
                     next_header: IpProtocol::Igmp,
                     payload_len: igmp_repr.buffer_len(),
+                    header_len: IPV4_HEADER_LEN,
+                    dscp: 0,
+                    ecn: 0,
+                    ident: 0,
+                    dont_frag: false,
+                    more_frags: false,
+                    frag_offset: 0,
                     hop_limit: 1,
+                    options: [0u8; MAX_OPTIONS_SIZE],
                 },
                 IpPayload::Igmp(igmp_repr),
             )

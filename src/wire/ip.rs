@@ -4,7 +4,10 @@ use core::fmt;
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Packet, Ipv4Repr};
+use crate::wire::{
+    IPV4_HEADER_LEN, Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Packet, Ipv4Repr,
+    ipv4::MAX_OPTIONS_SIZE,
+};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6AddressExt, Ipv6Cidr, Ipv6Packet, Ipv6Repr};
 
@@ -607,7 +610,15 @@ impl Repr {
                 dst_addr,
                 next_header,
                 payload_len,
+                header_len: IPV4_HEADER_LEN,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit,
+                options: [0u8; MAX_OPTIONS_SIZE],
             }),
             #[cfg(feature = "proto-ipv6")]
             (Address::Ipv6(src_addr), Address::Ipv6(dst_addr)) => Self::Ipv6(Ipv6Repr {
@@ -1061,8 +1072,16 @@ pub(crate) mod test {
             src_addr: crate::wire::ipv4::Address::new(0x11, 0x12, 0x13, 0x14),
             dst_addr: crate::wire::ipv4::Address::new(0x21, 0x22, 0x23, 0x24),
             next_header: Protocol::Icmp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: 0,
+            dscp: 0,
+            ecn: 0,
+            ident: 1,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         };
 
         let packet = Packet::new_unchecked(&ipv4_packet_bytes[..]);

@@ -10,7 +10,7 @@ use crate::socket::{Context, PollAt};
 use crate::storage::Empty;
 use crate::wire::IcmpRepr;
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Repr};
+use crate::wire::{IPV4_HEADER_LEN, Icmpv4Packet, Icmpv4Repr, Ipv4Repr, ipv4::MAX_OPTIONS_SIZE};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Repr};
 use crate::wire::{IpAddress, IpListenEndpoint, IpProtocol, IpRepr};
@@ -597,8 +597,16 @@ impl<'a> Socket<'a> {
                         src_addr,
                         dst_addr,
                         next_header: IpProtocol::Icmp,
+                        header_len: IPV4_HEADER_LEN,
                         payload_len: repr.buffer_len(),
+                        dscp: 0,
+                        ecn: 0,
+                        ident: 0,
+                        dont_frag: false,
+                        more_frags: false,
+                        frag_offset: 0,
                         hop_limit,
+                        options: [0u8; MAX_OPTIONS_SIZE],
                     });
                     emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
                 }
@@ -686,6 +694,7 @@ mod test_ipv4 {
     use rstest::*;
 
     use super::tests_common::*;
+    use crate::wire::ipv4::MAX_OPTIONS_SIZE;
     use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
 
     const REMOTE_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
@@ -705,16 +714,32 @@ mod test_ipv4 {
         src_addr: LOCAL_IPV4,
         dst_addr: REMOTE_IPV4,
         next_header: IpProtocol::Icmp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 24,
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 0x40,
+        options: [0u8; MAX_OPTIONS_SIZE],
     });
 
     static REMOTE_IPV4_REPR: Ipv4Repr = Ipv4Repr {
         src_addr: REMOTE_IPV4,
         dst_addr: LOCAL_IPV4,
         next_header: IpProtocol::Icmp,
+        header_len: IPV4_HEADER_LEN,
         payload_len: 24,
+        dscp: 0,
+        ecn: 0,
+        ident: 0,
+        dont_frag: false,
+        more_frags: false,
+        frag_offset: 0,
         hop_limit: 0x40,
+        options: [0u8; MAX_OPTIONS_SIZE],
     };
 
     #[test]
@@ -811,8 +836,16 @@ mod test_ipv4 {
                         src_addr: LOCAL_IPV4,
                         dst_addr: REMOTE_IPV4,
                         next_header: IpProtocol::Icmp,
+                        header_len: IPV4_HEADER_LEN,
                         payload_len: ECHOV4_REPR.buffer_len(),
+                        dscp: 0,
+                        ecn: 0,
+                        ident: 0,
+                        dont_frag: false,
+                        more_frags: false,
+                        frag_offset: 0,
                         hop_limit: 0x2a,
+                        options: [0u8; MAX_OPTIONS_SIZE],
                     })
                 );
                 Ok::<_, ()>(())
@@ -908,8 +941,16 @@ mod test_ipv4 {
                 src_addr: LOCAL_IPV4,
                 dst_addr: REMOTE_IPV4,
                 next_header: IpProtocol::Icmp,
+                header_len: IPV4_HEADER_LEN,
                 payload_len: 12,
+                dscp: 0,
+                ecn: 0,
+                ident: 0,
+                dont_frag: false,
+                more_frags: false,
+                frag_offset: 0,
                 hop_limit: 0x40,
+                options: [0u8; MAX_OPTIONS_SIZE],
             },
             data,
         };
@@ -917,8 +958,16 @@ mod test_ipv4 {
             src_addr: REMOTE_IPV4,
             dst_addr: LOCAL_IPV4,
             next_header: IpProtocol::Icmp,
+            header_len: IPV4_HEADER_LEN,
             payload_len: icmp_repr.buffer_len(),
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: false,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 0x40,
+            options: [0u8; MAX_OPTIONS_SIZE],
         };
 
         assert!(!socket.can_recv());

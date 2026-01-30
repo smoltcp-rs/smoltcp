@@ -32,6 +32,16 @@ pub const MULTICAST_ALL_SYSTEMS: Address = Address::new(224, 0, 0, 1);
 /// All multicast-capable routers
 pub const MULTICAST_ALL_ROUTERS: Address = Address::new(224, 0, 0, 2);
 
+/// Maximum size of options in octets. The header length field is 4 bits, which limits the
+/// possible header size, and is in units of 4-octets. Since the fixed size fields are always
+/// present in the header, the remaining possible size is the maximum size of the options field.
+/// 0xF * 4 - HEADER_LEN == 40
+pub const MAX_OPTIONS_SIZE: usize = 40;
+
+/// Size of 32 bits in octets for alignment within the header. The header length must be a multiple
+/// of this value.
+pub const ALIGNMENT_32_BITS: usize = 4;
+
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Key {
@@ -219,6 +229,7 @@ mod field {
     pub const CHECKSUM: Field = 10..12;
     pub const SRC_ADDR: Field = 12..16;
     pub const DST_ADDR: Field = 16..20;
+    pub const OPTIONS_START: usize = 20;
 }
 
 pub const HEADER_LEN: usize = field::DST_ADDR.end;
@@ -259,6 +270,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
         } else if self.header_len() as u16 > self.total_len() {
             Err(Error)
         } else if len < self.total_len() as usize {
+            Err(Error)
+        } else if (self.header_len() as usize) < HEADER_LEN {
             Err(Error)
         } else {
             Ok(())
@@ -364,6 +377,29 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn dst_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_bytes(&data[field::DST_ADDR])
+    }
+
+    /// Return true if options exist according to the header length.
+    #[inline]
+    pub fn has_options(&self) -> bool {
+        self.header_len() as usize > HEADER_LEN
+    }
+
+    /// Return a reference to the options if the field exists according to the header length.
+    #[inline]
+    pub fn options(&self) -> Option<&[u8]> {
+        if self.has_options() {
+            let data = self.buffer.as_ref();
+            Some(&data[field::OPTIONS_START..self.header_len() as usize])
+        } else {
+            None
+        }
+    }
+
+    /// Return the length of the options field as calculated from the header length.
+    #[inline]
+    pub fn options_len(&self) -> usize {
+        self.header_len() as usize - HEADER_LEN
     }
 
     /// Validate the header checksum.
@@ -529,6 +565,25 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         let data = self.buffer.as_mut();
         &mut data[range]
     }
+
+    /// Return a mutable pointer to the options if they are present according to the header length.
+    #[inline]
+    pub fn options_mut(&mut self) -> Option<&mut [u8]> {
+        if self.has_options() {
+            let range = field::OPTIONS_START..self.header_len() as usize;
+            let data = self.buffer.as_mut();
+            Some(&mut data[range])
+        } else {
+            None
+        }
+    }
+
+    /// Set options without checking if the input is sized properly or if the header length is
+    /// appropriate.
+    pub fn set_options_unchecked(&mut self, options: &[u8]) {
+        let data = self.buffer.as_mut();
+        data[HEADER_LEN..HEADER_LEN + options.len()].copy_from_slice(options);
+    }
 }
 
 impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
@@ -544,8 +599,16 @@ pub struct Repr {
     pub src_addr: Address,
     pub dst_addr: Address,
     pub next_header: Protocol,
+    pub header_len: usize,
     pub payload_len: usize,
+    pub dscp: u8,
+    pub ecn: u8,
+    pub ident: u16,
+    pub dont_frag: bool,
+    pub more_frags: bool,
+    pub frag_offset: u16,
     pub hop_limit: u8,
+    pub options: [u8; MAX_OPTIONS_SIZE],
 }
 
 impl Repr {
@@ -575,19 +638,32 @@ impl Repr {
         // All DSCP values are acceptable, since they are of no concern to receiving endpoint.
         // All ECN values are acceptable, since ECN requires opt-in from both endpoints.
         // All TTL values are acceptable, since we do not perform routing.
+
+        let mut options = [0u8; MAX_OPTIONS_SIZE];
+        if let Some(bytes) = packet.options() {
+            options[..packet.options_len()].copy_from_slice(bytes);
+        }
+
         Ok(Repr {
             src_addr: packet.src_addr(),
             dst_addr: packet.dst_addr(),
             next_header: packet.next_header(),
+            header_len: packet.header_len() as usize,
             payload_len,
+            dscp: packet.dscp(),
+            ecn: packet.ecn(),
+            ident: packet.ident(),
+            dont_frag: packet.dont_frag(),
+            more_frags: packet.more_frags(),
+            frag_offset: packet.frag_offset(),
             hop_limit: packet.hop_limit(),
+            options,
         })
     }
 
     /// Return the length of a header that will be emitted from this high-level representation.
     pub const fn buffer_len(&self) -> usize {
-        // We never emit any options.
-        field::DST_ADDR.end
+        self.header_len
     }
 
     /// Emit a high-level representation into an Internet Protocol version 4 packet.
@@ -597,20 +673,22 @@ impl Repr {
         checksum_caps: &ChecksumCapabilities,
     ) {
         packet.set_version(4);
-        packet.set_header_len(field::DST_ADDR.end as u8);
-        packet.set_dscp(0);
-        packet.set_ecn(0);
+        packet.set_header_len(self.header_len as u8);
+        packet.set_dscp(self.dscp);
+        packet.set_ecn(self.ecn);
         let total_len = packet.header_len() as u16 + self.payload_len as u16;
         packet.set_total_len(total_len);
-        packet.set_ident(0);
+        packet.set_ident(self.ident);
         packet.clear_flags();
-        packet.set_more_frags(false);
-        packet.set_dont_frag(true);
-        packet.set_frag_offset(0);
+        packet.set_more_frags(self.more_frags);
+        packet.set_dont_frag(self.dont_frag);
+        packet.set_frag_offset(self.frag_offset);
         packet.set_hop_limit(self.hop_limit);
         packet.set_next_header(self.next_header);
         packet.set_src_addr(self.src_addr);
         packet.set_dst_addr(self.dst_addr);
+
+        packet.set_options_unchecked(&self.options[..packet.options_len()]);
 
         if checksum_caps.ipv4.tx() {
             packet.fill_checksum();
@@ -619,6 +697,23 @@ impl Repr {
             // since implementations might rely on it
             packet.set_checksum(0);
         }
+    }
+
+    /// Write options. Result is ok if input is sized properly.
+    pub fn set_options(&mut self, options: &[u8]) -> Result<()> {
+        if options.len() <= MAX_OPTIONS_SIZE && options.len() % 4 == 0 {
+            self.options[..options.len()].copy_from_slice(options);
+            self.header_len = HEADER_LEN + options.len();
+            Ok(())
+        } else {
+            Err(Error)
+        }
+    }
+
+    /// Return the length of the options included in the header that will be emitted from this
+    /// high-level representation.
+    pub const fn options_len(&self) -> usize {
+        self.header_len - HEADER_LEN
     }
 }
 
@@ -639,7 +734,9 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&T> {
                 if self.version() != 4 {
                     write!(f, " ver={}", self.version())?;
                 }
-                if self.header_len() != 20 {
+                if (self.header_len() as usize) < HEADER_LEN
+                    || self.header_len() as usize > HEADER_LEN + MAX_OPTIONS_SIZE
+                {
                     write!(f, " hlen={}", self.header_len())?;
                 }
                 if self.dscp() != 0 {
@@ -732,7 +829,7 @@ pub(crate) mod test {
     pub(crate) const MOCK_UNSPECIFIED: Address = Address::UNSPECIFIED;
 
     static PACKET_BYTES: [u8; 30] = [
-        0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x6e, 0x11, 0x12, 0x13,
+        0x45, 0x21, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x4d, 0x11, 0x12, 0x13,
         0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
     ];
 
@@ -743,8 +840,8 @@ pub(crate) mod test {
         let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
         assert_eq!(packet.version(), 4);
         assert_eq!(packet.header_len(), 20);
-        assert_eq!(packet.dscp(), 0);
-        assert_eq!(packet.ecn(), 0);
+        assert_eq!(packet.dscp(), 8);
+        assert_eq!(packet.ecn(), 1);
         assert_eq!(packet.total_len(), 30);
         assert_eq!(packet.ident(), 0x102);
         assert!(packet.more_frags());
@@ -752,7 +849,7 @@ pub(crate) mod test {
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.hop_limit(), 0x1a);
         assert_eq!(packet.next_header(), Protocol::Icmp);
-        assert_eq!(packet.checksum(), 0xd56e);
+        assert_eq!(packet.checksum(), 0xd54d);
         assert_eq!(packet.src_addr(), Address::new(0x11, 0x12, 0x13, 0x14));
         assert_eq!(packet.dst_addr(), Address::new(0x21, 0x22, 0x23, 0x24));
         assert!(packet.verify_checksum());
@@ -766,8 +863,8 @@ pub(crate) mod test {
         packet.set_version(4);
         packet.set_header_len(20);
         packet.clear_flags();
-        packet.set_dscp(0);
-        packet.set_ecn(0);
+        packet.set_dscp(8);
+        packet.set_ecn(1);
         packet.set_total_len(30);
         packet.set_ident(0x102);
         packet.set_more_frags(true);
@@ -779,7 +876,67 @@ pub(crate) mod test {
         packet.set_dst_addr(Address::new(0x21, 0x22, 0x23, 0x24));
         packet.fill_checksum();
         packet.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
+        assert_eq!(packet.options_mut(), None);
         assert_eq!(&*packet.into_inner(), &PACKET_BYTES[..]);
+    }
+    const OPTION_PACKET_BYTES: [u8; 34] = [
+        0x46, 0x21, 0x00, 0x22, 0x01, 0x02, 0x40, 0x00, 0x1a, 0x01, 0x13, 0xee, 0x11, 0x12, 0x13,
+        0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+        0x88, 0x04, 0x5a, 0x5a, // Stream Identifier option
+        0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload
+    ];
+
+    const OPTION_BYTES: [u8; 4] = [0x88, 0x04, 0x5a, 0x5a];
+
+    const OPTION_PAYLOAD_BYTES: [u8; 10] =
+        [0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff];
+
+    #[test]
+    fn test_deconstruct_with_option() {
+        let packet = Packet::new_unchecked(&OPTION_PACKET_BYTES[..]);
+        assert_eq!(packet.version(), 4);
+        assert_eq!(packet.header_len(), 24);
+        assert_eq!(packet.dscp(), 8);
+        assert_eq!(packet.ecn(), 1);
+        assert_eq!(packet.total_len(), 34);
+        assert_eq!(packet.ident(), 0x102);
+        assert!(!packet.more_frags());
+        assert!(packet.dont_frag());
+        assert_eq!(packet.frag_offset(), 0);
+        assert_eq!(packet.hop_limit(), 0x1a);
+        assert_eq!(packet.next_header(), Protocol::Icmp);
+        assert_eq!(packet.checksum(), 0x13ee);
+        assert_eq!(packet.src_addr(), Address::new(0x11, 0x12, 0x13, 0x14));
+        assert_eq!(packet.dst_addr(), Address::new(0x21, 0x22, 0x23, 0x24));
+        assert!(packet.verify_checksum());
+        assert_eq!(packet.payload(), &PAYLOAD_BYTES[..]);
+    }
+
+    #[test]
+    fn test_construct_with_option() {
+        let mut bytes = vec![0xa5; 34];
+        let mut packet = crate::wire::ipv4::Packet::new_unchecked(&mut bytes);
+        packet.set_version(4);
+        packet.set_header_len(24);
+        packet.clear_flags();
+        packet.set_dscp(8);
+        packet.set_ecn(1);
+        packet.set_total_len(34);
+        packet.set_ident(0x102);
+        packet.set_more_frags(false);
+        packet.set_dont_frag(true);
+        packet.set_frag_offset(0);
+        packet.set_hop_limit(0x1a);
+        packet.set_next_header(Protocol::Icmp);
+        packet.set_src_addr(Address::new(0x11, 0x12, 0x13, 0x14));
+        packet.set_dst_addr(Address::new(0x21, 0x22, 0x23, 0x24));
+        packet.set_options_unchecked(&OPTION_BYTES[..]);
+        packet.fill_checksum();
+        packet
+            .payload_mut()
+            .copy_from_slice(&OPTION_PAYLOAD_BYTES[..]);
+        assert_eq!(packet.options_mut().unwrap(), OPTION_BYTES);
+        assert_eq!(&*packet.into_inner(), &OPTION_PACKET_BYTES[..]);
     }
 
     #[test]
@@ -820,7 +977,15 @@ pub(crate) mod test {
             dst_addr: Address::new(0x21, 0x22, 0x23, 0x24),
             next_header: Protocol::Icmp,
             payload_len: 4,
+            header_len: HEADER_LEN,
+            dscp: 0,
+            ecn: 0,
+            ident: 0,
+            dont_frag: true,
+            more_frags: false,
+            frag_offset: 0,
             hop_limit: 64,
+            options: [0u8; MAX_OPTIONS_SIZE],
         }
     }
 
@@ -829,6 +994,59 @@ pub(crate) mod test {
         let packet = Packet::new_unchecked(&REPR_PACKET_BYTES[..]);
         let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
         assert_eq!(repr, packet_repr());
+    }
+
+    #[test]
+    fn test_parse_with_option() {
+        let packet = Packet::new_unchecked(&OPTION_PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        assert_eq!(
+            repr,
+            Repr {
+                src_addr: Address::new(0x11, 0x12, 0x13, 0x14),
+                dst_addr: Address::new(0x21, 0x22, 0x23, 0x24),
+                next_header: Protocol::Icmp,
+                payload_len: 10,
+                header_len: HEADER_LEN + 4,
+                dscp: 8,
+                ecn: 1,
+                ident: 0x102,
+                dont_frag: true,
+                more_frags: false,
+                frag_offset: 0,
+                hop_limit: 0x1a,
+                options: [
+                    0x88, 0x04, 0x5a, 0x5a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00,
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_manually_adding_options() {
+        let packet = Packet::new_unchecked(&REPR_PACKET_BYTES[..]);
+        let mut repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        assert!(repr.set_options(&[]).is_ok());
+        assert!(repr.set_options(&[0x0]).is_err());
+        assert!(repr.set_options(&[0x0, 0x0, 0x0, 0x0]).is_ok());
+        assert!(repr.set_options(&[0u8; 42]).is_err());
+    }
+
+    #[test]
+    fn test_parse_bad_option_no_padding() {
+        // Checksum is correct, length indicates packet should be 38 octets.
+        const PACKET_BYTES: [u8; 37] = [
+            0x47, 0x21, 0x00, 0x22, 0x01, 0x02, 0x40, 0x00, 0x1a, 0x01, 0xe4, 0x41, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0x07, 0x07, 0x04, 0x01, 0x02, 0x03, 0x04, // Route Record, missing pad byte at end
+            0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload
+        ];
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default());
+        assert!(repr.is_err());
     }
 
     #[test]
