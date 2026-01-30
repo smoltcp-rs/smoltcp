@@ -34,9 +34,6 @@ FEATURES_TEST=(
     "std,medium-ip,proto-ipv4,proto-ipv6,multicast,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
     "std,medium-ieee802154,medium-ip,proto-ipv4,socket-raw,auto-icmp-echo-reply"
     "std,medium-ethernet,proto-ipv4,proto-ipsec,socket-raw"
-)
-
-FEATURES_TEST_NIGHTLY=(
     "alloc,medium-ethernet,proto-ipv4,proto-ipv6,socket-raw,socket-udp,socket-tcp,socket-icmp,proto-ipv6-slaac"
 )
 
@@ -54,12 +51,6 @@ test() {
     for features in ${FEATURES_TEST[@]}; do
         cargo +$version test --no-default-features --features "$features"
     done
-
-    if [[ $version == "nightly" ]]; then
-        for features in ${FEATURES_TEST_NIGHTLY[@]}; do
-            cargo +$version test --no-default-features --features "$features"
-        done
-    fi
 }
 
 netsim() {
