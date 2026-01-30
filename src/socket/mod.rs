@@ -102,6 +102,29 @@ pub trait AnySocket<'a> {
         Self: Sized;
 }
 
+impl<'a> AnySocket<'a> for Socket<'a> {
+    #[inline]
+    fn upcast(self) -> Socket<'a> {
+        self
+    }
+
+    #[inline]
+    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>
+    where
+        Self: Sized,
+    {
+        Some(socket)
+    }
+
+    #[inline]
+    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>
+    where
+        Self: Sized,
+    {
+        Some(socket)
+    }
+}
+
 macro_rules! from_socket {
     ($socket:ty, $variant:ident) => {
         impl<'a> AnySocket<'a> for $socket {
