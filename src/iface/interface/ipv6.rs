@@ -508,6 +508,7 @@ impl InterfaceInner {
                     None
                 }
             }
+            #[cfg(feature = "proto-ipv6-slaac")]
             NdiscRepr::RouterAdvert {
                 hop_limit: _,
                 flags: _,
@@ -614,10 +615,7 @@ impl InterfaceInner {
 
 impl Interface {
     /// Synchronize the slaac address and router state with the interface state.
-    #[cfg(all(
-        feature = "proto-ipv6",
-        any(feature = "medium-ethernet", feature = "medium-ieee802154")
-    ))]
+    #[cfg(feature = "proto-ipv6-slaac")]
     pub(super) fn sync_slaac_state(&mut self, timestamp: Instant) {
         let required_addresses: Vec<_, IFACE_MAX_PREFIX_COUNT> = self
             .inner
@@ -706,10 +704,7 @@ impl Interface {
     }
 
     /// Emit a router solicitation when required by the interface's slaac state machine.
-    #[cfg(all(
-        feature = "proto-ipv6",
-        any(feature = "medium-ethernet", feature = "medium-ieee802154")
-    ))]
+    #[cfg(feature = "proto-ipv6-slaac")]
     pub(super) fn ndisc_rs_egress(&mut self, device: &mut (impl Device + ?Sized)) {
         if !self.inner.slaac.rs_required(self.inner.now) {
             return;

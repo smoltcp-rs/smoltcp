@@ -42,10 +42,7 @@ use crate::config::{
     IFACE_MAX_ADDR_COUNT, IFACE_MAX_PREFIX_COUNT, IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT,
 };
 use crate::iface::Routes;
-#[cfg(all(
-    feature = "proto-ipv6",
-    any(feature = "medium-ethernet", feature = "medium-ieee802154")
-))]
+#[cfg(feature = "proto-ipv6-slaac")]
 use crate::iface::Slaac;
 use crate::phy::PacketMeta;
 use crate::phy::{ChecksumCapabilities, Device, DeviceCapabilities, Medium, RxToken, TxToken};
@@ -149,15 +146,9 @@ pub struct InterfaceInner {
     tag: u16,
     ip_addrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT>,
     any_ip: bool,
-    #[cfg(all(
-        feature = "proto-ipv6",
-        any(feature = "medium-ethernet", feature = "medium-ieee802154")
-    ))]
+    #[cfg(feature = "proto-ipv6-slaac")]
     slaac_enabled: bool,
-    #[cfg(all(
-        feature = "proto-ipv6",
-        any(feature = "medium-ethernet", feature = "medium-ieee802154")
-    ))]
+    #[cfg(feature = "proto-ipv6-slaac")]
     slaac: Slaac,
     routes: Routes,
     #[cfg(feature = "multicast")]
@@ -285,15 +276,9 @@ impl Interface {
                 ipv4_id,
                 #[cfg(feature = "proto-sixlowpan")]
                 sixlowpan_address_context: Vec::new(),
-                #[cfg(all(
-                    feature = "proto-ipv6",
-                    any(feature = "medium-ethernet", feature = "medium-ieee802154")
-                ))]
+                #[cfg(feature = "proto-ipv6-slaac")]
                 slaac_enabled: config.slaac,
-                #[cfg(all(
-                    feature = "proto-ipv6",
-                    any(feature = "medium-ethernet", feature = "medium-ieee802154")
-                ))]
+                #[cfg(feature = "proto-ipv6-slaac")]
                 slaac: Slaac::new(),
                 rand,
             },
@@ -535,10 +520,7 @@ impl Interface {
             }
         }
 
-        #[cfg(all(
-            feature = "proto-ipv6",
-            any(feature = "medium-ethernet", feature = "medium-ieee802154")
-        ))]
+        #[cfg(feature = "proto-ipv6-slaac")]
         if self.inner.slaac_enabled {
             self.ndisc_rs_egress(device);
         }
@@ -579,10 +561,7 @@ impl Interface {
         #[cfg(feature = "_proto-fragmentation")]
         self.fragments.assembler.remove_expired(timestamp);
 
-        #[cfg(all(
-            feature = "proto-ipv6",
-            any(feature = "medium-ethernet", feature = "medium-ieee802154")
-        ))]
+        #[cfg(feature = "proto-ipv6-slaac")]
         if self.inner.slaac.sync_required(timestamp) {
             self.sync_slaac_state(timestamp)
         }
@@ -607,10 +586,7 @@ impl Interface {
         let inner = &mut self.inner;
 
         let other_polls = [
-            #[cfg(all(
-                feature = "proto-ipv6",
-                any(feature = "medium-ethernet", feature = "medium-ieee802154")
-            ))]
+            #[cfg(feature = "proto-ipv6-slaac")]
             inner.slaac.poll_at(timestamp),
             None,
         ];

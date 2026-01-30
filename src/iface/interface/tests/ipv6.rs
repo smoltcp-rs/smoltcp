@@ -843,7 +843,7 @@ fn test_handle_valid_ndisc_request(#[case] medium: Medium) {
 
 #[rstest]
 #[case(Medium::Ethernet)]
-#[cfg(feature = "medium-ethernet")]
+#[cfg(feature = "proto-ipv6-slaac")]
 fn test_router_advertisement(#[case] medium: Medium) {
     fn recv_icmpv6(
         device: &mut crate::tests::TestingDevice,

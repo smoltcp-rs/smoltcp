@@ -11,10 +11,7 @@ mod neighbor;
 mod route;
 #[cfg(feature = "proto-rpl")]
 mod rpl;
-#[cfg(all(
-    feature = "proto-ipv6",
-    any(feature = "medium-ethernet", feature = "medium-ieee802154")
-))]
+#[cfg(feature = "proto-ipv6-slaac")]
 mod slaac;
 mod socket_meta;
 mod socket_set;
@@ -28,9 +25,6 @@ pub use self::interface::{
 };
 
 pub use self::route::{Route, RouteTableFull, Routes};
-#[cfg(all(
-    feature = "proto-ipv6",
-    any(feature = "medium-ethernet", feature = "medium-ieee802154")
-))]
+#[cfg(feature = "proto-ipv6-slaac")]
 pub use self::slaac::Slaac;
 pub use self::socket_set::{SocketHandle, SocketSet, SocketStorage};
