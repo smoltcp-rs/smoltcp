@@ -4,8 +4,8 @@ use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
 use super::{Error, Result};
-use crate::wire::ip::pretty_print_ip_payload;
 use crate::wire::HardwareAddress;
+use crate::wire::ip::pretty_print_ip_payload;
 
 pub use super::IpProtocol as Protocol;
 

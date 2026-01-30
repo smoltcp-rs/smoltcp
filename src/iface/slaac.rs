@@ -4,7 +4,7 @@ use heapless::{LinearMap, Vec};
 use crate::config::{IFACE_MAX_PREFIX_COUNT, IFACE_MAX_ROUTE_COUNT};
 use crate::time::{Duration, Instant};
 use crate::wire::NdiscPrefixInfoFlags;
-use crate::wire::{ipv6::AddressExt, Ipv6Address, Ipv6Cidr, NdiscPrefixInformation};
+use crate::wire::{Ipv6Address, Ipv6Cidr, NdiscPrefixInformation, ipv6::AddressExt};
 
 const MAX_RTR_SOLICITATIONS: u8 = 3;
 const RTR_SOLICITATION_INTERVAL: Duration = Duration::from_secs(4);
