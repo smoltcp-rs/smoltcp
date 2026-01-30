@@ -49,7 +49,7 @@ defmt = ["dep:defmt", "heapless/defmt"]
 "medium-ieee802154" = ["socket", "proto-sixlowpan"]
 
 "phy-raw_socket" = ["std", "libc"]
-"phy-tuntap_interface" = ["std", "libc", "medium-ethernet"]
+"phy-tuntap_interface" = ["std", "libc"]
 
 "proto-ipv4" = []
 "proto-ipv4-fragmentation" = ["proto-ipv4", "_proto-fragmentation"]

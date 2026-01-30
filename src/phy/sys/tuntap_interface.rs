@@ -1,5 +1,5 @@
 use super::*;
-use crate::{phy::Medium, wire::EthernetFrame};
+use crate::phy::Medium;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -77,7 +77,7 @@ impl TunTapInterfaceDesc {
             #[cfg(feature = "medium-ip")]
             Medium::Ip => ip_mtu,
             #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => ip_mtu + EthernetFrame::<&[u8]>::header_len(),
+            Medium::Ethernet => ip_mtu + crate::wire::EthernetFrame::<&[u8]>::header_len(),
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => todo!(),
         };
