@@ -814,6 +814,12 @@ impl InterfaceInner {
         self.now = now
     }
 
+    #[cfg(test)]
+    #[allow(unused)] // unused depending on which sockets are enabled
+    pub(crate) fn set_ip_addrs(&mut self, addrs: Vec<IpCidr, IFACE_MAX_ADDR_COUNT>) {
+        self.ip_addrs = addrs;
+    }
+
     #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
     fn check_hardware_addr(addr: &HardwareAddress) {
         if !addr.is_unicast() {
@@ -830,7 +836,7 @@ impl InterfaceInner {
     }
 
     /// Check whether the interface has the given IP address assigned.
-    fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
+    pub(crate) fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
         let addr = addr.into();
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }

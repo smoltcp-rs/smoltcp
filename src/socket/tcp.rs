@@ -2348,6 +2348,19 @@ impl<'a> Socket<'a> {
             return Ok(());
         }
 
+        // NOTE(unwrap): we check tuple is not None above.
+        let tuple = self.tuple.unwrap();
+
+        // Check if the interface still has our source IP address.
+        // If not (e.g. the interface's IP changed), reset the socket.
+        // We use reset() instead of set_state(Closed) to avoid sending
+        // an RST packet with the now-invalid source IP.
+        if !cx.has_ip_addr(tuple.local.addr) {
+            net_debug!("source IP address no longer available, closing socket");
+            self.reset();
+            return Ok(());
+        }
+
         if self.remote_last_ts.is_none() {
             // We get here in exactly two cases:
             //  1) This socket just transitioned into SYN-SENT.
@@ -2423,9 +2436,6 @@ impl<'a> Socket<'a> {
         } else {
             return Ok(());
         }
-
-        // NOTE(unwrap): we check tuple is not None the first thing in this function.
-        let tuple = self.tuple.unwrap();
 
         // Construct the lowered IP representation.
         // We might need this to calculate the MSS, so do it early.
@@ -2723,7 +2733,8 @@ impl<'a> fmt::Write for Socket<'a> {
 #[cfg(all(test, feature = "medium-ip"))]
 mod test {
     use super::*;
-    use crate::wire::IpRepr;
+    use crate::config::IFACE_MAX_ADDR_COUNT;
+    use crate::wire::{IpCidr, IpRepr};
     use std::ops::{Deref, DerefMut};
     use std::vec::Vec;
 
@@ -8824,5 +8835,39 @@ mod test {
                 ..RECV_TEMPL
             }]
         );
+    }
+
+    // =========================================================================================//
+    // Tests for source IP address change.
+    // =========================================================================================//
+
+    #[test]
+    fn test_established_close_on_src_ip_change() {
+        let mut s = socket_established();
+
+        // Verify socket is working normally
+        s.send_slice(b"abc").unwrap();
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload: &b"abc"[..],
+                ..RECV_TEMPL
+            }]
+        );
+
+        // Simulate interface IP change - remove the socket's source IP
+        // and add a different one.
+        let mut new_addrs = heapless::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
+        new_addrs.push(IpCidr::new(OTHER_ADDR.into(), 24)).unwrap();
+        s.cx.set_ip_addrs(new_addrs);
+
+        // The socket's source IP is no longer on the interface.
+        // When dispatch() runs, it should detect this and reset the socket
+        // silently (no RST sent, since that would use the invalid source IP).
+        s.send_slice(b"def").unwrap();
+        recv_nothing!(s);
+        assert_eq!(s.state, State::Closed);
     }
 }
