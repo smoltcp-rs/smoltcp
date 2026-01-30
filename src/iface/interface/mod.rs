@@ -583,29 +583,28 @@ impl Interface {
             return Some(Instant::from_millis(0));
         }
 
-        let inner = &mut self.inner;
-
-        let other_polls = [
-            #[cfg(feature = "proto-ipv6-slaac")]
-            inner.slaac.poll_at(timestamp),
-            None,
-        ];
-
-        sockets
+        #[allow(unused_mut)]
+        let mut res = sockets
             .items()
-            .filter_map(move |item| {
-                let socket_poll_at = item.socket.poll_at(inner);
+            .filter_map(|item| {
+                let socket_poll_at = item.socket.poll_at(&mut self.inner);
                 match item
                     .meta
-                    .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
+                    .poll_at(socket_poll_at, |ip_addr| self.inner.has_neighbor(&ip_addr))
                 {
                     PollAt::Ingress => None,
                     PollAt::Time(instant) => Some(instant),
                     PollAt::Now => Some(Instant::from_millis(0)),
                 }
             })
-            .chain(other_polls.into_iter().flatten())
-            .min()
+            .min();
+
+        #[cfg(feature = "proto-ipv6-slaac")]
+        if self.inner.slaac_enabled {
+            res = res.min(self.inner.slaac.poll_at(timestamp));
+        }
+
+        res
     }
 
     /// Return an _advisory wait time_ for calling [poll] the next time.
