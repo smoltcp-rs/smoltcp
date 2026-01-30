@@ -4,6 +4,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
 use super::{Error, Result};
+use crate::wire::HardwareAddress;
 use crate::wire::ip::pretty_print_ip_payload;
 
 pub use super::IpProtocol as Protocol;
@@ -83,6 +84,12 @@ pub(crate) trait AddressExt {
     /// The function panics if `data` is not sixteen octets long.
     fn from_bytes(data: &[u8]) -> Address;
 
+    /// Create an IPv6 address based on the provided prefix and hardware identifier.
+    fn from_link_prefix(
+        link_prefix: &Cidr,
+        interface_identifier: HardwareAddress,
+    ) -> Option<Address>;
+
     /// Query whether the IPv6 address is an [unicast address].
     ///
     /// [unicast address]: https://tools.ietf.org/html/rfc4291#section-2.5
@@ -140,6 +147,23 @@ impl AddressExt for Address {
         let mut bytes = [0; ADDR_SIZE];
         bytes.copy_from_slice(data);
         Address::from(bytes)
+    }
+
+    fn from_link_prefix(
+        link_prefix: &Cidr,
+        interface_identifier: HardwareAddress,
+    ) -> Option<Address> {
+        if let Some(eui64) = interface_identifier.as_eui_64() {
+            if link_prefix.prefix_len() != 64 {
+                return None;
+            }
+            let mut bytes = [0; 16];
+            bytes[0..8].copy_from_slice(&link_prefix.address().octets()[0..8]);
+            bytes[8..16].copy_from_slice(&eui64);
+            Some(Address::from_bytes(&bytes))
+        } else {
+            None
+        }
     }
 
     fn x_is_unicast(&self) -> bool {
@@ -247,6 +271,12 @@ impl Cidr {
         prefix_len: 104,
     };
 
+    /// The link-local address prefix.
+    pub const LINK_LOCAL_PREFIX: Cidr = Cidr {
+        address: Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0),
+        prefix_len: 10,
+    };
+
     /// Create an IPv6 CIDR block from the given address and prefix length.
     ///
     /// # Panics
@@ -257,6 +287,15 @@ impl Cidr {
             address,
             prefix_len,
         }
+    }
+
+    /// Create an IPv6 CIDR based on the provided prefix and hardware identifier.
+    pub fn from_link_prefix(
+        link_prefix: &Cidr,
+        interface_identifier: HardwareAddress,
+    ) -> Option<Self> {
+        Address::from_link_prefix(link_prefix, interface_identifier)
+            .map(|address| Self::new(address, link_prefix.prefix_len()))
     }
 
     /// Return the address of this IPv6 CIDR block.
@@ -932,6 +971,45 @@ pub(crate) mod test {
 
         let cidr_without_prefix = Cidr::new(LINK_LOCAL_ADDR, 0);
         assert!(cidr_without_prefix.contains_addr(&Address::LOCALHOST));
+    }
+
+    #[test]
+    fn test_from_eui_64() {
+        #[cfg(feature = "medium-ethernet")]
+        use crate::wire::EthernetAddress;
+        #[cfg(feature = "medium-ieee802154")]
+        use crate::wire::Ieee802154Address;
+        let tests: std::vec::Vec<(HardwareAddress, Address)> = vec![
+            #[cfg(feature = "medium-ethernet")]
+            (
+                HardwareAddress::Ethernet(EthernetAddress::from_bytes(&[
+                    0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+                ])),
+                Address::new(0x2001, 0xdb8, 0x3, 0x0, 0xa8bb, 0xccff, 0xfedd, 0xeeff),
+            ),
+            #[cfg(feature = "medium-ieee802154")]
+            (
+                HardwareAddress::Ieee802154(Ieee802154Address::from_bytes(&[
+                    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                ])),
+                Address::new(0x2001, 0xdb8, 0x3, 0x0, 0x0211, 0x2233, 0x4455, 0x6677),
+            ),
+        ];
+
+        let prefix = Cidr::new(GLOBAL_UNICAST_ADDR.mask(64).into(), 64);
+        let wrong_prefix = Cidr::new(GLOBAL_UNICAST_ADDR.mask(72).into(), 72);
+
+        for (hardware, result) in tests {
+            let generated = Address::from_link_prefix(&prefix, hardware).unwrap();
+            assert!(prefix.contains_addr(&generated));
+            assert_eq!(generated, result);
+            assert!(Address::from_link_prefix(&wrong_prefix, hardware).is_none());
+
+            let generated = Cidr::from_link_prefix(&prefix, hardware).unwrap();
+            assert!(prefix.contains_subnet(&generated));
+            assert_eq!(generated.address(), result);
+            assert!(Cidr::from_link_prefix(&wrong_prefix, hardware).is_none());
+        }
     }
 
     #[test]

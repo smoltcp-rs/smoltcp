@@ -58,6 +58,7 @@ defmt = ["dep:defmt", "heapless/defmt"]
 "proto-ipv6-hbh" = ["proto-ipv6"]
 "proto-ipv6-fragmentation" = ["proto-ipv6", "_proto-fragmentation"]
 "proto-ipv6-routing" = ["proto-ipv6"]
+"proto-ipv6-slaac" = ["proto-ipv6"]
 "proto-rpl" = ["proto-ipv6-hbh", "proto-ipv6-routing"]
 "proto-sixlowpan" = ["proto-ipv6"]
 "proto-sixlowpan-fragmentation" = ["proto-sixlowpan", "_proto-fragmentation"]
@@ -104,7 +105,7 @@ default = [
   "std", "log", # needed for `cargo test --no-default-features --features default` :/
   "medium-ethernet", "medium-ip", "medium-ieee802154",
   "phy-raw_socket", "phy-tuntap_interface",
-  "proto-ipv4",  "proto-dhcpv4", "proto-ipv6", "proto-dns",
+  "proto-ipv4",  "proto-dhcpv4", "proto-ipv6", "proto-ipv6-slaac", "proto-dns",
   "proto-ipv4-fragmentation", "proto-sixlowpan-fragmentation",
   "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4", "socket-dns", "socket-mdns",
   "packetmeta-id", "async", "multicast", "auto-icmp-echo-reply"
@@ -193,6 +194,15 @@ iface-max-route-count-128 = []
 iface-max-route-count-256 = []
 iface-max-route-count-512 = []
 iface-max-route-count-1024 = []
+
+iface-max-prefix-count-1 = [] # Default
+iface-max-prefix-count-2 = []
+iface-max-prefix-count-3 = []
+iface-max-prefix-count-4 = []
+iface-max-prefix-count-5 = []
+iface-max-prefix-count-6 = []
+iface-max-prefix-count-7 = []
+iface-max-prefix-count-8 = []
 
 fragmentation-buffer-size-256 = []
 fragmentation-buffer-size-512 = []
@@ -341,6 +351,10 @@ required-features = ["std", "medium-ieee802154", "phy-raw_socket", "proto-sixlow
 [[example]]
 name = "dns"
 required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv4", "socket-dns"]
+
+[[example]]
+name = "slaac"
+required-features = ["std", "medium-ethernet", "medium-ip", "phy-tuntap_interface", "proto-ipv6", "socket-udp"]
 
 [profile.release]
 debug = 2

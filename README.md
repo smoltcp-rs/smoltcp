@@ -103,8 +103,8 @@ The ICMPv6 protocol is supported, and ICMP sockets are available.
 #### NDISC
 
   * Neighbor Advertisement messages are generated in response to Neighbor Solicitations.
-  * Router Advertisement messages are **not** generated or read.
-  * Router Solicitation messages are **not** generated or read.
+  * Router Advertisement messages are read, but **not** generated.
+  * Router Solicitation messages are generated, but **not** read.
   * Redirected Header messages are **not** generated or read.
 
 ### UDP layer
@@ -255,6 +255,11 @@ Amount of "IP address -> hardware address" entries the neighbor cache (also know
 ### `IFACE_MAX_ROUTE_COUNT`
 
 Max amount of routes that can be added to one interface. Includes the default route. Includes both IPv4 and IPv6. Default: 2.
+
+### `IFACE_MAX_PREFIX_COUNT`
+
+Max amount of IPv6 prefixes that can be added to one interface via SLAAC.
+Should be lower or equal to `IFACE_MAX_ADDR_COUNT`.
 
 ### `FRAGMENTATION_BUFFER_SIZE`
 
