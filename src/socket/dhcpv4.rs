@@ -358,10 +358,10 @@ impl<'a> Socket<'a> {
         );
 
         // Copy over the payload into the receive packet buffer.
-        if let Some(buffer) = self.receive_packet_buffer.as_mut() {
-            if let Some(buffer) = buffer.get_mut(..payload.len()) {
-                buffer.copy_from_slice(payload);
-            }
+        if let Some(buffer) = self.receive_packet_buffer.as_mut()
+            && let Some(buffer) = buffer.get_mut(..payload.len())
+        {
+            buffer.copy_from_slice(payload);
         }
 
         match (&mut self.state, dhcp_repr.message_type) {

@@ -3,7 +3,7 @@ use core::fmt;
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::{Error, Result};
-use crate::wire::{Ipv6Address, Ipv6AddressExt};
+use crate::wire::Ipv6Address;
 
 enum_with_unknown! {
     /// IEEE 802.15.4 frame type.
@@ -196,7 +196,7 @@ impl Address {
         bytes[1] = 0x80;
         bytes[8..].copy_from_slice(&self.as_eui_64()?);
 
-        Some(Ipv6Address::from_bytes(&bytes))
+        Some(Ipv6Address::from_octets(bytes))
     }
 }
 

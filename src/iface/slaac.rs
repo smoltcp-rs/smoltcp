@@ -129,10 +129,10 @@ impl Slaac {
             return;
         }
         let prefix_info = PrefixInfo::from_prefix(prefix, now);
-        if let Ok(old_info) = self.prefix.insert(*cidr, prefix_info) {
-            if old_info.is_none() {
-                self.sync_required = true;
-            }
+        if let Ok(old_info) = self.prefix.insert(*cidr, prefix_info)
+            && old_info.is_none()
+        {
+            self.sync_required = true;
         }
     }
 
@@ -188,10 +188,10 @@ impl Slaac {
         prefix: Option<NdiscPrefixInformation>, // prefix info
         now: Instant,
     ) {
-        if let Some(prefix) = prefix {
-            if prefix.is_valid_prefix_info() {
-                self.process_prefix(prefix, now)
-            }
+        if let Some(prefix) = prefix
+            && prefix.is_valid_prefix_info()
+        {
+            self.process_prefix(prefix, now)
         }
 
         if router_lifetime > Duration::ZERO {

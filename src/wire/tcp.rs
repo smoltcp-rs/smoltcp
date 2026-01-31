@@ -983,7 +983,7 @@ impl<'a> Repr<'a> {
         if sack_range_len > 0 {
             length += sack_range_len + 2;
         }
-        if length % 4 != 0 {
+        if !length.is_multiple_of(4) {
             length += 4 - length % 4;
         }
         length

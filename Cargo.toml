@@ -2,7 +2,7 @@
 name = "smoltcp"
 version = "0.12.0"
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.91"
 authors = ["whitequark <whitequark@whitequark.org>"]
 description = "A TCP/IP stack designed for bare-metal, real-time systems without a heap."
 documentation = "https://docs.rs/smoltcp/"

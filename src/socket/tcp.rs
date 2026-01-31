@@ -240,11 +240,11 @@ impl RttEstimator {
     }
 
     fn on_ack(&mut self, timestamp: Instant, seq: TcpSeqNumber) {
-        if let Some((sent_timestamp, sent_seq)) = self.timestamp {
-            if seq >= sent_seq {
-                self.sample((timestamp - sent_timestamp).total_millis() as u32);
-                self.timestamp = None;
-            }
+        if let Some((sent_timestamp, sent_seq)) = self.timestamp
+            && seq >= sent_seq
+        {
+            self.sample((timestamp - sent_timestamp).total_millis() as u32);
+            self.timestamp = None;
         }
     }
 
@@ -356,10 +356,10 @@ impl Timer {
     }
 
     fn set_keep_alive(&mut self) {
-        if let Timer::Idle { keep_alive_at } = self {
-            if keep_alive_at.is_none() {
-                *keep_alive_at = Some(Instant::from_millis(0))
-            }
+        if let Timer::Idle { keep_alive_at } = self
+            && keep_alive_at.is_none()
+        {
+            *keep_alive_at = Some(Instant::from_millis(0))
         }
     }
 
@@ -1767,32 +1767,32 @@ impl<'a> Socket<'a> {
         let mut ack_len = 0;
         let mut ack_of_fin = false;
         let mut ack_all = false;
-        if repr.control != TcpControl::Rst {
-            if let Some(ack_number) = repr.ack_number {
-                // Sequence number corresponding to the first byte in `tx_buffer`.
-                // This normally equals `local_seq_no`, but is 1 higher if we have sent a SYN,
-                // as the SYN occupies 1 sequence number "before" the data.
-                let tx_buffer_start_seq = self.local_seq_no + (sent_syn as usize);
+        if repr.control != TcpControl::Rst
+            && let Some(ack_number) = repr.ack_number
+        {
+            // Sequence number corresponding to the first byte in `tx_buffer`.
+            // This normally equals `local_seq_no`, but is 1 higher if we have sent a SYN,
+            // as the SYN occupies 1 sequence number "before" the data.
+            let tx_buffer_start_seq = self.local_seq_no + (sent_syn as usize);
 
-                if ack_number >= tx_buffer_start_seq {
-                    ack_len = ack_number - tx_buffer_start_seq;
+            if ack_number >= tx_buffer_start_seq {
+                ack_len = ack_number - tx_buffer_start_seq;
 
-                    // We could've sent data before the FIN, so only remove FIN from the sequence
-                    // space if all of that data is acknowledged.
-                    if sent_fin && self.tx_buffer.len() + 1 == ack_len {
-                        ack_len -= 1;
-                        tcp_trace!("received ACK of FIN");
-                        ack_of_fin = true;
-                    }
-
-                    ack_all = self.remote_last_seq <= ack_number;
+                // We could've sent data before the FIN, so only remove FIN from the sequence
+                // space if all of that data is acknowledged.
+                if sent_fin && self.tx_buffer.len() + 1 == ack_len {
+                    ack_len -= 1;
+                    tcp_trace!("received ACK of FIN");
+                    ack_of_fin = true;
                 }
 
-                self.rtte.on_ack(cx.now(), ack_number);
-                self.congestion_controller
-                    .inner_mut()
-                    .on_ack(cx.now(), ack_len, &self.rtte);
+                ack_all = self.remote_last_seq <= ack_number;
             }
+
+            self.rtte.on_ack(cx.now(), ack_number);
+            self.congestion_controller
+                .inner_mut()
+                .on_ack(cx.now(), ack_len, &self.rtte);
         }
 
         // Disregard control flags we don't care about or shouldn't act on yet.
@@ -2171,27 +2171,27 @@ impl<'a> Socket<'a> {
         }
 
         // Handle delayed acks
-        if let Some(ack_delay) = self.ack_delay {
-            if self.ack_to_transmit() {
-                self.ack_delay_timer = match self.ack_delay_timer {
-                    AckDelayTimer::Idle => {
-                        tcp_trace!("starting delayed ack timer");
-                        AckDelayTimer::Waiting(cx.now() + ack_delay)
-                    }
-                    AckDelayTimer::Waiting(_) if self.immediate_ack_to_transmit() => {
-                        tcp_trace!("delayed ack timer already started, forcing expiry");
-                        AckDelayTimer::Immediate
-                    }
-                    timer @ AckDelayTimer::Waiting(_) => {
-                        tcp_trace!("waiting until delayed ack timer expires");
-                        timer
-                    }
-                    AckDelayTimer::Immediate => {
-                        tcp_trace!("delayed ack timer already force-expired");
-                        AckDelayTimer::Immediate
-                    }
-                };
-            }
+        if let Some(ack_delay) = self.ack_delay
+            && self.ack_to_transmit()
+        {
+            self.ack_delay_timer = match self.ack_delay_timer {
+                AckDelayTimer::Idle => {
+                    tcp_trace!("starting delayed ack timer");
+                    AckDelayTimer::Waiting(cx.now() + ack_delay)
+                }
+                AckDelayTimer::Waiting(_) if self.immediate_ack_to_transmit() => {
+                    tcp_trace!("delayed ack timer already started, forcing expiry");
+                    AckDelayTimer::Immediate
+                }
+                timer @ AckDelayTimer::Waiting(_) => {
+                    tcp_trace!("waiting until delayed ack timer expires");
+                    timer
+                }
+                AckDelayTimer::Immediate => {
+                    tcp_trace!("delayed ack timer already force-expired");
+                    AckDelayTimer::Immediate
+                }
+            };
         }
 
         // Per RFC 5681, we should send an immediate ACK when either:

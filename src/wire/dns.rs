@@ -7,9 +7,9 @@ use core::iter::Iterator;
 
 use super::{Error, Result};
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Ipv4Address, Ipv4AddressExt};
+use crate::wire::Ipv4Address;
 #[cfg(feature = "proto-ipv6")]
-use crate::wire::{Ipv6Address, Ipv6AddressExt};
+use crate::wire::Ipv6Address;
 
 enum_with_unknown! {
     /// DNS OpCodes
@@ -338,19 +338,13 @@ impl<'a> RecordData<'a> {
     pub fn parse(type_: Type, data: &'a [u8]) -> Result<RecordData<'a>> {
         match type_ {
             #[cfg(feature = "proto-ipv4")]
-            Type::A => {
-                if data.len() != 4 {
-                    return Err(Error);
-                }
-                Ok(RecordData::A(Ipv4Address::from_bytes(data)))
-            }
+            Type::A => Ok(RecordData::A(Ipv4Address::from_octets(
+                data.try_into().map_err(|_| Error)?,
+            ))),
             #[cfg(feature = "proto-ipv6")]
-            Type::Aaaa => {
-                if data.len() != 16 {
-                    return Err(Error);
-                }
-                Ok(RecordData::Aaaa(Ipv6Address::from_bytes(data)))
-            }
+            Type::Aaaa => Ok(RecordData::Aaaa(Ipv6Address::from_octets(
+                data.try_into().map_err(|_| Error)?,
+            ))),
             Type::Cname => Ok(RecordData::Cname(data)),
             x => Ok(RecordData::Other(x, data)),
         }

@@ -2,7 +2,7 @@ use byteorder::{ByteOrder, NetworkEndian};
 use core::fmt;
 
 use super::{Error, Result};
-use super::{EthernetAddress, Ipv4Address, Ipv4AddressExt};
+use super::{EthernetAddress, Ipv4Address};
 
 pub use super::EthernetProtocol as Protocol;
 
@@ -281,9 +281,13 @@ impl Repr {
             (Hardware::Ethernet, Protocol::Ipv4, 6, 4) => Ok(Repr::EthernetIpv4 {
                 operation: packet.operation(),
                 source_hardware_addr: EthernetAddress::from_bytes(packet.source_hardware_addr()),
-                source_protocol_addr: Ipv4Address::from_bytes(packet.source_protocol_addr()),
+                source_protocol_addr: Ipv4Address::from_octets(
+                    packet.source_protocol_addr().try_into().unwrap(),
+                ),
                 target_hardware_addr: EthernetAddress::from_bytes(packet.target_hardware_addr()),
-                target_protocol_addr: Ipv4Address::from_bytes(packet.target_protocol_addr()),
+                target_protocol_addr: Ipv4Address::from_octets(
+                    packet.target_protocol_addr().try_into().unwrap(),
+                ),
             }),
             _ => Err(Error),
         }
@@ -434,11 +438,11 @@ mod test {
             source_hardware_addr: EthernetAddress::from_bytes(&[
                 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
             ]),
-            source_protocol_addr: Ipv4Address::from_bytes(&[0x21, 0x22, 0x23, 0x24]),
+            source_protocol_addr: Ipv4Address::from_octets([0x21, 0x22, 0x23, 0x24]),
             target_hardware_addr: EthernetAddress::from_bytes(&[
                 0x31, 0x32, 0x33, 0x34, 0x35, 0x36,
             ]),
-            target_protocol_addr: Ipv4Address::from_bytes(&[0x41, 0x42, 0x43, 0x44]),
+            target_protocol_addr: Ipv4Address::from_octets([0x41, 0x42, 0x43, 0x44]),
         }
     }
 

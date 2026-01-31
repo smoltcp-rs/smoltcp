@@ -10,7 +10,7 @@ use core::str::FromStr;
 use crate::wire::EthernetAddress;
 use crate::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
-use crate::wire::{Ipv4Address, Ipv4AddressExt, Ipv4Cidr};
+use crate::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Address, Ipv6Cidr};
 
@@ -294,7 +294,7 @@ impl<'a> Parser<'a> {
     #[cfg(feature = "proto-ipv4")]
     fn accept_ipv4(&mut self) -> Result<Ipv4Address> {
         let octets = self.accept_ipv4_octets()?;
-        Ok(Ipv4Address::from_bytes(&octets))
+        Ok(Ipv4Address::from_octets(octets))
     }
 
     fn accept_ip(&mut self) -> Result<IpAddress> {
