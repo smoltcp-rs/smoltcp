@@ -1,6 +1,4 @@
 use super::*;
-#[cfg(feature = "proto-ipv4-fragmentation")]
-use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 
 #[rstest]
 #[case(Medium::Ethernet)]
@@ -1123,6 +1121,8 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     );
 }
 
+#[cfg(feature = "proto-ipv4-fragmentation")]
+use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 #[rstest]
 #[case(Medium::Ip)]
 #[cfg(all(
