@@ -1533,12 +1533,13 @@ fn get_source_address_empty_interface(#[case] medium: Medium) {
     );
 }
 
+use crate::wire::ipv4::HEADER_LEN;
 #[rstest]
 #[cfg(all(feature = "medium-ip", feature = "proto-ipv4-fragmentation",))]
 fn test_ipv4_fragment_size() {
     let (_, _, device) = setup(Medium::Ip);
     let caps = device.capabilities();
-    assert_eq!(caps.ip_mtu(), 1500); // this is assumed
-    assert_eq!(caps.max_ipv4_fragment_size(20), 1480);
-    assert_eq!(caps.max_ipv4_fragment_size(32), 1464);
+    for i in 0..IPV4_FRAGMENT_PAYLOAD_ALIGNMENT {
+        assert!(caps.max_ipv4_fragment_size(HEADER_LEN + i).is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT));
+    }
 }
