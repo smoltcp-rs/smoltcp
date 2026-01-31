@@ -85,10 +85,10 @@ impl<K> PacketAssembler<K> {
 
     /// Set the total size of the packet assembler.
     pub(crate) fn set_total_size(&mut self, size: usize) -> Result<(), AssemblerError> {
-        if let Some(old_size) = self.total_size {
-            if old_size != size {
-                return Err(AssemblerError);
-            }
+        if let Some(old_size) = self.total_size
+            && old_size != size
+        {
+            return Err(AssemblerError);
         }
 
         #[cfg(not(feature = "alloc"))]

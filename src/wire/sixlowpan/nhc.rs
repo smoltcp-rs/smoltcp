@@ -715,10 +715,10 @@ impl<'a> UdpNhcRepr {
                 checksum::data(packet.payload()),
             ]);
 
-            if let Some(checksum) = packet.checksum() {
-                if chk_sum != checksum {
-                    return Err(Error);
-                }
+            if let Some(checksum) = packet.checksum()
+                && chk_sum != checksum
+            {
+                return Err(Error);
             }
         }
 

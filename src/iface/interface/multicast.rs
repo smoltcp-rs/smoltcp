@@ -362,24 +362,24 @@ impl Interface {
                         _ => None,
                     })
                     .collect::<heapless::Vec<_, IFACE_MAX_MULTICAST_GROUP_COUNT>>();
-                if let Some(pkt) = self.inner.mldv2_report_packet(&records) {
-                    if let Some(tx_token) = device.transmit(self.inner.now) {
-                        self.inner
-                            .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
-                            .unwrap();
-                    };
+                if let Some(pkt) = self.inner.mldv2_report_packet(&records)
+                    && let Some(tx_token) = device.transmit(self.inner.now)
+                {
+                    self.inner
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                        .unwrap();
                 };
                 self.inner.multicast.mld_report_state = MldReportState::Inactive;
             }
             MldReportState::ToSpecificQuery { group, timeout } if self.inner.now >= timeout => {
                 let record = MldAddressRecordRepr::new(MldRecordType::ModeIsExclude, group);
-                if let Some(pkt) = self.inner.mldv2_report_packet(&[record]) {
-                    if let Some(tx_token) = device.transmit(self.inner.now) {
-                        // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
-                        self.inner
-                            .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
-                            .unwrap();
-                    }
+                if let Some(pkt) = self.inner.mldv2_report_packet(&[record])
+                    && let Some(tx_token) = device.transmit(self.inner.now)
+                {
+                    // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+                    self.inner
+                        .dispatch_ip(tx_token, PacketMeta::default(), pkt, &mut self.fragmenter)
+                        .unwrap();
                 }
                 self.inner.multicast.mld_report_state = MldReportState::Inactive;
             }

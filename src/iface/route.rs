@@ -153,10 +153,10 @@ impl Routes {
             .iter()
             // Keep only matching routes
             .filter(|route| {
-                if let Some(expires_at) = route.expires_at {
-                    if timestamp > expires_at {
-                        return false;
-                    }
+                if let Some(expires_at) = route.expires_at
+                    && timestamp > expires_at
+                {
+                    return false;
                 }
                 route.cidr.contains_addr(addr)
             })
