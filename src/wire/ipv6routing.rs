@@ -1,7 +1,7 @@
 use super::{Error, Result};
 use core::fmt;
 
-use crate::wire::{Ipv6Address as Address, Ipv6AddressExt};
+use crate::wire::Ipv6Address as Address;
 
 enum_with_unknown! {
     /// IPv6 Extension Routing Header Routing Type
@@ -191,7 +191,7 @@ impl<T: AsRef<[u8]>> Header<T> {
     /// This function may panic if this header is not the Type2 Routing Header routing type.
     pub fn home_address(&self) -> Address {
         let data = self.buffer.as_ref();
-        Address::from_bytes(&data[field::HOME_ADDRESS])
+        Address::from_octets(data[field::HOME_ADDRESS].try_into().unwrap())
     }
 }
 

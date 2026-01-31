@@ -266,7 +266,7 @@ impl<T: AsRef<[u8]>> NdiscOption<T> {
     #[inline]
     pub fn prefix(&self) -> Ipv6Address {
         let data = self.buffer.as_ref();
-        Ipv6Address::from_bytes(&data[field::PREFIX])
+        Ipv6Address::from_octets(data[field::PREFIX].try_into().unwrap())
     }
 }
 

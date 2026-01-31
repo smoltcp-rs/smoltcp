@@ -78,12 +78,6 @@ impl From<u8> for MulticastScope {
 pub use core::net::Ipv6Addr as Address;
 
 pub(crate) trait AddressExt {
-    /// Construct an IPv6 address from a sequence of octets, in big-endian.
-    ///
-    /// # Panics
-    /// The function panics if `data` is not sixteen octets long.
-    fn from_bytes(data: &[u8]) -> Address;
-
     /// Create an IPv6 address based on the provided prefix and hardware identifier.
     fn from_link_prefix(
         link_prefix: &Cidr,
@@ -143,12 +137,6 @@ pub(crate) trait AddressExt {
 }
 
 impl AddressExt for Address {
-    fn from_bytes(data: &[u8]) -> Address {
-        let mut bytes = [0; ADDR_SIZE];
-        bytes.copy_from_slice(data);
-        Address::from(bytes)
-    }
-
     fn from_link_prefix(
         link_prefix: &Cidr,
         interface_identifier: HardwareAddress,
@@ -160,7 +148,7 @@ impl AddressExt for Address {
             let mut bytes = [0; 16];
             bytes[0..8].copy_from_slice(&link_prefix.address().octets()[0..8]);
             bytes[8..16].copy_from_slice(&eui64);
-            Some(Address::from_bytes(&bytes))
+            Some(Address::from_octets(bytes))
         } else {
             None
         }
@@ -495,14 +483,14 @@ impl<T: AsRef<[u8]>> Packet<T> {
     #[inline]
     pub fn src_addr(&self) -> Address {
         let data = self.buffer.as_ref();
-        Address::from_bytes(&data[field::SRC_ADDR])
+        Address::from_octets(data[field::SRC_ADDR].try_into().unwrap())
     }
 
     /// Return the destination address field.
     #[inline]
     pub fn dst_addr(&self) -> Address {
         let data = self.buffer.as_ref();
-        Address::from_bytes(&data[field::DST_ADDR])
+        Address::from_octets(data[field::DST_ADDR].try_into().unwrap())
     }
 }
 
@@ -950,11 +938,11 @@ pub(crate) mod test {
             ),
         ];
 
-        for addr in inside_subnet.iter().map(|a| Address::from_bytes(a)) {
+        for addr in inside_subnet.iter().map(|a| Address::from_octets(*a)) {
             assert!(cidr.contains_addr(&addr));
         }
 
-        for addr in outside_subnet.iter().map(|a| Address::from_bytes(a)) {
+        for addr in outside_subnet.iter().map(|a| Address::from_octets(*a)) {
             assert!(!cidr.contains_addr(&addr));
         }
 
@@ -1010,12 +998,6 @@ pub(crate) mod test {
             assert_eq!(generated.address(), result);
             assert!(Cidr::from_link_prefix(&wrong_prefix, hardware).is_none());
         }
-    }
-
-    #[test]
-    #[should_panic(expected = "length")]
-    fn test_from_bytes_too_long() {
-        let _ = Address::from_bytes(&[0u8; 15]);
     }
 
     #[test]

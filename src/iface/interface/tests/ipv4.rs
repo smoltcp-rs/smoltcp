@@ -17,11 +17,11 @@ fn test_any_ip_accept_arp(#[case] medium: Medium) {
             source_hardware_addr: EthernetAddress::from_bytes(&[
                 0x02, 0x02, 0x02, 0x02, 0x02, 0x03,
             ]),
-            source_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 2]),
+            source_protocol_addr: Ipv4Address::from_octets([192, 168, 1, 2]),
             target_hardware_addr: EthernetAddress::from_bytes(&[
                 0x02, 0x02, 0x02, 0x02, 0x02, 0x02,
             ]),
-            target_protocol_addr: Ipv4Address::from_bytes(&[192, 168, 1, 3]),
+            target_protocol_addr: Ipv4Address::from_octets([192, 168, 1, 3]),
         };
         let mut frame = EthernetFrame::new_unchecked(&mut buffer[..]);
         ethernet_repr.emit(&mut frame);

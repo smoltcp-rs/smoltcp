@@ -7,7 +7,6 @@ use super::{Error, Result};
 use crate::wire::IpProtocol;
 use crate::wire::ieee802154::Address as LlAddress;
 use crate::wire::ipv6;
-use crate::wire::ipv6::AddressExt;
 
 pub mod frag;
 pub mod iphc;
@@ -83,17 +82,19 @@ impl<'a> UnresolvedAddress<'a> {
 
         match self {
             UnresolvedAddress::WithoutContext(mode) => match mode {
-                AddressMode::FullInline(addr) => Ok(ipv6::Address::from_bytes(addr)),
+                AddressMode::FullInline(addr) => {
+                    Ok(ipv6::Address::from_octets(addr.try_into().unwrap()))
+                }
                 AddressMode::InLine64bits(inline) => {
                     bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
                     bytes[8..].copy_from_slice(inline);
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 AddressMode::InLine16bits(inline) => {
                     bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
                     bytes[11..13].copy_from_slice(&EUI64_MIDDLE_VALUE[..]);
                     bytes[14..].copy_from_slice(inline);
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 AddressMode::FullyElided => {
                     bytes[0..2].copy_from_slice(&LINK_LOCAL_PREFIX[..]);
@@ -109,25 +110,25 @@ impl<'a> UnresolvedAddress<'a> {
                         Some(LlAddress::Absent) => return Err(Error),
                         None => return Err(Error),
                     }
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 AddressMode::Multicast48bits(inline) => {
                     bytes[0] = 0xff;
                     bytes[1] = inline[0];
                     bytes[11..].copy_from_slice(&inline[1..][..5]);
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 AddressMode::Multicast32bits(inline) => {
                     bytes[0] = 0xff;
                     bytes[1] = inline[0];
                     bytes[13..].copy_from_slice(&inline[1..][..3]);
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 AddressMode::Multicast8bits(inline) => {
                     bytes[0] = 0xff;
                     bytes[1] = 0x02;
                     bytes[15] = inline[0];
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 _ => Err(Error),
             },
@@ -136,12 +137,12 @@ impl<'a> UnresolvedAddress<'a> {
                 (index, AddressMode::InLine64bits(inline)) => {
                     copy_context(index, &mut bytes[..])?;
                     bytes[16 - inline.len()..].copy_from_slice(inline);
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 (index, AddressMode::InLine16bits(inline)) => {
                     copy_context(index, &mut bytes[..])?;
                     bytes[16 - inline.len()..].copy_from_slice(inline);
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 (index, AddressMode::FullyElided) => {
                     match ll_address {
@@ -159,7 +160,7 @@ impl<'a> UnresolvedAddress<'a> {
 
                     copy_context(index, &mut bytes[..])?;
 
-                    Ok(ipv6::Address::from_bytes(&bytes[..]))
+                    Ok(ipv6::Address::from_octets(bytes))
                 }
                 _ => Err(Error),
             },
