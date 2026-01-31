@@ -1,0 +1,3 @@
+[env]
+SMOLTCP_IFACE_MAX_ADDR_COUNT = "3"
+RUST_LOG = "off"
