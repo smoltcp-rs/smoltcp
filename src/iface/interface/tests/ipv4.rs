@@ -1124,7 +1124,6 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
 }
 
 #[rstest]
-/*
 #[case(Medium::Ip)]
 #[cfg(all(
     feature = "socket-raw",
@@ -1137,12 +1136,10 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     feature = "proto-ipv4-fragmentation",
     feature = "medium-ethernet"
 ))]
-
- */
-fn test_raw_socket_tx_fragmentation() {
+fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
     use std::panic::AssertUnwindSafe;
 
-    let (mut iface, mut sockets, device) = setup(Medium::Ip);
+    let (mut iface, mut sockets, device) = setup(medium);
     let mtu = device.capabilities().max_transmission_unit;
     // This check ensures a valid test in which we actually do adjust for alignment.
     let mtu = if (mtu - IPV4_HEADER_LEN).is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT) {
@@ -1207,7 +1204,7 @@ fn test_raw_socket_tx_fragmentation() {
 
         // This should not panic for any payload size
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            if packet_size > mtu {
+            if packet_size > mtu && medium == Medium::Ip {
                 iface.inner.dispatch_ip(
                     TestFragmentTxToken {},
                     PacketMeta::default(),
@@ -1228,7 +1225,8 @@ fn test_raw_socket_tx_fragmentation() {
         assert!(result.is_ok(), "Failed for packet size: {}", packet_size,);
 
         // Perform payload size checks if fragmentation is required.
-        if packet_size <= mtu {
+        // It is sufficient to test only the simpler IP test case.
+        if packet_size <= mtu || medium != Medium::Ip {
             continue
         }
 
