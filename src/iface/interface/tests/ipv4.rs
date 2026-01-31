@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(feature = "proto-ipv4-fragmentation")]
-use crate::iface::fragmentation::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
+use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 
 #[rstest]
 #[case(Medium::Ethernet)]

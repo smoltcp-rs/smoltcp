@@ -11,10 +11,6 @@ use crate::wire::*;
 
 use core::result::Result;
 
-// Fragmented payload sizes must be increments of this value.
-#[cfg(feature = "proto-ipv4-fragmentation")]
-pub const IPV4_FRAGMENT_PAYLOAD_ALIGNMENT: usize = 8;
-
 #[cfg(feature = "alloc")]
 type Buffer = alloc::vec::Vec<u8>;
 #[cfg(not(feature = "alloc"))]
