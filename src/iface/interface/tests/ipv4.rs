@@ -1141,8 +1141,9 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
 
     let (mut iface, mut sockets, device) = setup(medium);
     let mtu = device.capabilities().max_transmission_unit;
+    let unaligned_length = mtu - IPV4_HEADER_LEN;
     // This check ensures a valid test in which we actually do adjust for alignment.
-    let mtu = if (mtu - IPV4_HEADER_LEN).is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT) {
+    let mtu = if unaligned_length.is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT) {
         mtu + IPV4_FRAGMENT_PAYLOAD_ALIGNMENT / 2
     } else { mtu };
 
