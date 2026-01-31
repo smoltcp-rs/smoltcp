@@ -1145,7 +1145,9 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
     // This check ensures a valid test in which we actually do adjust for alignment.
     let mtu = if unaligned_length.is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT) {
         mtu + IPV4_FRAGMENT_PAYLOAD_ALIGNMENT / 2
-    } else { mtu };
+    } else {
+        mtu
+    };
 
     let packets = 5;
     let rx_buffer = raw::PacketBuffer::new(
@@ -1228,7 +1230,7 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
         // Perform payload size checks if fragmentation is required.
         // It is sufficient to test only the simpler IP test case.
         if packet_size <= mtu || medium != Medium::Ip {
-            continue
+            continue;
         }
 
         // Verify that the fragment offset is correct.
@@ -1540,6 +1542,9 @@ fn test_ipv4_fragment_size() {
     let (_, _, device) = setup(Medium::Ip);
     let caps = device.capabilities();
     for i in 0..IPV4_FRAGMENT_PAYLOAD_ALIGNMENT {
-        assert!(caps.max_ipv4_fragment_size(HEADER_LEN + i).is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT));
+        assert!(
+            caps.max_ipv4_fragment_size(HEADER_LEN + i)
+                .is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT)
+        );
     }
 }
