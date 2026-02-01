@@ -1,4 +1,4 @@
-# smoltcp
+# smoltcp yay
 
 [![docs.rs](https://docs.rs/smoltcp/badge.svg)](https://docs.rs/smoltcp)
 [![crates.io](https://img.shields.io/crates/v/smoltcp.svg)](https://crates.io/crates/smoltcp)
