@@ -1267,10 +1267,16 @@ impl InterfaceInner {
                         net_debug!("start fragmentation");
 
                         // Calculate how much we will send now (including the Ethernet header).
-                        let tx_len = self.caps.max_transmission_unit;
 
                         let ip_header_len = repr.buffer_len();
-                        let first_frag_ip_len = self.caps.ip_mtu();
+                        let first_frag_data_len =
+                            self.caps.max_ipv4_fragment_size(repr.buffer_len());
+                        let first_frag_ip_len = first_frag_data_len + ip_header_len;
+                        let mut tx_len = first_frag_ip_len;
+                        #[cfg(feature = "medium-ethernet")]
+                        if matches!(caps.medium, Medium::Ethernet) {
+                            tx_len += EthernetFrame::<&[u8]>::header_len();
+                        }
 
                         if frag.buffer.len() < total_ip_len {
                             net_debug!(
@@ -1292,11 +1298,11 @@ impl InterfaceInner {
                         // Save the IP header for other fragments.
                         frag.ipv4.repr = *repr;
 
-                        // Save how much bytes we will send now.
-                        frag.sent_bytes = first_frag_ip_len;
-
                         // Modify the IP header
-                        repr.payload_len = first_frag_ip_len - repr.buffer_len();
+                        repr.payload_len = first_frag_data_len;
+
+                        // Save the number of bytes we will send now.
+                        frag.sent_bytes = first_frag_ip_len;
 
                         // Emit the IP header to the buffer.
                         emit_ip(&ip_repr, &mut frag.buffer);

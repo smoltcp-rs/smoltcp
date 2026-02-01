@@ -424,9 +424,9 @@ impl InterfaceInner {
     pub(super) fn dispatch_ipv4_frag<Tx: TxToken>(&mut self, tx_token: Tx, frag: &mut Fragmenter) {
         let caps = self.caps.clone();
 
-        let mtu_max = self.ip_mtu();
-        let ip_len = (frag.packet_len - frag.sent_bytes + frag.ipv4.repr.buffer_len()).min(mtu_max);
-        let payload_len = ip_len - frag.ipv4.repr.buffer_len();
+        let max_fragment_size = caps.max_ipv4_fragment_size(frag.ipv4.repr.buffer_len());
+        let payload_len = (frag.packet_len - frag.sent_bytes).min(max_fragment_size);
+        let ip_len = payload_len + frag.ipv4.repr.buffer_len();
 
         let more_frags = (frag.packet_len - frag.sent_bytes) != payload_len;
         frag.ipv4.repr.payload_len = payload_len;

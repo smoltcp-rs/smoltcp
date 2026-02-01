@@ -1121,6 +1121,8 @@ fn test_raw_socket_with_udp_socket(#[case] medium: Medium) {
     );
 }
 
+#[cfg(feature = "proto-ipv4-fragmentation")]
+use crate::phy::IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
 #[rstest]
 #[case(Medium::Ip)]
 #[cfg(all(
@@ -1139,6 +1141,13 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
 
     let (mut iface, mut sockets, device) = setup(medium);
     let mtu = device.capabilities().max_transmission_unit;
+    let unaligned_length = mtu - IPV4_HEADER_LEN;
+    // This check ensures a valid test in which we actually do adjust for alignment.
+    let mtu = if unaligned_length.is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT) {
+        mtu + IPV4_FRAGMENT_PAYLOAD_ALIGNMENT / 2
+    } else {
+        mtu
+    };
 
     let packets = 5;
     let rx_buffer = raw::PacketBuffer::new(
@@ -1162,6 +1171,26 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
         mtu * 5 / 4, // Larger than MTU, requires fragmentation
         mtu * 9 / 4, // Much larger, requires two fragments
     ];
+
+    // Define test token for capturing the fragments.
+    struct TestFragmentTxToken {}
+
+    impl TxToken for TestFragmentTxToken {
+        fn consume<R, F>(self, len: usize, f: F) -> R
+        where
+            F: FnOnce(&mut [u8]) -> R,
+        {
+            // Buffer is something arbitrarily large.
+            // We cannot capture the dynamic packet_size calculation here.
+            let mut buffer = [0; 2048];
+            let result = f(&mut buffer[..len]);
+            // Verify the payload size is aligned.
+            let payload_size = len - IPV4_HEADER_LEN;
+            assert!(payload_size.is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT));
+            result
+        }
+    }
+
     for packet_size in tx_packet_sizes {
         let payload_len = packet_size - IPV4_HEADER_LEN;
         let payload = vec![0u8; payload_len];
@@ -1178,16 +1207,54 @@ fn test_raw_socket_tx_fragmentation(#[case] medium: Medium) {
 
         // This should not panic for any payload size
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            iface.inner.dispatch_ip(
-                MockTxToken {},
-                PacketMeta::default(),
-                packet,
-                &mut iface.fragmenter,
-            )
+            if packet_size > mtu && medium == Medium::Ip {
+                iface.inner.dispatch_ip(
+                    TestFragmentTxToken {},
+                    PacketMeta::default(),
+                    packet,
+                    &mut iface.fragmenter,
+                )
+            } else {
+                iface.inner.dispatch_ip(
+                    MockTxToken {},
+                    PacketMeta::default(),
+                    packet,
+                    &mut iface.fragmenter,
+                )
+            }
         }));
 
         // All transmissions should succeed without panicking
         assert!(result.is_ok(), "Failed for packet size: {}", packet_size,);
+
+        // Perform payload size checks if fragmentation is required.
+        // It is sufficient to test only the simpler IP test case.
+        if packet_size <= mtu || medium != Medium::Ip {
+            continue;
+        }
+
+        // Verify that the fragment offset is correct.
+        let unaligned_length = mtu - IPV4_HEADER_LEN;
+        let remainder = unaligned_length % IPV4_FRAGMENT_PAYLOAD_ALIGNMENT;
+        let expected_fragment_offset = mtu - IPV4_HEADER_LEN - remainder;
+        let frag_offset = iface.fragmenter.ipv4.frag_offset;
+        assert_eq!(frag_offset as usize, expected_fragment_offset);
+
+        // Check subsequent fragment sizes if applicable.
+        if packet_size / mtu == 2 {
+            // Two fragments are left. The intermediate fragment must be aligned.
+            iface
+                .inner
+                .dispatch_ipv4_frag(TestFragmentTxToken {}, &mut iface.fragmenter);
+        }
+        // Process the final fragment. It is the remainder of the data and does not have to be aligned.
+        iface
+            .inner
+            .dispatch_ipv4_frag(MockTxToken {}, &mut iface.fragmenter);
+
+        // The fragment offset should be the complete payload length once transmission is complete.
+        let frag_offset = iface.fragmenter.ipv4.frag_offset;
+        assert_eq!(frag_offset as usize, payload_len);
     }
 }
 
@@ -1466,4 +1533,18 @@ fn get_source_address_empty_interface(#[case] medium: Medium) {
         iface.inner.get_source_address_ipv4(&UNIQUE_LOCAL_ADDR3),
         None
     );
+}
+
+use crate::wire::ipv4::HEADER_LEN;
+#[rstest]
+#[cfg(all(feature = "medium-ip", feature = "proto-ipv4-fragmentation",))]
+fn test_ipv4_fragment_size() {
+    let (_, _, device) = setup(Medium::Ip);
+    let caps = device.capabilities();
+    for i in 0..IPV4_FRAGMENT_PAYLOAD_ALIGNMENT {
+        assert!(
+            caps.max_ipv4_fragment_size(HEADER_LEN + i)
+                .is_multiple_of(IPV4_FRAGMENT_PAYLOAD_ALIGNMENT)
+        );
+    }
 }
