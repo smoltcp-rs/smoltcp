@@ -89,6 +89,8 @@ impl<'a> phy::TxToken for StmPhyTxToken<'a> {
 )]
 
 use crate::time::Instant;
+#[cfg(feature = "segmentation-offload")]
+use core::num::{NonZeroU16, NonZeroUsize};
 
 #[cfg(all(
     any(feature = "phy-raw_socket", feature = "phy-tuntap_interface"),
@@ -147,7 +149,7 @@ pub const IPV4_FRAGMENT_PAYLOAD_ALIGNMENT: usize = 8;
 /// struct becomes zero-sized, which allows the compiler to optimize it out as if
 /// the packet metadata mechanism didn't exist at all.
 ///
-/// Currently only UDP sockets allow setting/retrieving packet metadata. The metadata
+/// Currently only TCP and UDP sockets allow setting/retrieving packet metadata. The metadata
 /// for packets emitted with other sockets will be all default values.
 ///
 /// This struct is marked as `#[non_exhaustive]`. This means it is not possible to
@@ -168,6 +170,8 @@ pub const IPV4_FRAGMENT_PAYLOAD_ALIGNMENT: usize = 8;
 pub struct PacketMeta {
     #[cfg(feature = "packetmeta-id")]
     pub id: u32,
+    #[cfg(feature = "segmentation-offload")]
+    pub segmentation_offload_size: Option<NonZeroU16>,
 }
 
 /// A description of checksum behavior for a particular protocol.
@@ -233,6 +237,28 @@ impl ChecksumCapabilities {
     }
 }
 
+/// The maximum buffer size for a particular protocol or protocol pair that
+/// can be offloaded to the device for segmentation, or [None] if segmentation
+/// offload is not supported.
+///
+/// For Ethernet devices, this includes the Ethernet header (14 octets), but
+/// *not* the Ethernet FCS (4 octets).
+///
+/// If the device supports unsegmented IP packets with (depending on the IP
+/// version, total or payload) lengths greater than [u16::MAX], it should not
+/// rely on the length field in the IP header, as the actual length cannot be
+/// represented there. The value will be 0 instead.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+#[cfg(feature = "segmentation-offload")]
+pub struct SegmentationCapabilities {
+    #[cfg(all(feature = "socket-tcp", feature = "proto-ipv4"))]
+    pub tcpv4: Option<NonZeroUsize>,
+    #[cfg(all(feature = "socket-tcp", feature = "proto-ipv6"))]
+    pub tcpv6: Option<NonZeroUsize>,
+}
+
 /// A description of device capabilities.
 ///
 /// Higher-level protocols may achieve higher throughput or lower latency if they consider
@@ -276,6 +302,13 @@ pub struct DeviceCapabilities {
     /// If the network device is capable of verifying or computing checksums for some protocols,
     /// it can request that the stack not do so in software to improve performance.
     pub checksum: ChecksumCapabilities,
+
+    #[cfg(feature = "segmentation-offload")]
+    /// Segmentation offload capabilities.
+    ///
+    /// If the network device is capable of segmenting packets for some protocols,
+    /// it can request that the stack not do so in software to improve performance.
+    pub segmentation: SegmentationCapabilities,
 }
 
 impl DeviceCapabilities {
