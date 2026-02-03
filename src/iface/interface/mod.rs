@@ -632,6 +632,8 @@ impl Interface {
             return PollIngressSingleResult::None;
         };
 
+        rx_token.preprocess(sockets);
+
         let rx_meta = rx_token.meta();
         rx_token.consume(|frame| {
             if frame.is_empty() {
