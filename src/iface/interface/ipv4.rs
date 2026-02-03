@@ -7,28 +7,23 @@ impl Interface {
     /// processed or emitted, and thus, whether the readiness of any socket might
     /// have changed.
     #[cfg(feature = "proto-ipv4-fragmentation")]
-    pub(super) fn ipv4_egress<D>(&mut self, device: &mut D) -> bool
-    where
-        D: Device + ?Sized,
-    {
+    pub(super) fn ipv4_egress(&mut self, device: &mut (impl Device + ?Sized)) {
         // Reset the buffer when we transmitted everything.
         if self.fragmenter.finished() {
             self.fragmenter.reset();
         }
 
         if self.fragmenter.is_empty() {
-            return false;
+            return;
         }
 
         let pkt = &self.fragmenter;
-        if pkt.packet_len > pkt.sent_bytes {
-            if let Some(tx_token) = device.transmit(self.inner.now) {
-                self.inner
-                    .dispatch_ipv4_frag(tx_token, &mut self.fragmenter);
-                return true;
-            }
+        if pkt.packet_len > pkt.sent_bytes
+            && let Some(tx_token) = device.transmit(self.inner.now)
+        {
+            self.inner
+                .dispatch_ipv4_frag(tx_token, &mut self.fragmenter);
         }
-        false
     }
 }
 
@@ -43,17 +38,27 @@ impl InterfaceInner {
 
     /// Get an IPv4 source address based on a destination address.
     ///
-    /// **NOTE**: unlike for IPv6, no specific selection algorithm is implemented. The first IPv4
-    /// address from the interface is returned.
+    /// This function tries to find the first IPv4 address from the interface
+    /// that is in the same subnet as the destination address. If no such
+    /// address is found, the first IPv4 address from the interface is returned.
     #[allow(unused)]
-    pub(crate) fn get_source_address_ipv4(&self, _dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
+    pub(crate) fn get_source_address_ipv4(&self, dst_addr: &Ipv4Address) -> Option<Ipv4Address> {
+        let mut first_ipv4 = None;
         for cidr in self.ip_addrs.iter() {
             #[allow(irrefutable_let_patterns)] // if only ipv4 is enabled
             if let IpCidr::Ipv4(cidr) = cidr {
-                return Some(cidr.address());
+                // Return immediately if we find an address in the same subnet
+                if cidr.contains_addr(dst_addr) {
+                    return Some(cidr.address());
+                }
+
+                // Remember the first IPv4 address as fallback
+                if first_ipv4.is_none() {
+                    first_ipv4 = Some(cidr.address());
+                }
             }
         }
-        None
+        first_ipv4
     }
 
     /// Checks if an address is broadcast, taking into account ipv4 subnet-local
@@ -75,7 +80,7 @@ impl InterfaceInner {
 
     /// Checks if an ipv4 address is unicast, taking into account subnet broadcast addresses
     fn is_unicast_v4(&self, address: Ipv4Address) -> bool {
-        address.is_unicast() && !self.is_broadcast_v4(address)
+        address.x_is_unicast() && !self.is_broadcast_v4(address)
     }
 
     /// Get the first IPv4 address of the interface.
@@ -91,10 +96,11 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
+        source_hardware_addr: HardwareAddress,
         ipv4_packet: &Ipv4Packet<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<Packet<'a>> {
-        let ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
+        let mut ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
             net_debug!("non-unicast or unspecified source address");
@@ -127,13 +133,10 @@ impl InterfaceInner {
                     return None;
                 }
 
-                // NOTE: according to the standard, the total length needs to be
-                // recomputed, as well as the checksum. However, we don't really use
-                // the IPv4 header after the packet is reassembled.
-                match f.assemble() {
-                    Some(payload) => payload,
-                    None => return None,
-                }
+                let payload = f.assemble()?;
+                // Update the payload length, so that the raw sockets get the correct value.
+                ipv4_repr.payload_len = payload.len();
+                payload
             } else {
                 ipv4_packet.payload()
             }
@@ -184,22 +187,42 @@ impl InterfaceInner {
             && !self.is_broadcast_v4(ipv4_repr.dst_addr)
         {
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
-            // If AnyIP is enabled, also check if the packet is routed locally.
-            if !self.any_ip
-                || !ipv4_repr.dst_addr.is_unicast()
-                || self
-                    .routes
-                    .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
-                    .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
-            {
+
+            if !ipv4_repr.dst_addr.x_is_unicast() {
+                net_trace!(
+                    "Rejecting IPv4 packet; {} is not a unicast address",
+                    ipv4_repr.dst_addr
+                );
                 return None;
             }
+
+            if self
+                .routes
+                .lookup(&IpAddress::Ipv4(ipv4_repr.dst_addr), self.now)
+                .is_none_or(|router_addr| !self.has_ip_addr(router_addr))
+            {
+                net_trace!("Rejecting IPv4 packet; no matching routes");
+
+                return None;
+            }
+
+            net_trace!("Rejecting IPv4 packet; no assigned address");
+            return None;
+        }
+
+        #[cfg(feature = "medium-ethernet")]
+        if self.is_unicast_v4(ipv4_repr.dst_addr) {
+            self.neighbor_cache.reset_expiry_if_existing(
+                IpAddress::Ipv4(ipv4_repr.src_addr),
+                source_hardware_addr,
+                self.now,
+            );
         }
 
         match ipv4_repr.next_header {
             IpProtocol::Icmp => self.process_icmpv4(sockets, ipv4_repr, ip_payload),
 
-            #[cfg(feature = "proto-igmp")]
+            #[cfg(feature = "multicast")]
             IpProtocol::Igmp => self.process_igmp(ipv4_repr, ip_payload),
 
             #[cfg(any(feature = "socket-udp", feature = "socket-dns"))]
@@ -208,7 +231,9 @@ impl InterfaceInner {
             }
 
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(sockets, ip_repr, ip_payload),
+            IpProtocol::Tcp => {
+                self.process_tcp(sockets, handled_by_raw_socket, ip_repr, ip_payload)
+            }
 
             _ if handled_by_raw_socket => None,
 
@@ -244,7 +269,7 @@ impl InterfaceInner {
                 ..
             } => {
                 // Only process ARP packets for us.
-                if !self.has_ip_addr(target_protocol_addr) && !self.any_ip {
+                if !self.has_ip_addr(target_protocol_addr) {
                     return None;
                 }
 
@@ -255,7 +280,7 @@ impl InterfaceInner {
                 }
 
                 // Discard packets with non-unicast source addresses.
-                if !source_protocol_addr.is_unicast() || !source_hardware_addr.is_unicast() {
+                if !source_protocol_addr.x_is_unicast() || !source_hardware_addr.is_unicast() {
                     net_debug!("arp: non-unicast source address");
                     return None;
                 }
@@ -317,7 +342,7 @@ impl InterfaceInner {
 
         match icmp_repr {
             // Respond to echo requests.
-            #[cfg(feature = "proto-ipv4")]
+            #[cfg(all(feature = "proto-ipv4", feature = "auto-icmp-echo-reply"))]
             Icmpv4Repr::EchoRequest {
                 ident,
                 seq_no,
@@ -340,6 +365,7 @@ impl InterfaceInner {
             _ if handled_by_icmp_socket => None,
 
             // FIXME: do something correct here?
+            // By doing nothing, this arm handles the case when auto echo replies are disabled.
             _ => None,
         }
     }
@@ -395,9 +421,9 @@ impl InterfaceInner {
     pub(super) fn dispatch_ipv4_frag<Tx: TxToken>(&mut self, tx_token: Tx, frag: &mut Fragmenter) {
         let caps = self.caps.clone();
 
-        let mtu_max = self.ip_mtu();
-        let ip_len = (frag.packet_len - frag.sent_bytes + frag.ipv4.repr.buffer_len()).min(mtu_max);
-        let payload_len = ip_len - frag.ipv4.repr.buffer_len();
+        let max_fragment_size = caps.max_ipv4_fragment_size(frag.ipv4.repr.buffer_len());
+        let payload_len = (frag.packet_len - frag.sent_bytes).min(max_fragment_size);
+        let ip_len = payload_len + frag.ipv4.repr.buffer_len();
 
         let more_frags = (frag.packet_len - frag.sent_bytes) != payload_len;
         frag.ipv4.repr.payload_len = payload_len;
@@ -452,49 +478,6 @@ impl InterfaceInner {
 
             // Update the frag offset for the next fragment.
             frag.ipv4.frag_offset += payload_len as u16;
-        })
-    }
-
-    #[cfg(feature = "proto-igmp")]
-    pub(super) fn igmp_report_packet<'any>(
-        &self,
-        version: IgmpVersion,
-        group_addr: Ipv4Address,
-    ) -> Option<Packet<'any>> {
-        let iface_addr = self.ipv4_addr()?;
-        let igmp_repr = IgmpRepr::MembershipReport {
-            group_addr,
-            version,
-        };
-        let pkt = Packet::new_ipv4(
-            Ipv4Repr {
-                src_addr: iface_addr,
-                // Send to the group being reported
-                dst_addr: group_addr,
-                next_header: IpProtocol::Igmp,
-                payload_len: igmp_repr.buffer_len(),
-                hop_limit: 1,
-                // [#183](https://github.com/m-labs/smoltcp/issues/183).
-            },
-            IpPayload::Igmp(igmp_repr),
-        );
-        Some(pkt)
-    }
-
-    #[cfg(feature = "proto-igmp")]
-    pub(super) fn igmp_leave_packet<'any>(&self, group_addr: Ipv4Address) -> Option<Packet<'any>> {
-        self.ipv4_addr().map(|iface_addr| {
-            let igmp_repr = IgmpRepr::LeaveGroup { group_addr };
-            Packet::new_ipv4(
-                Ipv4Repr {
-                    src_addr: iface_addr,
-                    dst_addr: Ipv4Address::MULTICAST_ALL_ROUTERS,
-                    next_header: IpProtocol::Igmp,
-                    payload_len: igmp_repr.buffer_len(),
-                    hop_limit: 1,
-                },
-                IpPayload::Igmp(igmp_repr),
-            )
         })
     }
 }

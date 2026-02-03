@@ -12,7 +12,7 @@ include complicated compile-time computations, such as macro or type tricks, eve
 at cost of performance degradation.
 
 _smoltcp_ does not need heap allocation *at all*, is [extensively documented][docs],
-and compiles on stable Rust 1.65 and later.
+and compiles on stable Rust 1.91 and later.
 
 _smoltcp_ achieves [~Gbps of throughput](#examplesbenchmarkrs) when tested against
 the Linux TCP stack in loopback mode.
@@ -86,7 +86,7 @@ The IGMPv1 and IGMPv2 protocols are supported, and IPv4 multicast is available.
 The ICMPv4 protocol is supported, and ICMP sockets are available.
 
   * ICMPv4 header checksum is supported.
-  * ICMPv4 echo replies are generated in response to echo requests.
+  * ICMPv4 echo replies are generated in response to echo requests by default.
   * ICMP sockets can listen to ICMPv4 Port Unreachable messages, or any ICMPv4 messages with
     a given IPv4 identifier field.
   * ICMPv4 protocol unreachable messages are **not** passed to higher layers when received.
@@ -97,14 +97,14 @@ The ICMPv4 protocol is supported, and ICMP sockets are available.
 The ICMPv6 protocol is supported, and ICMP sockets are available.
 
   * ICMPv6 header checksum is supported.
-  * ICMPv6 echo replies are generated in response to echo requests.
+  * ICMPv6 echo replies are generated in response to echo requests by default.
   * ICMPv6 protocol unreachable messages are **not** passed to higher layers when received.
 
 #### NDISC
 
   * Neighbor Advertisement messages are generated in response to Neighbor Solicitations.
-  * Router Advertisement messages are **not** generated or read.
-  * Router Solicitation messages are **not** generated or read.
+  * Router Advertisement messages are read, but **not** generated.
+  * Router Solicitation messages are generated, but **not** read.
   * Redirected Header messages are **not** generated or read.
 
 ### UDP layer
@@ -132,10 +132,10 @@ The TCP protocol is supported over IPv4 and IPv6, and server and client TCP sock
   * Nagle's algorithm is implemented.
   * Selective acknowledgements are **not** implemented.
   * Silly window syndrome avoidance is **not** implemented.
-  * Congestion control is **not** implemented.
+  * Congestion control is optional, `CUBIC` and `Reno` are implemented.
   * Timestamping is **not** supported.
   * Urgent pointer is **ignored**.
-  * Probing Zero Windows is **not** implemented.
+  * Probing Zero Windows is implemented.
   * Packetization Layer Path MTU Discovery [PLPMTU](https://tools.ietf.org/rfc/rfc4821.txt) is **not** implemented.
 
 ## Installation
@@ -255,6 +255,11 @@ Amount of "IP address -> hardware address" entries the neighbor cache (also know
 ### `IFACE_MAX_ROUTE_COUNT`
 
 Max amount of routes that can be added to one interface. Includes the default route. Includes both IPv4 and IPv6. Default: 2.
+
+### `IFACE_MAX_PREFIX_COUNT`
+
+Max amount of IPv6 prefixes that can be added to one interface via SLAAC.
+Should be lower or equal to `IFACE_MAX_ADDR_COUNT`.
 
 ### `FRAGMENTATION_BUFFER_SIZE`
 
@@ -513,14 +518,14 @@ cargo run --release --example benchmark -- --tap tap0 [reader|writer]
 It establishes a connection to itself from a different thread and reads or writes a large amount
 of data in one direction.
 
-A typical result (achieved on a Intel Core i7-7500U CPU and a Linux 4.9.65 x86_64 kernel running
-on a Dell XPS 13 9360 laptop) is as follows:
+A typical result (achieved on a Intel Core i5-13500H CPU and a Linux 6.9.9 x86_64 kernel running
+on a LENOVO XiaoXinPro 14 IRH8 laptop) is as follows:
 
 ```
 $ cargo run -q --release --example benchmark -- --tap tap0 reader
-throughput: 2.556 Gbps
+throughput: 3.673 Gbps
 $ cargo run -q --release --example benchmark -- --tap tap0 writer
-throughput: 5.301 Gbps
+throughput: 7.905 Gbps
 ```
 
 ## Bare-metal usage examples
@@ -552,6 +557,30 @@ If the `std` feature is enabled, it will print logs and packet dumps, and fault 
 is possible; otherwise, nothing at all will be displayed and no options are accepted.
 
 [wireshark]: https://wireshark.org
+
+### examples/loopback\_benchmark.rs
+
+_examples/loopback_benchmark.rs_ is another simple throughput benchmark.
+
+Read its [source code](/examples/loopback_benchmark.rs), then run it as:
+
+```sh
+cargo run --release --example loopback_benchmark
+```
+
+It establishes a connection to itself via a loopback interface and transfers a large amount
+of data in one direction.
+
+A typical result (achieved on a Intel Core i5-13500H CPU and a Linux 6.9.9 x86_64 kernel running
+on a LENOVO XiaoXinPro 14 IRH8 laptop) is as follows:
+
+```
+$ cargo run --release --example loopback_benchmark
+done in 0.558 s, bandwidth is 15.395083 Gbps
+```
+
+Note: Although the loopback interface can be used in bare-metal environments,
+this benchmark _does_ rely on `std` to be able to measure the time cost.
 
 ## License
 

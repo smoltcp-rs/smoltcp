@@ -1,10 +1,10 @@
 //! Implementation of Next Header Compression from [RFC 6282 § 4].
 //!
 //! [RFC 6282 § 4]: https://datatracker.ietf.org/doc/html/rfc6282#section-4
-use super::{Error, NextHeader, Result, DISPATCH_EXT_HEADER, DISPATCH_UDP_HEADER};
+use super::{DISPATCH_EXT_HEADER, DISPATCH_UDP_HEADER, Error, NextHeader, Result};
 use crate::{
     phy::ChecksumCapabilities,
-    wire::{ip::checksum, ipv6, udp::Repr as UdpRepr, IpProtocol},
+    wire::{IpProtocol, ip::checksum, ipv6, udp::Repr as UdpRepr},
 };
 use byteorder::{ByteOrder, NetworkEndian};
 use ipv6::Address;
@@ -715,10 +715,10 @@ impl<'a> UdpNhcRepr {
                 checksum::data(packet.payload()),
             ]);
 
-            if let Some(checksum) = packet.checksum() {
-                if chk_sum != checksum {
-                    return Err(Error);
-                }
+            if let Some(checksum) = packet.checksum()
+                && chk_sum != checksum
+            {
+                return Err(Error);
             }
         }
 
@@ -862,8 +862,8 @@ mod test {
 
         let payload = b"Hello World!";
 
-        let src_addr = ipv6::Address::default();
-        let dst_addr = ipv6::Address::default();
+        let src_addr = ipv6::Address::UNSPECIFIED;
+        let dst_addr = ipv6::Address::UNSPECIFIED;
 
         let len = udp.header_len() + payload.len();
         let mut buffer = [0u8; 127];

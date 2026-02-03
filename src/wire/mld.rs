@@ -7,8 +7,8 @@
 use byteorder::{ByteOrder, NetworkEndian};
 
 use super::{Error, Result};
-use crate::wire::icmpv6::{field, Message, Packet};
 use crate::wire::Ipv6Address;
+use crate::wire::icmpv6::{Message, Packet, field};
 
 enum_with_unknown! {
     /// MLDv2 Multicast Listener Report Record Type. See [RFC 3810 § 5.2.12] for
@@ -49,7 +49,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     #[inline]
     pub fn mcast_addr(&self) -> Ipv6Address {
         let data = self.buffer.as_ref();
-        Ipv6Address::from_bytes(&data[field::QUERY_MCAST_ADDR])
+        Ipv6Address::from_octets(data[field::QUERY_MCAST_ADDR].try_into().unwrap())
     }
 
     /// Return the Suppress Router-Side Processing flag.
@@ -110,7 +110,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     #[inline]
     pub fn set_mcast_addr(&mut self, addr: Ipv6Address) {
         let data = self.buffer.as_mut();
-        data[field::QUERY_MCAST_ADDR].copy_from_slice(addr.as_bytes());
+        data[field::QUERY_MCAST_ADDR].copy_from_slice(&addr.octets());
     }
 
     /// Set the Suppress Router-Side Processing flag.
@@ -234,7 +234,7 @@ impl<T: AsRef<[u8]>> AddressRecord<T> {
     #[inline]
     pub fn mcast_addr(&self) -> Ipv6Address {
         let data = self.buffer.as_ref();
-        Ipv6Address::from_bytes(&data[field::RECORD_MCAST_ADDR])
+        Ipv6Address::from_octets(data[field::RECORD_MCAST_ADDR].try_into().unwrap())
     }
 }
 
@@ -281,7 +281,7 @@ impl<T: AsMut<[u8]> + AsRef<[u8]>> AddressRecord<T> {
     pub fn set_mcast_addr(&mut self, addr: Ipv6Address) {
         assert!(addr.is_multicast());
         let data = self.buffer.as_mut();
-        data[field::RECORD_MCAST_ADDR].copy_from_slice(addr.as_bytes());
+        data[field::RECORD_MCAST_ADDR].copy_from_slice(&addr.octets());
     }
 }
 
@@ -460,7 +460,7 @@ mod test {
     use super::*;
     use crate::phy::ChecksumCapabilities;
     use crate::wire::icmpv6::Message;
-    use crate::wire::Icmpv6Repr;
+    use crate::wire::{IPV6_LINK_LOCAL_ALL_NODES, IPV6_LINK_LOCAL_ALL_ROUTERS, Icmpv6Repr};
 
     static QUERY_PACKET_BYTES: [u8; 44] = [
         0x82, 0x00, 0x73, 0x74, 0x04, 0x00, 0x00, 0x00, 0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -489,7 +489,7 @@ mod test {
         match ty {
             Message::MldQuery => Icmpv6Repr::Mld(Repr::Query {
                 max_resp_code: 0x400,
-                mcast_addr: Ipv6Address::LINK_LOCAL_ALL_NODES,
+                mcast_addr: IPV6_LINK_LOCAL_ALL_NODES,
                 s_flag: true,
                 qrv: 0x02,
                 qqic: 0x12,
@@ -513,37 +513,34 @@ mod test {
         assert_eq!(packet.msg_code(), 0);
         assert_eq!(packet.checksum(), 0x7374);
         assert_eq!(packet.max_resp_code(), 0x0400);
-        assert_eq!(packet.mcast_addr(), Ipv6Address::LINK_LOCAL_ALL_NODES);
+        assert_eq!(packet.mcast_addr(), IPV6_LINK_LOCAL_ALL_NODES);
         assert!(packet.s_flag());
         assert_eq!(packet.qrv(), 0x02);
         assert_eq!(packet.qqic(), 0x12);
         assert_eq!(packet.num_srcs(), 0x01);
         assert_eq!(
-            Ipv6Address::from_bytes(packet.payload()),
-            Ipv6Address::LINK_LOCAL_ALL_ROUTERS
+            Ipv6Address::from_octets(packet.payload().try_into().unwrap()),
+            IPV6_LINK_LOCAL_ALL_ROUTERS
         );
     }
 
     #[test]
     fn test_query_construct() {
-        let mut bytes = vec![0xff; 44];
+        let mut bytes = [0xff; 44];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_msg_type(Message::MldQuery);
         packet.set_msg_code(0);
         packet.set_max_resp_code(0x0400);
-        packet.set_mcast_addr(Ipv6Address::LINK_LOCAL_ALL_NODES);
+        packet.set_mcast_addr(IPV6_LINK_LOCAL_ALL_NODES);
         packet.set_s_flag();
         packet.set_qrv(0x02);
         packet.set_qqic(0x12);
         packet.set_num_srcs(0x01);
         packet
             .payload_mut()
-            .copy_from_slice(Ipv6Address::LINK_LOCAL_ALL_ROUTERS.as_bytes());
+            .copy_from_slice(&IPV6_LINK_LOCAL_ALL_ROUTERS.octets());
         packet.clear_reserved();
-        packet.fill_checksum(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES,
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
-        );
+        packet.fill_checksum(&IPV6_LINK_LOCAL_ALL_NODES, &IPV6_LINK_LOCAL_ALL_ROUTERS);
         assert_eq!(&*packet.into_inner(), &QUERY_PACKET_BYTES[..]);
     }
 
@@ -558,16 +555,16 @@ mod test {
         assert_eq!(addr_rcrd.record_type(), RecordType::ModeIsInclude);
         assert_eq!(addr_rcrd.aux_data_len(), 0x00);
         assert_eq!(addr_rcrd.num_srcs(), 0x01);
-        assert_eq!(addr_rcrd.mcast_addr(), Ipv6Address::LINK_LOCAL_ALL_NODES);
+        assert_eq!(addr_rcrd.mcast_addr(), IPV6_LINK_LOCAL_ALL_NODES);
         assert_eq!(
-            Ipv6Address::from_bytes(addr_rcrd.payload()),
-            Ipv6Address::LINK_LOCAL_ALL_ROUTERS
+            Ipv6Address::from_octets(addr_rcrd.payload().try_into().unwrap()),
+            IPV6_LINK_LOCAL_ALL_ROUTERS
         );
     }
 
     #[test]
     fn test_record_construct() {
-        let mut bytes = vec![0xff; 44];
+        let mut bytes = [0xff; 44];
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         packet.set_msg_type(Message::MldReport);
         packet.set_msg_code(0);
@@ -578,15 +575,12 @@ mod test {
             addr_rcrd.set_record_type(RecordType::ModeIsInclude);
             addr_rcrd.set_aux_data_len(0);
             addr_rcrd.set_num_srcs(1);
-            addr_rcrd.set_mcast_addr(Ipv6Address::LINK_LOCAL_ALL_NODES);
+            addr_rcrd.set_mcast_addr(IPV6_LINK_LOCAL_ALL_NODES);
             addr_rcrd
                 .payload_mut()
-                .copy_from_slice(Ipv6Address::LINK_LOCAL_ALL_ROUTERS.as_bytes());
+                .copy_from_slice(&IPV6_LINK_LOCAL_ALL_ROUTERS.octets());
         }
-        packet.fill_checksum(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES,
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
-        );
+        packet.fill_checksum(&IPV6_LINK_LOCAL_ALL_NODES, &IPV6_LINK_LOCAL_ALL_ROUTERS);
         assert_eq!(&*packet.into_inner(), &REPORT_PACKET_BYTES[..]);
     }
 
@@ -594,8 +588,8 @@ mod test {
     fn test_query_repr_parse() {
         let packet = Packet::new_unchecked(&QUERY_PACKET_BYTES[..]);
         let repr = Icmpv6Repr::parse(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES,
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
+            &IPV6_LINK_LOCAL_ALL_NODES,
+            &IPV6_LINK_LOCAL_ALL_ROUTERS,
             &packet,
             &ChecksumCapabilities::default(),
         );
@@ -606,8 +600,8 @@ mod test {
     fn test_report_repr_parse() {
         let packet = Packet::new_unchecked(&REPORT_PACKET_BYTES[..]);
         let repr = Icmpv6Repr::parse(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES,
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
+            &IPV6_LINK_LOCAL_ALL_NODES,
+            &IPV6_LINK_LOCAL_ALL_ROUTERS,
             &packet,
             &ChecksumCapabilities::default(),
         );
@@ -620,8 +614,8 @@ mod test {
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         let repr = create_repr(Message::MldQuery);
         repr.emit(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES,
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
+            &IPV6_LINK_LOCAL_ALL_NODES,
+            &IPV6_LINK_LOCAL_ALL_ROUTERS,
             &mut packet,
             &ChecksumCapabilities::default(),
         );
@@ -634,8 +628,8 @@ mod test {
         let mut packet = Packet::new_unchecked(&mut bytes[..]);
         let repr = create_repr(Message::MldReport);
         repr.emit(
-            &Ipv6Address::LINK_LOCAL_ALL_NODES,
-            &Ipv6Address::LINK_LOCAL_ALL_ROUTERS,
+            &IPV6_LINK_LOCAL_ALL_NODES,
+            &IPV6_LINK_LOCAL_ALL_ROUTERS,
             &mut packet,
             &ChecksumCapabilities::default(),
         );

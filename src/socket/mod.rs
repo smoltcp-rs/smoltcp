@@ -56,6 +56,7 @@ pub(crate) enum PollAt {
 /// [AnySocket]: trait.AnySocket.html
 /// [SocketSet::get]: struct.SocketSet.html#method.get
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Socket<'a> {
     #[cfg(feature = "socket-raw")]
     Raw(raw::Socket<'a>),
@@ -99,6 +100,29 @@ pub trait AnySocket<'a> {
     fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>
     where
         Self: Sized;
+}
+
+impl<'a> AnySocket<'a> for Socket<'a> {
+    #[inline]
+    fn upcast(self) -> Socket<'a> {
+        self
+    }
+
+    #[inline]
+    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>
+    where
+        Self: Sized,
+    {
+        Some(socket)
+    }
+
+    #[inline]
+    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>
+    where
+        Self: Sized,
+    {
+        Some(socket)
+    }
 }
 
 macro_rules! from_socket {

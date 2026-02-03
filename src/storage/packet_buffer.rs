@@ -239,6 +239,11 @@ impl<'a, H> PacketBuffer<'a, H> {
         self.payload_ring.capacity()
     }
 
+    /// Return the current number of bytes in the payload ring buffer.
+    pub fn payload_bytes_count(&self) -> usize {
+        self.payload_ring.len()
+    }
+
     /// Reset the packet buffer and clear any staged.
     #[allow(unused)]
     pub(crate) fn reset(&mut self) {
@@ -317,12 +322,14 @@ mod test {
         ));
         assert_eq!(buffer.metadata_ring.len(), 1);
 
-        assert!(buffer
-            .dequeue_with(|&mut (), payload| {
-                assert_eq!(payload, &b"abcd"[..]);
-                Result::<(), ()>::Ok(())
-            })
-            .is_ok());
+        assert!(
+            buffer
+                .dequeue_with(|&mut (), payload| {
+                    assert_eq!(payload, &b"abcd"[..]);
+                    Result::<(), ()>::Ok(())
+                })
+                .is_ok()
+        );
         assert_eq!(buffer.metadata_ring.len(), 0);
     }
 

@@ -151,11 +151,7 @@ impl Assembler {
     /// Return length of the front contiguous range without removing it from the assembler
     pub fn peek_front(&self) -> usize {
         let front = self.front();
-        if front.has_hole() {
-            0
-        } else {
-            front.data_size
-        }
+        if front.has_hole() { 0 } else { front.data_size }
     }
 
     fn back(&self) -> Contig {
@@ -327,7 +323,7 @@ impl Assembler {
     /// |--- 100 ---|--- 200 ---|--- 100 ---|
     ///
     /// An offset of 1500 would return the ranges: ``(1500, 1600), (1800, 1900)``
-    pub fn iter_data(&self, first_offset: usize) -> AssemblerIter {
+    pub fn iter_data(&self, first_offset: usize) -> AssemblerIter<'_> {
         AssemblerIter::new(self, first_offset)
     }
 }

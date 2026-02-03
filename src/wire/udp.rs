@@ -101,6 +101,23 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u16(&data[field::CHECKSUM])
     }
 
+    /// Validate the partial packet checksum.
+    ///
+    /// # Panics
+    /// This function panics unless `src_addr` and `dst_addr` belong to the same family,
+    /// and that family is IPv4 or IPv6.
+    ///
+    /// # Fuzzing
+    /// This function always returns `true` when fuzzing.
+    pub fn verify_partial_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
+        if cfg!(fuzzing) {
+            return true;
+        }
+
+        checksum::pseudo_header(src_addr, dst_addr, IpProtocol::Udp, self.len() as u32)
+            == self.checksum()
+    }
+
     /// Validate the packet checksum.
     ///
     /// # Panics
@@ -255,9 +272,9 @@ impl Repr {
     /// This never calculates the checksum, and is intended for internal-use only,
     /// not for packets that are going to be actually sent over the network. For
     /// example, when decompressing 6lowpan.
-    pub(crate) fn emit_header<T: ?Sized>(&self, packet: &mut Packet<&mut T>, payload_len: usize)
+    pub(crate) fn emit_header<T>(&self, packet: &mut Packet<&mut T>, payload_len: usize)
     where
-        T: AsRef<[u8]> + AsMut<[u8]>,
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
@@ -266,7 +283,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
-    pub fn emit<T: ?Sized>(
+    pub fn emit<T>(
         &self,
         packet: &mut Packet<&mut T>,
         src_addr: &IpAddress,
@@ -275,7 +292,7 @@ impl Repr {
         emit_payload: impl FnOnce(&mut [u8]),
         checksum_caps: &ChecksumCapabilities,
     ) where
-        T: AsRef<[u8]> + AsMut<[u8]>,
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
@@ -292,7 +309,7 @@ impl Repr {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Cannot use Repr::parse because we don't have the IP addresses.
         write!(
@@ -354,9 +371,9 @@ mod test {
     use crate::wire::Ipv4Address;
 
     #[cfg(feature = "proto-ipv4")]
-    const SRC_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    const SRC_ADDR: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
     #[cfg(feature = "proto-ipv4")]
-    const DST_ADDR: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
+    const DST_ADDR: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
 
     #[cfg(feature = "proto-ipv4")]
     static PACKET_BYTES: [u8; 12] = [

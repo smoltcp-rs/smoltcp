@@ -3,7 +3,7 @@ mod utils;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::{wait as phy_wait, Device, Medium};
+use smoltcp::phy::{Device, Medium, wait as phy_wait};
 use smoltcp::socket::{raw, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{
@@ -12,7 +12,7 @@ use smoltcp::wire::{
 };
 
 const MDNS_PORT: u16 = 5353;
-const MDNS_GROUP: [u8; 4] = [224, 0, 0, 251];
+const MDNS_GROUP: Ipv4Address = Ipv4Address::new(224, 0, 0, 251);
 
 fn main() {
     utils::setup_logging("warn");
@@ -66,8 +66,8 @@ fn main() {
     // Will not send IGMP
     let raw_tx_buffer = raw::PacketBuffer::new(vec![], vec![]);
     let raw_socket = raw::Socket::new(
-        IpVersion::Ipv4,
-        IpProtocol::Igmp,
+        Some(IpVersion::Ipv4),
+        Some(IpProtocol::Igmp),
         raw_rx_buffer,
         raw_tx_buffer,
     );
@@ -81,13 +81,7 @@ fn main() {
     let udp_handle = sockets.add(udp_socket);
 
     // Join a multicast group to receive mDNS traffic
-    iface
-        .join_multicast_group(
-            &mut device,
-            Ipv4Address::from_bytes(&MDNS_GROUP),
-            Instant::now(),
-        )
-        .unwrap();
+    iface.join_multicast_group(MDNS_GROUP).unwrap();
 
     loop {
         let timestamp = Instant::now();

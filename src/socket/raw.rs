@@ -80,12 +80,12 @@ pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, ()>;
 
 /// A raw IP socket.
 ///
-/// A raw socket is bound to a specific IP protocol, and owns
+/// A raw socket may be bound to a specific IP protocol, and owns
 /// transmit and receive packet buffers.
 #[derive(Debug)]
 pub struct Socket<'a> {
-    ip_version: IpVersion,
-    ip_protocol: IpProtocol,
+    ip_version: Option<IpVersion>,
+    ip_protocol: Option<IpProtocol>,
     rx_buffer: PacketBuffer<'a>,
     tx_buffer: PacketBuffer<'a>,
     #[cfg(feature = "async")]
@@ -98,8 +98,8 @@ impl<'a> Socket<'a> {
     /// Create a raw IP socket bound to the given IP version and datagram protocol,
     /// with the given buffers.
     pub fn new(
-        ip_version: IpVersion,
-        ip_protocol: IpProtocol,
+        ip_version: Option<IpVersion>,
+        ip_protocol: Option<IpProtocol>,
         rx_buffer: PacketBuffer<'a>,
         tx_buffer: PacketBuffer<'a>,
     ) -> Socket<'a> {
@@ -152,13 +152,13 @@ impl<'a> Socket<'a> {
 
     /// Return the IP version the socket is bound to.
     #[inline]
-    pub fn ip_version(&self) -> IpVersion {
+    pub fn ip_version(&self) -> Option<IpVersion> {
         self.ip_version
     }
 
     /// Return the IP protocol the socket is bound to.
     #[inline]
-    pub fn ip_protocol(&self) -> IpProtocol {
+    pub fn ip_protocol(&self) -> Option<IpProtocol> {
         self.ip_protocol
     }
 
@@ -216,7 +216,7 @@ impl<'a> Socket<'a> {
             .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
-            "raw:{}:{}: buffer to send {} octets",
+            "raw:{:?}:{:?}: buffer to send {} octets",
             self.ip_version,
             self.ip_protocol,
             packet_buf.len()
@@ -238,7 +238,7 @@ impl<'a> Socket<'a> {
             .map_err(|_| SendError::BufferFull)?;
 
         net_trace!(
-            "raw:{}:{}: buffer to send {} octets",
+            "raw:{:?}:{:?}: buffer to send {} octets",
             self.ip_version,
             self.ip_protocol,
             size
@@ -265,7 +265,7 @@ impl<'a> Socket<'a> {
         let ((), packet_buf) = self.rx_buffer.dequeue().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
-            "raw:{}:{}: receive {} buffered octets",
+            "raw:{:?}:{:?}: receive {} buffered octets",
             self.ip_version,
             self.ip_protocol,
             packet_buf.len()
@@ -299,7 +299,7 @@ impl<'a> Socket<'a> {
         let ((), packet_buf) = self.rx_buffer.peek().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
-            "raw:{}:{}: receive {} buffered octets",
+            "raw:{:?}:{:?}: receive {} buffered octets",
             self.ip_version,
             self.ip_protocol,
             packet_buf.len()
@@ -327,11 +327,28 @@ impl<'a> Socket<'a> {
         Ok(length)
     }
 
+    /// Return the amount of octets queued in the transmit buffer.
+    pub fn send_queue(&self) -> usize {
+        self.tx_buffer.payload_bytes_count()
+    }
+
+    /// Return the amount of octets queued in the receive buffer.
+    pub fn recv_queue(&self) -> usize {
+        self.rx_buffer.payload_bytes_count()
+    }
+
     pub(crate) fn accepts(&self, ip_repr: &IpRepr) -> bool {
-        if ip_repr.version() != self.ip_version {
+        if self
+            .ip_version
+            .is_some_and(|version| version != ip_repr.version())
+        {
             return false;
         }
-        if ip_repr.next_header() != self.ip_protocol {
+
+        if self
+            .ip_protocol
+            .is_some_and(|next_header| next_header != ip_repr.next_header())
+        {
             return false;
         }
 
@@ -345,7 +362,7 @@ impl<'a> Socket<'a> {
         let total_len = header_len + payload.len();
 
         net_trace!(
-            "raw:{}:{}: receiving {} octets",
+            "raw:{:?}:{:?}: receiving {} octets",
             self.ip_version,
             self.ip_protocol,
             total_len
@@ -357,7 +374,7 @@ impl<'a> Socket<'a> {
                 buf[header_len..].copy_from_slice(payload);
             }
             Err(_) => net_trace!(
-                "raw:{}:{}: buffer full, dropped incoming packet",
+                "raw:{:?}:{:?}: buffer full, dropped incoming packet",
                 self.ip_version,
                 self.ip_protocol
             ),
@@ -385,7 +402,7 @@ impl<'a> Socket<'a> {
                             return Ok(());
                         }
                     };
-                    if packet.next_header() != ip_protocol {
+                    if ip_protocol.is_some_and(|next_header| next_header != packet.next_header()) {
                         net_trace!("raw: sent packet with wrong ip protocol, dropping.");
                         return Ok(());
                     }
@@ -405,7 +422,7 @@ impl<'a> Socket<'a> {
                             return Ok(());
                         }
                     };
-                    net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
+                    net_trace!("raw:{:?}:{:?}: sending", ip_version, ip_protocol);
                     emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.payload()))
                 }
                 #[cfg(feature = "proto-ipv6")]
@@ -417,7 +434,7 @@ impl<'a> Socket<'a> {
                             return Ok(());
                         }
                     };
-                    if packet.next_header() != ip_protocol {
+                    if ip_protocol.is_some_and(|next_header| next_header != packet.next_header()) {
                         net_trace!("raw: sent ipv6 packet with wrong ip protocol, dropping.");
                         return Ok(());
                     }
@@ -430,7 +447,7 @@ impl<'a> Socket<'a> {
                         }
                     };
 
-                    net_trace!("raw:{}:{}: sending", ip_version, ip_protocol);
+                    net_trace!("raw:{:?}:{:?}: sending", ip_version, ip_protocol);
                     emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.payload()))
                 }
                 Err(_) => {
@@ -485,8 +502,8 @@ mod test {
             tx_buffer: PacketBuffer<'static>,
         ) -> Socket<'static> {
             Socket::new(
-                IpVersion::Ipv4,
-                IpProtocol::Unknown(IP_PROTO),
+                Some(IpVersion::Ipv4),
+                Some(IpProtocol::Unknown(IP_PROTO)),
                 rx_buffer,
                 tx_buffer,
             )
@@ -494,8 +511,8 @@ mod test {
 
         pub const IP_PROTO: u8 = 63;
         pub const HEADER_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
-            src_addr: Ipv4Address([10, 0, 0, 1]),
-            dst_addr: Ipv4Address([10, 0, 0, 2]),
+            src_addr: Ipv4Address::new(10, 0, 0, 1),
+            dst_addr: Ipv4Address::new(10, 0, 0, 2),
             next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
             hop_limit: 64,
@@ -516,8 +533,8 @@ mod test {
             tx_buffer: PacketBuffer<'static>,
         ) -> Socket<'static> {
             Socket::new(
-                IpVersion::Ipv6,
-                IpProtocol::Unknown(IP_PROTO),
+                Some(IpVersion::Ipv6),
+                Some(IpProtocol::Unknown(IP_PROTO)),
                 rx_buffer,
                 tx_buffer,
             )
@@ -525,14 +542,8 @@ mod test {
 
         pub const IP_PROTO: u8 = 63;
         pub const HEADER_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
-            src_addr: Ipv6Address([
-                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x01,
-            ]),
-            dst_addr: Ipv6Address([
-                0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x02,
-            ]),
+            src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+            dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
             next_header: IpProtocol::Unknown(IP_PROTO),
             payload_len: 4,
             hop_limit: 64,
@@ -823,8 +834,8 @@ mod test {
         #[cfg(feature = "proto-ipv4")]
         {
             let socket = Socket::new(
-                IpVersion::Ipv4,
-                IpProtocol::Unknown(ipv4_locals::IP_PROTO + 1),
+                Some(IpVersion::Ipv4),
+                Some(IpProtocol::Unknown(ipv4_locals::IP_PROTO + 1)),
                 buffer(1),
                 buffer(1),
             );
@@ -835,14 +846,104 @@ mod test {
         #[cfg(feature = "proto-ipv6")]
         {
             let socket = Socket::new(
-                IpVersion::Ipv6,
-                IpProtocol::Unknown(ipv6_locals::IP_PROTO + 1),
+                Some(IpVersion::Ipv6),
+                Some(IpProtocol::Unknown(ipv6_locals::IP_PROTO + 1)),
                 buffer(1),
                 buffer(1),
             );
             assert!(!socket.accepts(&ipv6_locals::HEADER_REPR));
             #[cfg(feature = "proto-ipv4")]
             assert!(!socket.accepts(&ipv4_locals::HEADER_REPR));
+        }
+    }
+
+    fn check_dispatch(socket: &mut Socket<'_>, cx: &mut Context) {
+        // Check dispatch returns Ok(()) and calls the emit closure
+        let mut emitted = false;
+        assert_eq!(
+            socket.dispatch(cx, |_, _| {
+                emitted = true;
+                Ok(())
+            }),
+            Ok::<_, ()>(())
+        );
+        assert!(emitted);
+    }
+
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
+    fn test_unfiltered_sends_all(#[case] medium: Medium) {
+        // Test a single unfiltered socket can send packets with different IP versions and next
+        // headers
+        let mut socket = Socket::new(None, None, buffer(0), buffer(2));
+        #[cfg(feature = "proto-ipv4")]
+        {
+            let (mut iface, _, _) = setup(medium);
+            let cx = iface.context();
+
+            let mut udp_packet = ipv4_locals::PACKET_BYTES;
+            Ipv4Packet::new_unchecked(&mut udp_packet).set_next_header(IpProtocol::Udp);
+
+            assert_eq!(socket.send_slice(&udp_packet), Ok(()));
+            check_dispatch(&mut socket, cx);
+
+            let mut tcp_packet = ipv4_locals::PACKET_BYTES;
+            Ipv4Packet::new_unchecked(&mut tcp_packet).set_next_header(IpProtocol::Tcp);
+
+            assert_eq!(socket.send_slice(&tcp_packet[..]), Ok(()));
+            check_dispatch(&mut socket, cx);
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            let (mut iface, _, _) = setup(medium);
+            let cx = iface.context();
+
+            let mut udp_packet = ipv6_locals::PACKET_BYTES;
+            Ipv6Packet::new_unchecked(&mut udp_packet).set_next_header(IpProtocol::Udp);
+
+            assert_eq!(socket.send_slice(&ipv6_locals::PACKET_BYTES), Ok(()));
+            check_dispatch(&mut socket, cx);
+
+            let mut tcp_packet = ipv6_locals::PACKET_BYTES;
+            Ipv6Packet::new_unchecked(&mut tcp_packet).set_next_header(IpProtocol::Tcp);
+
+            assert_eq!(socket.send_slice(&tcp_packet[..]), Ok(()));
+            check_dispatch(&mut socket, cx);
+        }
+    }
+
+    #[rstest]
+    #[case::proto(IpProtocol::Icmp)]
+    #[case::proto(IpProtocol::Tcp)]
+    #[case::proto(IpProtocol::Udp)]
+    fn test_unfiltered_accepts_all(#[case] proto: IpProtocol) {
+        // Test an unfiltered socket can accept packets with different IP versions and next headers
+        let socket = Socket::new(None, None, buffer(0), buffer(0));
+        #[cfg(feature = "proto-ipv4")]
+        {
+            let header_repr = IpRepr::Ipv4(Ipv4Repr {
+                src_addr: Ipv4Address::new(10, 0, 0, 1),
+                dst_addr: Ipv4Address::new(10, 0, 0, 2),
+                next_header: proto,
+                payload_len: 4,
+                hop_limit: 64,
+            });
+            assert!(socket.accepts(&header_repr));
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            let header_repr = IpRepr::Ipv6(Ipv6Repr {
+                src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+                dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
+                next_header: proto,
+                payload_len: 4,
+                hop_limit: 64,
+            });
+            assert!(socket.accepts(&header_repr));
         }
     }
 }

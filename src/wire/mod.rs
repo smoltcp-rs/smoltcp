@@ -93,7 +93,7 @@ mod icmpv4;
 mod icmpv6;
 #[cfg(feature = "medium-ieee802154")]
 pub mod ieee802154;
-#[cfg(feature = "proto-igmp")]
+#[cfg(feature = "proto-ipv4")]
 mod igmp;
 pub(crate) mod ip;
 #[cfg(feature = "proto-ipv4")]
@@ -144,7 +144,7 @@ pub use self::pretty_print::PrettyPrinter;
 #[cfg(feature = "medium-ethernet")]
 pub use self::ethernet::{
     Address as EthernetAddress, EtherType as EthernetProtocol, Frame as EthernetFrame,
-    Repr as EthernetRepr, HEADER_LEN as ETHERNET_HEADER_LEN,
+    HEADER_LEN as ETHERNET_HEADER_LEN, Repr as EthernetRepr,
 };
 
 #[cfg(all(feature = "proto-ipv4", feature = "medium-ethernet"))]
@@ -154,13 +154,14 @@ pub use self::arp::{
 
 #[cfg(feature = "proto-rpl")]
 pub use self::rpl::{
-    data::HopByHopOption as RplHopByHopRepr, data::Packet as RplHopByHopPacket,
-    options::Packet as RplOptionPacket, options::Repr as RplOptionRepr,
-    InstanceId as RplInstanceId, Repr as RplRepr,
+    InstanceId as RplInstanceId, Repr as RplRepr, data::HopByHopOption as RplHopByHopRepr,
+    data::Packet as RplHopByHopPacket, options::Packet as RplOptionPacket,
+    options::Repr as RplOptionRepr,
 };
 
 #[cfg(all(feature = "proto-sixlowpan", feature = "medium-ieee802154"))]
 pub use self::sixlowpan::{
+    AddressContext as SixlowpanAddressContext, NextHeader as SixlowpanNextHeader, SixlowpanPacket,
     frag::{Key as SixlowpanFragKey, Packet as SixlowpanFragPacket, Repr as SixlowpanFragRepr},
     iphc::{Packet as SixlowpanIphcPacket, Repr as SixlowpanIphcRepr},
     nhc::{
@@ -168,7 +169,6 @@ pub use self::sixlowpan::{
         ExtHeaderRepr as SixlowpanExtHeaderRepr, NhcPacket as SixlowpanNhcPacket,
         UdpNhcPacket as SixlowpanUdpNhcPacket, UdpNhcRepr as SixlowpanUdpNhcRepr,
     },
-    AddressContext as SixlowpanAddressContext, NextHeader as SixlowpanNextHeader, SixlowpanPacket,
 };
 
 #[cfg(feature = "medium-ieee802154")]
@@ -186,17 +186,25 @@ pub use self::ip::{
 
 #[cfg(feature = "proto-ipv4")]
 pub use self::ipv4::{
-    Address as Ipv4Address, Cidr as Ipv4Cidr, Key as Ipv4FragKey, Packet as Ipv4Packet,
-    Repr as Ipv4Repr, HEADER_LEN as IPV4_HEADER_LEN, MIN_MTU as IPV4_MIN_MTU,
+    Address as Ipv4Address, Cidr as Ipv4Cidr, HEADER_LEN as IPV4_HEADER_LEN, Key as Ipv4FragKey,
+    MIN_MTU as IPV4_MIN_MTU, MULTICAST_ALL_ROUTERS as IPV4_MULTICAST_ALL_ROUTERS,
+    MULTICAST_ALL_SYSTEMS as IPV4_MULTICAST_ALL_SYSTEMS, Packet as Ipv4Packet, Repr as Ipv4Repr,
 };
 
-#[cfg(feature = "proto-ipv6")]
-pub(crate) use self::ipv6::MulticastScope as Ipv6MulticastScope;
+#[cfg(feature = "proto-ipv4")]
+pub(crate) use self::ipv4::AddressExt as Ipv4AddressExt;
+
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6::{
-    Address as Ipv6Address, Cidr as Ipv6Cidr, Packet as Ipv6Packet, Repr as Ipv6Repr,
-    HEADER_LEN as IPV6_HEADER_LEN, MIN_MTU as IPV6_MIN_MTU,
+    Address as Ipv6Address, Cidr as Ipv6Cidr, HEADER_LEN as IPV6_HEADER_LEN,
+    LINK_LOCAL_ALL_MLDV2_ROUTERS as IPV6_LINK_LOCAL_ALL_MLDV2_ROUTERS,
+    LINK_LOCAL_ALL_NODES as IPV6_LINK_LOCAL_ALL_NODES,
+    LINK_LOCAL_ALL_ROUTERS as IPV6_LINK_LOCAL_ALL_ROUTERS,
+    LINK_LOCAL_ALL_RPL_NODES as IPV6_LINK_LOCAL_ALL_RPL_NODES, MIN_MTU as IPV6_MIN_MTU,
+    Packet as Ipv6Packet, Repr as Ipv6Repr,
 };
+#[cfg(feature = "proto-ipv6")]
+pub(crate) use self::ipv6::{AddressExt as Ipv6AddressExt, MulticastScope as Ipv6MulticastScope};
 
 #[cfg(feature = "proto-ipv6")]
 pub use self::ipv6option::{
@@ -225,7 +233,7 @@ pub use self::icmpv4::{
     TimeExceeded as Icmpv4TimeExceeded,
 };
 
-#[cfg(feature = "proto-igmp")]
+#[cfg(feature = "proto-ipv4")]
 pub use self::igmp::{IgmpVersion, Packet as IgmpPacket, Repr as IgmpRepr};
 
 #[cfg(feature = "proto-ipv6")]
@@ -261,18 +269,18 @@ pub use self::mld::{
     RecordType as MldRecordType, Repr as MldRepr,
 };
 
-pub use self::udp::{Packet as UdpPacket, Repr as UdpRepr, HEADER_LEN as UDP_HEADER_LEN};
+pub use self::udp::{HEADER_LEN as UDP_HEADER_LEN, Packet as UdpPacket, Repr as UdpRepr};
 
 pub use self::tcp::{
-    Control as TcpControl, Packet as TcpPacket, Repr as TcpRepr, SeqNumber as TcpSeqNumber,
-    TcpOption, HEADER_LEN as TCP_HEADER_LEN,
+    Control as TcpControl, HEADER_LEN as TCP_HEADER_LEN, Packet as TcpPacket, Repr as TcpRepr,
+    SeqNumber as TcpSeqNumber, TcpOption, TcpTimestampGenerator, TcpTimestampRepr,
 };
 
 #[cfg(feature = "proto-dhcpv4")]
 pub use self::dhcpv4::{
-    DhcpOption, DhcpOptionWriter, Flags as DhcpFlags, MessageType as DhcpMessageType,
-    OpCode as DhcpOpCode, Packet as DhcpPacket, Repr as DhcpRepr, CLIENT_PORT as DHCP_CLIENT_PORT,
-    MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, SERVER_PORT as DHCP_SERVER_PORT,
+    CLIENT_PORT as DHCP_CLIENT_PORT, DhcpOption, DhcpOptionWriter, Flags as DhcpFlags,
+    MAX_DNS_SERVER_COUNT as DHCP_MAX_DNS_SERVER_COUNT, MessageType as DhcpMessageType,
+    OpCode as DhcpOpCode, Packet as DhcpPacket, Repr as DhcpRepr, SERVER_PORT as DHCP_SERVER_PORT,
 };
 
 #[cfg(feature = "proto-dns")]
@@ -321,6 +329,30 @@ pub enum HardwareAddress {
     Ethernet(EthernetAddress),
     #[cfg(feature = "medium-ieee802154")]
     Ieee802154(Ieee802154Address),
+}
+
+#[cfg(any(
+    feature = "medium-ip",
+    feature = "medium-ethernet",
+    feature = "medium-ieee802154"
+))]
+#[cfg(test)]
+impl Default for HardwareAddress {
+    fn default() -> Self {
+        #![allow(unreachable_code)]
+        #[cfg(feature = "medium-ethernet")]
+        {
+            return Self::Ethernet(EthernetAddress::default());
+        }
+        #[cfg(feature = "medium-ip")]
+        {
+            return Self::Ip;
+        }
+        #[cfg(feature = "medium-ieee802154")]
+        {
+            Self::Ieee802154(Ieee802154Address::default())
+        }
+    }
 }
 
 #[cfg(any(
@@ -393,6 +425,17 @@ impl HardwareAddress {
             HardwareAddress::Ieee802154(_) => Medium::Ieee802154,
         }
     }
+
+    pub fn as_eui_64(&self) -> Option<[u8; 8]> {
+        match self {
+            #[cfg(feature = "medium-ip")]
+            HardwareAddress::Ip => None,
+            #[cfg(feature = "medium-ethernet")]
+            HardwareAddress::Ethernet(ethernet) => ethernet.as_eui_64(),
+            #[cfg(feature = "medium-ieee802154")]
+            HardwareAddress::Ieee802154(ieee802154) => ieee802154.as_eui_64(),
+        }
+    }
 }
 
 #[cfg(any(
@@ -445,6 +488,10 @@ pub struct RawHardwareAddress {
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 impl RawHardwareAddress {
+    /// Create a new `RawHardwareAddress` from a byte slice.
+    ///
+    /// # Panics
+    /// Panics if `addr.len() > MAX_HARDWARE_ADDRESS_LEN`.
     pub fn from_bytes(addr: &[u8]) -> Self {
         let mut data = [0u8; MAX_HARDWARE_ADDRESS_LEN];
         data[..addr.len()].copy_from_slice(addr);
@@ -471,7 +518,7 @@ impl RawHardwareAddress {
         match medium {
             #[cfg(feature = "medium-ethernet")]
             Medium::Ethernet => {
-                if self.len() < 6 {
+                if self.len() != 6 {
                     return Err(Error);
                 }
                 Ok(HardwareAddress::Ethernet(EthernetAddress::from_bytes(
@@ -480,7 +527,7 @@ impl RawHardwareAddress {
             }
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => {
-                if self.len() < 8 {
+                if self.len() != 8 {
                     return Err(Error);
                 }
                 Ok(HardwareAddress::Ieee802154(Ieee802154Address::from_bytes(
@@ -524,5 +571,39 @@ impl From<Ieee802154Address> for RawHardwareAddress {
 impl From<HardwareAddress> for RawHardwareAddress {
     fn from(addr: HardwareAddress) -> Self {
         Self::from_bytes(addr.as_bytes())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[cfg(feature = "medium-ethernet")]
+    #[case((Medium::Ethernet, &[0u8; 6][..]), Ok(HardwareAddress::Ethernet(EthernetAddress([0, 0, 0, 0, 0, 0]))))]
+    #[cfg(feature = "medium-ethernet")]
+    #[case((Medium::Ethernet, &[1u8; 5][..]), Err(Error))]
+    #[cfg(feature = "medium-ethernet")]
+    #[case((Medium::Ethernet, &[1u8; 7][..]), Err(Error))]
+    #[cfg(feature = "medium-ieee802154")]
+    #[case((Medium::Ieee802154, &[0u8; 8][..]), Ok(HardwareAddress::Ieee802154(Ieee802154Address::Extended([0, 0, 0, 0, 0, 0, 0, 0]))))]
+    #[cfg(feature = "medium-ieee802154")]
+    #[case((Medium::Ieee802154, &[1u8; 2][..]), Err(Error))]
+    #[cfg(feature = "medium-ieee802154")]
+    #[case((Medium::Ieee802154, &[1u8; 1][..]), Err(Error))]
+    fn parse_hardware_address(
+        #[case] input: (Medium, &[u8]),
+        #[case] expected: Result<HardwareAddress>,
+    ) {
+        let (medium, input) = input;
+
+        // NOTE: we check the length since `RawHardwareAddress::parse()` panics if the length is
+        // invalid. MAX_HARDWARE_ADDRESS_LEN is based on the medium, and depending on the feature
+        // flags, it can be different.
+        if input.len() < MAX_HARDWARE_ADDRESS_LEN {
+            let raw = RawHardwareAddress::from_bytes(input);
+            assert_eq!(raw.parse(medium), expected);
+        }
     }
 }

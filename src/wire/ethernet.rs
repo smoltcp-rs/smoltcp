@@ -25,7 +25,6 @@ impl fmt::Display for EtherType {
 
 /// A six-octet Ethernet II address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Address(pub [u8; 6]);
 
 impl Address {
@@ -66,6 +65,17 @@ impl Address {
     pub const fn is_local(&self) -> bool {
         self.0[0] & 0x02 != 0
     }
+
+    /// Convert the address to an Extended Unique Identifier (EUI-64)
+    pub fn as_eui_64(&self) -> Option<[u8; 8]> {
+        let mut bytes = [0; 8];
+        bytes[0..3].copy_from_slice(&self.0[0..3]);
+        bytes[3] = 0xFF;
+        bytes[4] = 0xFE;
+        bytes[5..8].copy_from_slice(&self.0[3..6]);
+        bytes[0] ^= 1 << 1;
+        Some(bytes)
+    }
 }
 
 impl fmt::Display for Address {
@@ -75,6 +85,23 @@ impl fmt::Display for Address {
             f,
             "{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}",
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]
+        )
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Address {
+    fn format(&self, fmt: defmt::Formatter) {
+        let bytes = self.0;
+        defmt::write!(
+            fmt,
+            "{:02x}-{:02x}-{:02x}-{:02x}-{:02x}-{:02x}",
+            bytes[0],
+            bytes[1],
+            bytes[2],
+            bytes[3],
+            bytes[4],
+            bytes[5]
         )
     }
 }
@@ -118,11 +145,7 @@ impl<T: AsRef<[u8]>> Frame<T> {
     /// Returns `Err(Error)` if the buffer is too short.
     pub fn check_len(&self) -> Result<()> {
         let len = self.buffer.as_ref().len();
-        if len < HEADER_LEN {
-            Err(Error)
-        } else {
-            Ok(())
-        }
+        if len < HEADER_LEN { Err(Error) } else { Ok(()) }
     }
 
     /// Consumes the frame, returning the underlying buffer.

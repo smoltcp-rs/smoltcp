@@ -99,12 +99,11 @@ mod tests {
         let mut parents = ParentSet::default();
 
         parents.add(
-            Ipv6Address::default(),
-            Parent::new(0, Rank::ROOT, Default::default(), Ipv6Address::default()),
+            Ipv6Address::UNSPECIFIED,
+            Parent::new(0, Rank::ROOT, Default::default(), Ipv6Address::UNSPECIFIED),
         );
 
-        let mut address = Ipv6Address::default();
-        address.0[15] = 1;
+        let address = Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 1);
 
         parents.add(
             address,
@@ -112,7 +111,7 @@ mod tests {
                 0,
                 Rank::new(1024, DEFAULT_MIN_HOP_RANK_INCREASE),
                 Default::default(),
-                Ipv6Address::default(),
+                Ipv6Address::UNSPECIFIED,
             ),
         );
 
@@ -122,7 +121,7 @@ mod tests {
                 0,
                 Rank::ROOT,
                 Default::default(),
-                Ipv6Address::default(),
+                Ipv6Address::UNSPECIFIED,
             ))
         );
     }

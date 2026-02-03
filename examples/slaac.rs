@@ -3,25 +3,12 @@ mod utils;
 use std::os::unix::io::AsRawFd;
 
 use smoltcp::iface::{Config, Interface, SocketSet};
-use smoltcp::phy::wait as phy_wait;
-use smoltcp::phy::{Device, Medium};
+use smoltcp::phy::{Device, Medium, wait as phy_wait};
 use smoltcp::socket::udp;
-use smoltcp::time::Instant;
+use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{EthernetAddress, IpAddress, IpCidr, Ipv6Address};
 
-// Note: If testing with a tap interface in linux, you may need to specify the
-// interface index when addressing. E.g.,
-//
-// ```
-// ncat -u ff02::1234%tap0 8123
-// ```
-//
-// will send packets to the multicast group we join below on tap0.
-
-const PORT: u16 = 8123;
-const GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 0x1234);
-const LOCAL_ADDR: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x101);
-const ROUTER_ADDR: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
+const LOCAL_ADDR: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0x0, 0, 0, 0x01);
 
 fn main() {
     utils::setup_logging("warn");
@@ -37,13 +24,14 @@ fn main() {
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
 
     // Create interface
-    let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let mut config = match device.capabilities().medium {
-        Medium::Ethernet => Config::new(ethernet_addr.into()),
+        Medium::Ethernet => {
+            Config::new(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into())
+        }
         Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
         Medium::Ieee802154 => todo!(),
     };
-    config.random_seed = rand::random();
+    config.slaac = true;
 
     let mut iface = Interface::new(config, &mut device, Instant::now());
     iface.update_ip_addrs(|ip_addrs| {
@@ -51,37 +39,38 @@ fn main() {
             .push(IpCidr::new(IpAddress::from(LOCAL_ADDR), 64))
             .unwrap();
     });
-    iface
-        .routes_mut()
-        .add_default_ipv6_route(ROUTER_ADDR)
-        .unwrap();
 
-    // Create sockets
     let mut sockets = SocketSet::new(vec![]);
     let udp_rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0; 1024]);
     let udp_tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 0]);
     let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
-    let udp_handle = sockets.add(udp_socket);
+    let _udp_handle = sockets.add(udp_socket);
 
-    // Join a multicast group
-    iface.join_multicast_group(GROUP).unwrap();
-
+    let mut last_print = Instant::now();
     loop {
         let timestamp = Instant::now();
         iface.poll(timestamp, &mut device, &mut sockets);
-
-        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
-        if !socket.is_open() {
-            socket.bind(PORT).unwrap()
+        let mut delay = iface.poll_delay(timestamp, &sockets);
+        if delay.is_none() || delay.is_some_and(|d| d > Duration::from_millis(1000)) {
+            delay = Some(Duration::from_millis(1000));
         }
 
-        if socket.can_recv() {
-            socket
-                .recv()
-                .map(|(data, sender)| println!("traffic: {} UDP bytes from {}", data.len(), sender))
-                .unwrap_or_else(|e| println!("Recv UDP error: {:?}", e));
-        }
+        phy_wait(fd, delay).expect("wait error");
 
-        phy_wait(fd, iface.poll_delay(timestamp, &sockets)).expect("wait error");
+        let timestamp = Instant::now();
+        if timestamp > last_print + Duration::from_secs(1) {
+            last_print = timestamp;
+            println!();
+            println!("Addresses:");
+            for addr in iface.ip_addrs() {
+                println!("  - {addr}");
+            }
+            println!("Routes:");
+            iface.routes_mut().update(|routes| {
+                for route in routes {
+                    println!("  - {} via {}", route.cidr, route.via_router);
+                }
+            });
+        }
     }
 }

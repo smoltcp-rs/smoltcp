@@ -172,7 +172,7 @@ impl BpfDevice {
             );
 
             if len == -1 {
-                Err(io::Error::last_os_error()).unwrap()
+                panic!("{:?}", io::Error::last_os_error())
             }
 
             Ok(len as usize)

@@ -4,7 +4,7 @@
 use env_logger::Builder;
 use getopts::{Matches, Options};
 #[cfg(feature = "log")]
-use log::{trace, Level, LevelFilter};
+use log::{Level, LevelFilter, trace};
 use std::env;
 use std::fs::File;
 use std::io::{self, Write};

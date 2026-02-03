@@ -7,33 +7,24 @@ pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 
 impl Interface {
     /// Process fragments that still need to be sent for 6LoWPAN packets.
-    ///
-    /// This function returns a boolean value indicating whether any packets were
-    /// processed or emitted, and thus, whether the readiness of any socket might
-    /// have changed.
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
-    pub(super) fn sixlowpan_egress<D>(&mut self, device: &mut D) -> bool
-    where
-        D: Device + ?Sized,
-    {
+    pub(super) fn sixlowpan_egress(&mut self, device: &mut (impl Device + ?Sized)) {
         // Reset the buffer when we transmitted everything.
         if self.fragmenter.finished() {
             self.fragmenter.reset();
         }
 
         if self.fragmenter.is_empty() {
-            return false;
+            return;
         }
 
         let pkt = &self.fragmenter;
-        if pkt.packet_len > pkt.sent_bytes {
-            if let Some(tx_token) = device.transmit(self.inner.now) {
-                self.inner
-                    .dispatch_ieee802154_frag(tx_token, &mut self.fragmenter);
-                return true;
-            }
+        if pkt.packet_len > pkt.sent_bytes
+            && let Some(tx_token) = device.transmit(self.inner.now)
+        {
+            self.inner
+                .dispatch_ieee802154_frag(tx_token, &mut self.fragmenter);
         }
-        false
     }
 
     /// Get the 6LoWPAN address contexts.
@@ -77,10 +68,7 @@ impl InterfaceInner {
             }
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
             SixlowpanPacket::FragmentHeader => {
-                match self.process_sixlowpan_fragment(ieee802154_repr, payload, f) {
-                    Some(payload) => payload,
-                    None => return None,
-                }
+                self.process_sixlowpan_fragment(ieee802154_repr, payload, f)?
             }
             SixlowpanPacket::IphcHeader => {
                 match Self::sixlowpan_to_ipv6(
@@ -99,7 +87,15 @@ impl InterfaceInner {
             }
         };
 
-        self.process_ipv6(sockets, meta, &check!(Ipv6Packet::new_checked(payload)))
+        self.process_ipv6(
+            sockets,
+            meta,
+            match ieee802154_repr.src_addr {
+                Some(s) => HardwareAddress::Ieee802154(s),
+                None => HardwareAddress::Ieee802154(Ieee802154Address::Absent),
+            },
+            &check!(Ipv6Packet::new_checked(payload)),
+        )
     }
 
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -114,6 +110,15 @@ impl InterfaceInner {
         // We have a fragment header, which means we cannot process the 6LoWPAN packet,
         // unless we have a complete one after processing this fragment.
         let frag = check!(SixlowpanFragPacket::new_checked(payload));
+
+        // From RFC 4944 § 5.3: "The value of datagram_size SHALL be 40 octets more than the value
+        // of Payload Length in the IPv6 header of the packet."
+        // We should check that this is true, otherwise `buffer.split_at_mut(40)` will panic, since
+        // we assume that the decompressed packet is at least 40 bytes.
+        if frag.datagram_size() < 40 {
+            net_debug!("6LoWPAN: fragment size too small");
+            return None;
+        }
 
         // The key specifies to which 6LoWPAN fragment it belongs too.
         // It is based on the link layer addresses, the tag and the size.
@@ -549,7 +554,8 @@ impl InterfaceInner {
     ///  - total size: the size of a compressed IPv6 packet
     ///  - compressed header size: the size of the compressed headers
     ///  - uncompressed header size: the size of the headers that are not compressed
-    ///  They are returned as a tuple in the same order.
+    ///
+    /// They are returned as a tuple in the same order.
     fn compressed_packet_size(
         packet: &PacketV6,
         ieee_repr: &Ieee802154Repr,
@@ -834,10 +840,10 @@ mod tests {
 
         let mut ip_packet = PacketV6 {
             header: Ipv6Repr {
-                src_addr: Ipv6Address::from_bytes(&[
+                src_addr: Ipv6Address::from_octets([
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 3, 0, 3, 0, 3,
                 ]),
-                dst_addr: Ipv6Address::from_bytes(&[
+                dst_addr: Ipv6Address::from_octets([
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
                 ]),
                 next_header: IpProtocol::Icmpv6,
@@ -854,7 +860,7 @@ mod tests {
                 rpl_instance_id: RplInstanceId::Global(30),
                 expect_ack: false,
                 sequence: 241,
-                dodag_id: Some(Ipv6Address::from_bytes(&[
+                dodag_id: Some(Ipv6Address::from_octets([
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
                 ])),
                 options: &[],
@@ -900,9 +906,9 @@ mod tests {
             src_addr: Some(Ieee802154Address::Extended([0, 3, 0, 3, 0, 3, 0, 3])),
         };
 
-        let addr = Ipv6Address::from_bytes(&[253, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 3, 0, 3, 0, 3]);
+        let addr = Ipv6Address::from_octets([253, 0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 3, 0, 3, 0, 3]);
         let parent_address =
-            Ipv6Address::from_bytes(&[253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1]);
+            Ipv6Address::from_octets([253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1]);
 
         let mut hbh_options = heapless::Vec::new();
         hbh_options
@@ -935,7 +941,7 @@ mod tests {
                 rpl_instance_id: RplInstanceId::Global(30),
                 expect_ack: false,
                 sequence: 241,
-                dodag_id: Some(Ipv6Address::from_bytes(&[
+                dodag_id: Some(Ipv6Address::from_octets([
                     253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1,
                 ])),
                 options: &[

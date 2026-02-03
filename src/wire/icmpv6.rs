@@ -3,14 +3,14 @@ use core::{cmp, fmt};
 
 use super::{Error, Result};
 use crate::phy::ChecksumCapabilities;
-use crate::wire::ip::checksum;
 use crate::wire::MldRepr;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 use crate::wire::NdiscRepr;
 #[cfg(feature = "proto-rpl")]
 use crate::wire::RplRepr;
-use crate::wire::{IpProtocol, Ipv6Address, Ipv6Packet, Ipv6Repr};
+use crate::wire::ip::checksum;
 use crate::wire::{IPV6_HEADER_LEN, IPV6_MIN_MTU};
+use crate::wire::{IpProtocol, Ipv6Address, Ipv6Packet, Ipv6Repr};
 
 /// Error packets must not exceed min MTU
 const MAX_ERROR_PACKET_LEN: usize = IPV6_MIN_MTU - IPV6_HEADER_LEN;
@@ -847,10 +847,8 @@ mod test {
     use super::*;
     use crate::wire::{IpProtocol, Ipv6Address, Ipv6Repr};
 
-    const MOCK_IP_ADDR_1: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-    const MOCK_IP_ADDR_2: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+    const MOCK_IP_ADDR_1: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    const MOCK_IP_ADDR_2: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
 
     static ECHO_PACKET_BYTES: [u8; 12] = [
         0x80, 0x00, 0x19, 0xb3, 0x12, 0x34, 0xab, 0xcd, 0xaa, 0x00, 0x00, 0xff,
@@ -888,14 +886,8 @@ mod test {
         Repr::PktTooBig {
             mtu: 1500,
             header: Ipv6Repr {
-                src_addr: Ipv6Address([
-                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x01,
-                ]),
-                dst_addr: Ipv6Address([
-                    0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                    0x00, 0x00, 0x02,
-                ]),
+                src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1),
+                dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
                 next_header: IpProtocol::Udp,
                 payload_len: 12,
                 hop_limit: 0x40,
@@ -1017,8 +1009,8 @@ mod test {
         let repr = Repr::PktTooBig {
             mtu: 1280,
             header: Ipv6Repr {
-                src_addr: Default::default(),
-                dst_addr: Default::default(),
+                src_addr: Ipv6Address::UNSPECIFIED,
+                dst_addr: Ipv6Address::UNSPECIFIED,
                 next_header: IpProtocol::Tcp,
                 hop_limit: 64,
                 payload_len: 1280,
@@ -1031,8 +1023,8 @@ mod test {
     #[test]
     fn test_mtu_truncated_payload_roundtrip() {
         let ip_packet_repr = Ipv6Repr {
-            src_addr: Default::default(),
-            dst_addr: Default::default(),
+            src_addr: Ipv6Address::UNSPECIFIED,
+            dst_addr: Ipv6Address::UNSPECIFIED,
             next_header: IpProtocol::Tcp,
             hop_limit: 64,
             payload_len: IPV6_MIN_MTU - IPV6_HEADER_LEN,
@@ -1085,12 +1077,14 @@ mod test {
             &ChecksumCapabilities::default(),
         );
         let packet = Packet::new_unchecked(&bytes[..field::HEADER_END + IPV6_HEADER_LEN - 1]);
-        assert!(Repr::parse(
-            &MOCK_IP_ADDR_1,
-            &MOCK_IP_ADDR_2,
-            &packet,
-            &ChecksumCapabilities::ignored(),
-        )
-        .is_err());
+        assert!(
+            Repr::parse(
+                &MOCK_IP_ADDR_1,
+                &MOCK_IP_ADDR_2,
+                &packet,
+                &ChecksumCapabilities::ignored(),
+            )
+            .is_err()
+        );
     }
 }

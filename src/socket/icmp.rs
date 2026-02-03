@@ -14,6 +14,7 @@ use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Repr};
 use crate::wire::{IpAddress, IpListenEndpoint, IpProtocol, IpRepr};
+use crate::wire::{TcpPacket, TcpRepr};
 use crate::wire::{UdpPacket, UdpRepr};
 
 /// Error returned by [`Socket::bind`]
@@ -86,15 +87,17 @@ pub enum Endpoint {
     #[default]
     Unspecified,
     Ident(u16),
+    Tcp(IpListenEndpoint),
     Udp(IpListenEndpoint),
 }
 
 impl Endpoint {
     pub fn is_specified(&self) -> bool {
         match *self {
-            Endpoint::Ident(_) => true,
-            Endpoint::Udp(endpoint) => endpoint.port != 0,
             Endpoint::Unspecified => false,
+            Endpoint::Ident(_) => true,
+            Endpoint::Tcp(endpoint) => endpoint.port != 0,
+            Endpoint::Udp(endpoint) => endpoint.port != 0,
         }
     }
 }
@@ -412,6 +415,16 @@ impl<'a> Socket<'a> {
         Ok((length, endpoint))
     }
 
+    /// Return the amount of octets queued in the transmit buffer.
+    pub fn send_queue(&self) -> usize {
+        self.tx_buffer.payload_bytes_count()
+    }
+
+    /// Return the amount of octets queued in the receive buffer.
+    pub fn recv_queue(&self) -> usize {
+        self.rx_buffer.payload_bytes_count()
+    }
+
     /// Fitler determining whether the socket accepts a given ICMPv4 packet.
     /// Accepted packets are enqueued into the socket's receive buffer.
     #[cfg(feature = "proto-ipv4")]
@@ -434,6 +447,26 @@ impl<'a> Socket<'a> {
             ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr.into()) => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(
+                    &packet,
+                    &header.src_addr.into(),
+                    &header.dst_addr.into(),
+                    &cx.checksum_caps(),
+                ) {
+                    Ok(repr) => endpoint.port == repr.src_port,
+                    Err(_) => false,
+                }
+            }
+            // If we are bound to ICMP errors associated to a TCP port, only
+            // accept Destination Unreachable or Time Exceeded messages with
+            // the data containing a UDP packet send from the local port we
+            // are bound to.
+            (
+                &Endpoint::Tcp(endpoint),
+                &Icmpv4Repr::DstUnreachable { data, header, .. }
+                | &Icmpv4Repr::TimeExceeded { data, header, .. },
+            ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr.into()) => {
+                let packet = TcpPacket::new_unchecked(data);
+                match TcpRepr::parse(
                     &packet,
                     &header.src_addr.into(),
                     &header.dst_addr.into(),
@@ -476,6 +509,26 @@ impl<'a> Socket<'a> {
             ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr.into()) => {
                 let packet = UdpPacket::new_unchecked(data);
                 match UdpRepr::parse(
+                    &packet,
+                    &header.src_addr.into(),
+                    &header.dst_addr.into(),
+                    &cx.checksum_caps(),
+                ) {
+                    Ok(repr) => endpoint.port == repr.src_port,
+                    Err(_) => false,
+                }
+            }
+            // If we are bound to ICMP errors associated to a TCP port, only
+            // accept Destination Unreachable or Time Exceeded messages with
+            // the data containing a UDP packet send from the local port we
+            // are bound to.
+            (
+                &Endpoint::Tcp(endpoint),
+                &Icmpv6Repr::DstUnreachable { data, header, .. }
+                | &Icmpv6Repr::TimeExceeded { data, header, .. },
+            ) if endpoint.addr.is_none() || endpoint.addr == Some(ip_repr.dst_addr.into()) => {
+                let packet = TcpPacket::new_unchecked(data);
+                match TcpRepr::parse(
                     &packet,
                     &header.src_addr.into(),
                     &header.dst_addr.into(),
@@ -678,8 +731,8 @@ mod test_ipv4 {
     use super::tests_common::*;
     use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
 
-    const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
-    const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+    const REMOTE_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
+    const LOCAL_IPV4: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
     const LOCAL_END_V4: IpEndpoint = IpEndpoint {
         addr: IpAddress::Ipv4(LOCAL_IPV4),
         port: LOCAL_PORT,
@@ -711,7 +764,7 @@ mod test_ipv4 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::default())),
+            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::new(0, 0, 0, 0))),
             Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));
@@ -940,10 +993,8 @@ mod test_ipv6 {
 
     use crate::wire::{Icmpv6DstUnreachable, IpEndpoint, Ipv6Address};
 
-    const REMOTE_IPV6: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
-    const LOCAL_IPV6: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    const REMOTE_IPV6: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+    const LOCAL_IPV6: Ipv6Address = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     const LOCAL_END_V6: IpEndpoint = IpEndpoint {
         addr: IpAddress::Ipv6(LOCAL_IPV6),
         port: LOCAL_PORT,
@@ -974,7 +1025,7 @@ mod test_ipv6 {
     fn test_send_unaddressable() {
         let mut socket = socket(buffer(0), buffer(1));
         assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::default())),
+            socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::UNSPECIFIED)),
             Err(SendError::Unaddressable)
         );
         assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV6.into()), Ok(()));

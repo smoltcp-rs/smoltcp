@@ -1,5 +1,5 @@
 use super::*;
-use crate::{phy::Medium, wire::EthernetFrame};
+use crate::phy::Medium;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};
 
@@ -18,10 +18,7 @@ impl AsRawFd for TunTapInterfaceDesc {
 impl TunTapInterfaceDesc {
     pub fn new(name: &str, medium: Medium) -> io::Result<TunTapInterfaceDesc> {
         let lower = unsafe {
-            let lower = libc::open(
-                "/dev/net/tun\0".as_ptr() as *const libc::c_char,
-                libc::O_RDWR | libc::O_NONBLOCK,
-            );
+            let lower = libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_NONBLOCK);
             if lower == -1 {
                 return Err(io::Error::last_os_error());
             }
@@ -80,7 +77,7 @@ impl TunTapInterfaceDesc {
             #[cfg(feature = "medium-ip")]
             Medium::Ip => ip_mtu,
             #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => ip_mtu + EthernetFrame::<&[u8]>::header_len(),
+            Medium::Ethernet => ip_mtu + crate::wire::EthernetFrame::<&[u8]>::header_len(),
             #[cfg(feature = "medium-ieee802154")]
             Medium::Ieee802154 => todo!(),
         };

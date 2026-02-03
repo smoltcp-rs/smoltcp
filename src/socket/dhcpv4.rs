@@ -5,8 +5,9 @@ use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::{
-    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4Cidr, Ipv4Repr,
-    UdpRepr, DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, UDP_HEADER_LEN,
+    DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, DhcpMessageType, DhcpPacket,
+    DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Repr,
+    UDP_HEADER_LEN, UdpRepr,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
 use heapless::Vec;
@@ -140,7 +141,7 @@ impl Default for RetryConfig {
 }
 
 /// Return value for the `Dhcpv4Socket::poll` function
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Event<'a> {
     /// Configuration has been lost (for example, the lease has expired)
@@ -357,15 +358,15 @@ impl<'a> Socket<'a> {
         );
 
         // Copy over the payload into the receive packet buffer.
-        if let Some(buffer) = self.receive_packet_buffer.as_mut() {
-            if let Some(buffer) = buffer.get_mut(..payload.len()) {
-                buffer.copy_from_slice(payload);
-            }
+        if let Some(buffer) = self.receive_packet_buffer.as_mut()
+            && let Some(buffer) = buffer.get_mut(..payload.len())
+        {
+            buffer.copy_from_slice(payload);
         }
 
         match (&mut self.state, dhcp_repr.message_type) {
             (ClientState::Discovering(_state), DhcpMessageType::Offer) => {
-                if !dhcp_repr.your_ip.is_unicast() {
+                if !dhcp_repr.your_ip.x_is_unicast() {
                     net_debug!("DHCP ignoring OFFER because your_ip is not unicast");
                     return;
                 }
@@ -461,7 +462,7 @@ impl<'a> Socket<'a> {
             }
         };
 
-        if !dhcp_repr.your_ip.is_unicast() {
+        if !dhcp_repr.your_ip.x_is_unicast() {
             net_debug!("DHCP ignoring ACK because your_ip is not unicast");
             return None;
         }
@@ -482,7 +483,7 @@ impl<'a> Socket<'a> {
             .dns_servers
             .iter()
             .flatten()
-            .filter(|s| s.is_unicast())
+            .filter(|s| s.x_is_unicast())
             .for_each(|a| {
                 // This will never produce an error, as both the arrays and `dns_servers`
                 // have length DHCP_MAX_DNS_SERVER_COUNT
@@ -501,6 +502,8 @@ impl<'a> Socket<'a> {
         // Times T1 and T2 are configurable by the server through
         // options. T1 defaults to (0.5 * duration_of_lease). T2
         // defaults to (0.875 * duration_of_lease).
+        // When receiving T1 and T2, they must be in the order:
+        // T1 < T2 < lease_duration
         let (renew_duration, rebind_duration) = match (
             dhcp_repr
                 .renew_duration
@@ -509,8 +512,11 @@ impl<'a> Socket<'a> {
                 .rebind_duration
                 .map(|d| Duration::from_secs(d as u64)),
         ) {
-            (Some(renew_duration), Some(rebind_duration)) => (renew_duration, rebind_duration),
-            (None, None) => (lease_duration / 2, lease_duration * 7 / 8),
+            (Some(renew_duration), Some(rebind_duration))
+                if renew_duration < rebind_duration && rebind_duration < lease_duration =>
+            {
+                (renew_duration, rebind_duration)
+            }
             // RFC 2131 does not say what to do if only one value is
             // provided, so:
 
@@ -518,7 +524,7 @@ impl<'a> Socket<'a> {
             // between T1 and the duration of the lease. If T1 is set to
             // the default (0.5 * duration_of_lease), then T2 will also
             // be set to the default (0.875 * duration_of_lease).
-            (Some(renew_duration), None) => (
+            (Some(renew_duration), None) if renew_duration < lease_duration => (
                 renew_duration,
                 renew_duration + (lease_duration - renew_duration) * 3 / 4,
             ),
@@ -526,8 +532,15 @@ impl<'a> Socket<'a> {
             // If only T2 is provided, then T1 will be set to be
             // whichever is smaller of the default (0.5 *
             // duration_of_lease) or T2.
-            (None, Some(rebind_duration)) => {
+            (None, Some(rebind_duration)) if rebind_duration < lease_duration => {
                 ((lease_duration / 2).min(rebind_duration), rebind_duration)
+            }
+
+            // Use the defaults if the following order is not met:
+            // T1 < T2 < lease_duration
+            (_, _) => {
+                net_debug!("using default T1 and T2 values since the provided values are invalid");
+                (lease_duration / 2, lease_duration * 7 / 8)
             }
         };
         let renew_at = now + renew_duration;
@@ -561,13 +574,9 @@ impl<'a> Socket<'a> {
         // 0x0f * 4 = 60 bytes.
         const MAX_IPV4_HEADER_LEN: usize = 60;
 
-        // We don't directly modify self.transaction_id because sending the packet
-        // may fail. We only want to update state after successfully sending.
-        let next_transaction_id = Self::random_transaction_id(cx);
-
         let mut dhcp_repr = DhcpRepr {
             message_type: DhcpMessageType::Discover,
-            transaction_id: next_transaction_id,
+            transaction_id: self.transaction_id,
             secs: 0,
             client_hardware_address: ethernet_addr,
             client_ip: Ipv4Address::UNSPECIFIED,
@@ -611,6 +620,9 @@ impl<'a> Socket<'a> {
                     return Ok(());
                 }
 
+                let next_transaction_id = Self::random_transaction_id(cx);
+                dhcp_repr.transaction_id = next_transaction_id;
+
                 // send packet
                 net_debug!(
                     "DHCP send DISCOVER to {}: {:?}",
@@ -653,7 +665,6 @@ impl<'a> Socket<'a> {
                     + (self.retry_config.initial_request_timeout << (state.retry as u32 / 2));
                 state.retry += 1;
 
-                self.transaction_id = next_transaction_id;
                 Ok(())
             }
             ClientState::Renewing(state) => {
@@ -678,6 +689,9 @@ impl<'a> Socket<'a> {
                 }
                 dhcp_repr.message_type = DhcpMessageType::Request;
                 dhcp_repr.client_ip = state.config.address.address();
+
+                let next_transaction_id = Self::random_transaction_id(cx);
+                dhcp_repr.transaction_id = next_transaction_id;
 
                 net_debug!("DHCP send renew to {}: {:?}", ipv4_repr.dst_addr, dhcp_repr);
                 ipv4_repr.payload_len = udp_repr.header_len() + dhcp_repr.buffer_len();
@@ -729,7 +743,7 @@ impl<'a> Socket<'a> {
     ///
     /// The socket has an internal "configuration changed" flag. If
     /// set, this function returns the configuration and resets the flag.
-    pub fn poll(&mut self) -> Option<Event> {
+    pub fn poll(&mut self) -> Option<Event<'_>> {
         if !self.config_changed {
             None
         } else if let ClientState::Renewing(state) = &self.state {
@@ -880,14 +894,14 @@ mod test {
 
     const TXID: u32 = 0x12345678;
 
-    const MY_IP: Ipv4Address = Ipv4Address([192, 168, 1, 42]);
-    const SERVER_IP: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
-    const DNS_IP_1: Ipv4Address = Ipv4Address([1, 1, 1, 1]);
-    const DNS_IP_2: Ipv4Address = Ipv4Address([1, 1, 1, 2]);
-    const DNS_IP_3: Ipv4Address = Ipv4Address([1, 1, 1, 3]);
+    const MY_IP: Ipv4Address = Ipv4Address::new(192, 168, 1, 42);
+    const SERVER_IP: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
+    const DNS_IP_1: Ipv4Address = Ipv4Address::new(1, 1, 1, 1);
+    const DNS_IP_2: Ipv4Address = Ipv4Address::new(1, 1, 1, 2);
+    const DNS_IP_3: Ipv4Address = Ipv4Address::new(1, 1, 1, 3);
     const DNS_IPS: &[Ipv4Address] = &[DNS_IP_1, DNS_IP_2, DNS_IP_3];
 
-    const MASK_24: Ipv4Address = Ipv4Address([255, 255, 255, 0]);
+    const MASK_24: Ipv4Address = Ipv4Address::new(255, 255, 255, 0);
 
     const MY_MAC: EthernetAddress = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
 

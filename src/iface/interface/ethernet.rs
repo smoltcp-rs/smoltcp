@@ -25,13 +25,19 @@ impl InterfaceInner {
             EthernetProtocol::Ipv4 => {
                 let ipv4_packet = check!(Ipv4Packet::new_checked(eth_frame.payload()));
 
-                self.process_ipv4(sockets, meta, &ipv4_packet, fragments)
-                    .map(EthernetPacket::Ip)
+                self.process_ipv4(
+                    sockets,
+                    meta,
+                    eth_frame.src_addr().into(),
+                    &ipv4_packet,
+                    fragments,
+                )
+                .map(EthernetPacket::Ip)
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(eth_frame.payload()));
-                self.process_ipv6(sockets, meta, &ipv6_packet)
+                self.process_ipv6(sockets, meta, eth_frame.src_addr().into(), &ipv6_packet)
                     .map(EthernetPacket::Ip)
             }
             // Drop all other traffic.
@@ -58,8 +64,8 @@ impl InterfaceInner {
             frame.set_src_addr(src_addr);
 
             f(frame);
+        });
 
-            Ok(())
-        })
+        Ok(())
     }
 }

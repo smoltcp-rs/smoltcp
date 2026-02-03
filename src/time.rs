@@ -198,7 +198,7 @@ impl Duration {
         }
     }
 
-    /// Create a new `Instant` from a number of seconds.
+    /// Create a new `Duration` from a number of seconds.
     pub const fn from_secs(secs: u64) -> Duration {
         Duration {
             micros: secs * 1000000,

@@ -40,8 +40,8 @@ fn icmp_echo_request(#[case] medium: Medium) {
 
     let response = Some(Packet::new_ipv6(
         Ipv6Repr {
-            src_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
-            dst_addr: Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x241c, 0x2957, 0x34a6, 0x3a62]),
+            src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
+            dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0x241c, 0x2957, 0x34a6, 0x3a62),
             hop_limit: 64,
             next_header: IpProtocol::Icmpv6,
             payload_len: 64,
@@ -61,7 +61,7 @@ fn icmp_echo_request(#[case] medium: Medium) {
     let (mut iface, mut sockets, _device) = setup(medium);
     iface.update_ip_addrs(|ips| {
         ips.push(IpCidr::Ipv6(Ipv6Cidr::new(
-            Ipv6Address::from_parts(&[0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242]),
+            Ipv6Address::new(0xfe80, 0, 0, 0, 0x180b, 0x4242, 0x4242, 0x4242),
             10,
         )))
         .unwrap();
@@ -99,7 +99,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     let now = iface.inner.now();
 
     iface.inner.neighbor_cache.fill(
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0x2, 0, 0, 0, 0, 0, 0, 0]).into(),
+        Ipv6Address::new(0xfe80, 0, 0, 0, 0x0200, 0, 0, 0).into(),
         HardwareAddress::Ieee802154(Ieee802154Address::default()),
         now,
     );
@@ -148,17 +148,11 @@ fn test_echo_request_sixlowpan_128_bytes() {
 
     assert_eq!(
         request_first_part_iphc_repr.src_addr,
-        Ipv6Address([
-            0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42, 0xb,
-            0x1a,
-        ]),
+        Ipv6Address::new(0xfe80, 0, 0, 0, 0x4042, 0x4242, 0x4242, 0x0b1a),
     );
     assert_eq!(
         request_first_part_iphc_repr.dst_addr,
-        Ipv6Address([
-            0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41, 0xfc,
-            0x76,
-        ]),
+        Ipv6Address::new(0xfe80, 0, 0, 0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
     );
 
     let request_second_part = [
@@ -206,14 +200,8 @@ fn test_echo_request_sixlowpan_128_bytes() {
         result,
         Some(Packet::new_ipv6(
             Ipv6Repr {
-                src_addr: Ipv6Address([
-                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4, 0x41,
-                    0xfc, 0x76,
-                ]),
-                dst_addr: Ipv6Address([
-                    0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42,
-                    0xb, 0x1a,
-                ]),
+                src_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0x92fc, 0x48c2, 0xa441, 0xfc76),
+                dst_addr: Ipv6Address::new(0xfe80, 0, 0, 0, 0x4042, 0x4242, 0x4242, 0x0b1a),
                 next_header: IpProtocol::Icmpv6,
                 payload_len: 136,
                 hop_limit: 64,
@@ -227,9 +215,9 @@ fn test_echo_request_sixlowpan_128_bytes() {
     );
 
     iface.inner.neighbor_cache.fill(
-        IpAddress::Ipv6(Ipv6Address([
-            0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42, 0x42, 0xb, 0x1a,
-        ])),
+        IpAddress::Ipv6(Ipv6Address::new(
+            0xfe80, 0, 0, 0, 0x4042, 0x4242, 0x4242, 0x0b1a,
+        )),
         HardwareAddress::Ieee802154(Ieee802154Address::default()),
         Instant::now(),
     );
@@ -244,7 +232,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     );
 
     assert_eq!(
-        device.queue.pop_front().unwrap(),
+        device.tx_queue.pop_front().unwrap(),
         &[
             0x41, 0xcc, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2,
             0x2, 0x2, 0x2, 0x2, 0xc0, 0xb0, 0x5, 0x4e, 0x7a, 0x11, 0x3a, 0x92, 0xfc, 0x48, 0xc2,
@@ -261,7 +249,7 @@ fn test_echo_request_sixlowpan_128_bytes() {
     iface.poll(Instant::now(), &mut device, &mut sockets);
 
     assert_eq!(
-        device.queue.pop_front().unwrap(),
+        device.tx_queue.pop_front().unwrap(),
         &[
             0x41, 0xcc, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2,
             0x2, 0x2, 0x2, 0x2, 0xe0, 0xb0, 0x5, 0x4e, 0xf, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d,
@@ -370,17 +358,12 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
             &udp_data[..],
             udp::UdpMetadata {
                 local_address: Some(
-                    Ipv6Address([
-                        0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x92, 0xfc, 0x48, 0xc2, 0xa4,
-                        0x41, 0xfc, 0x76,
-                    ])
-                    .into()
+                    Ipv6Address::new(0xfe80, 0, 0, 0, 0x92fc, 0x48c2, 0xa441, 0xfc76).into()
                 ),
                 ..IpEndpoint {
-                    addr: IpAddress::Ipv6(Ipv6Address([
-                        0xfe, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x40, 0x42, 0x42, 0x42, 0x42,
-                        0x42, 0xb, 0x1a,
-                    ])),
+                    addr: IpAddress::Ipv6(Ipv6Address::new(
+                        0xfe80, 0, 0, 0, 0x4042, 0x4242, 0x4242, 0x0b1a
+                    )),
                     port: 54217,
                 }
                 .into()
@@ -395,8 +378,8 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         PacketMeta::default(),
         Packet::new_ipv6(
             Ipv6Repr {
-                src_addr: Ipv6Address::default(),
-                dst_addr: Ipv6Address::default(),
+                src_addr: Ipv6Address::UNSPECIFIED,
+                dst_addr: Ipv6Address::UNSPECIFIED,
                 next_header: IpProtocol::Udp,
                 payload_len: udp_data.len(),
                 hop_limit: 64,
@@ -415,7 +398,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
     iface.poll(Instant::now(), &mut device, &mut sockets);
 
     assert_eq!(
-        device.queue.pop_front().unwrap(),
+        device.tx_queue.pop_front().unwrap(),
         &[
             0x41, 0xcc, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2,
             0x2, 0x2, 0x2, 0x2, 0xc0, 0xb4, 0x5, 0x4e, 0x7e, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
@@ -430,7 +413,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
     );
 
     assert_eq!(
-        device.queue.pop_front().unwrap(),
+        device.tx_queue.pop_front().unwrap(),
         &[
             0x41, 0xcc, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x2, 0x2, 0x2,
             0x2, 0x2, 0x2, 0x2, 0xe0, 0xb4, 0x5, 0x4e, 0xf, 0x6f, 0x72, 0x74, 0x6f, 0x72, 0x2e,

@@ -9,8 +9,9 @@ static CONFIGS: &[(&str, usize)] = &[
     ("IFACE_MAX_ADDR_COUNT", 2),
     ("IFACE_MAX_MULTICAST_GROUP_COUNT", 4),
     ("IFACE_MAX_SIXLOWPAN_ADDRESS_CONTEXT_COUNT", 4),
-    ("IFACE_NEIGHBOR_CACHE_COUNT", 4),
+    ("IFACE_NEIGHBOR_CACHE_COUNT", 8),
     ("IFACE_MAX_ROUTE_COUNT", 2),
+    ("IFACE_MAX_PREFIX_COUNT", 1),
     ("FRAGMENTATION_BUFFER_SIZE", 1500),
     ("ASSEMBLER_MAX_SEGMENT_COUNT", 4),
     ("REASSEMBLY_BUFFER_SIZE", 1500),
@@ -66,27 +67,27 @@ fn main() {
             cfg.seen_env = true;
         }
 
-        if let Some(feature) = var.strip_prefix("CARGO_FEATURE_") {
-            if let Some(i) = feature.rfind('_') {
-                let name = &feature[..i];
-                let value = &feature[i + 1..];
-                if let Some(cfg) = configs.get_mut(name) {
-                    let Ok(value) = value.parse::<usize>() else {
-                        panic!("Invalid value for feature {name}: {value}")
-                    };
+        if let Some(feature) = var.strip_prefix("CARGO_FEATURE_")
+            && let Some(i) = feature.rfind('_')
+        {
+            let name = &feature[..i];
+            let value = &feature[i + 1..];
+            if let Some(cfg) = configs.get_mut(name) {
+                let Ok(value) = value.parse::<usize>() else {
+                    panic!("Invalid value for feature {name}: {value}")
+                };
 
-                    // envvars take priority.
-                    if !cfg.seen_env {
-                        if cfg.seen_feature {
-                            panic!(
-                                "multiple values set for feature {}: {} and {}",
-                                name, cfg.value, value
-                            );
-                        }
-
-                        cfg.value = value;
-                        cfg.seen_feature = true;
+                // envvars take priority.
+                if !cfg.seen_env {
+                    if cfg.seen_feature {
+                        panic!(
+                            "multiple values set for feature {}: {} and {}",
+                            name, cfg.value, value
+                        );
                     }
+
+                    cfg.value = value;
+                    cfg.seen_feature = true;
                 }
             }
         }

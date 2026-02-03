@@ -196,10 +196,12 @@ impl<D: Device> FaultInjector<D> {
 }
 
 impl<D: Device> Device for FaultInjector<D> {
-    type RxToken<'a> = RxToken<'a>
+    type RxToken<'a>
+        = RxToken<'a>
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<'a, D::TxToken<'a>>
+    type TxToken<'a>
+        = TxToken<'a, D::TxToken<'a>>
     where
         Self: 'a;
 
@@ -274,7 +276,7 @@ pub struct RxToken<'a> {
 impl<'a> phy::RxToken for RxToken<'a> {
     fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> R,
+        F: FnOnce(&[u8]) -> R,
     {
         f(self.buf)
     }
@@ -315,10 +317,10 @@ impl<'a, Tx: phy::TxToken> phy::TxToken for TxToken<'a, Tx> {
             return f(&mut self.junk[..len]);
         }
 
-        self.token.consume(len, |mut buf| {
+        self.token.consume(len, |buf| {
             if self.state.maybe(self.config.corrupt_pct) {
                 net_trace!("tx: corrupting a packet");
-                self.state.corrupt(&mut buf)
+                self.state.corrupt(&mut *buf);
             }
             f(buf)
         })

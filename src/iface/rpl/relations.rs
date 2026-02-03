@@ -73,11 +73,7 @@ mod tests {
 
     fn addresses(count: usize) -> Vec<Ipv6Address> {
         (0..count)
-            .map(|i| {
-                let mut ip = Ipv6Address::default();
-                ip.0[0] = i as u8;
-                ip
-            })
+            .map(|i| Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, i as _))
             .collect()
     }
 

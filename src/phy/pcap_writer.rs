@@ -165,10 +165,12 @@ impl<D: Device, S> Device for PcapWriter<D, S>
 where
     S: PcapSink,
 {
-    type RxToken<'a> = RxToken<'a, D::RxToken<'a>, S>
+    type RxToken<'a>
+        = RxToken<'a, D::RxToken<'a>, S>
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<'a, D::TxToken<'a>, S>
+    type TxToken<'a>
+        = TxToken<'a, D::TxToken<'a>, S>
     where
         Self: 'a;
 
@@ -219,7 +221,7 @@ pub struct RxToken<'a, Rx: phy::RxToken, S: PcapSink> {
 }
 
 impl<'a, Rx: phy::RxToken, S: PcapSink> phy::RxToken for RxToken<'a, Rx, S> {
-    fn consume<R, F: FnOnce(&mut [u8]) -> R>(self, f: F) -> R {
+    fn consume<R, F: FnOnce(&[u8]) -> R>(self, f: F) -> R {
         self.token.consume(|buffer| {
             match self.mode {
                 PcapMode::Both | PcapMode::RxOnly => self

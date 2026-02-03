@@ -51,7 +51,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> Header<&'a T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Header<&'a mut T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized> Header<&mut T> {
     /// Return a mutable pointer to the options of the IPv6 Hop-by-Hop header.
     pub fn options_mut(&mut self) -> &mut [u8] {
         self.buffer.as_mut()

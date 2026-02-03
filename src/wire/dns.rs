@@ -164,47 +164,49 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn parse_name<'a>(&'a self, mut bytes: &'a [u8]) -> impl Iterator<Item = Result<&'a [u8]>> {
         let mut packet = self.buffer.as_ref();
 
-        iter::from_fn(move || loop {
-            if bytes.is_empty() {
-                return Some(Err(Error));
-            }
-            match bytes[0] {
-                0x00 => return None,
-                x if x & 0xC0 == 0x00 => {
-                    let len = (x & 0x3F) as usize;
-                    if bytes.len() < 1 + len {
-                        return Some(Err(Error));
-                    }
-                    let label = &bytes[1..1 + len];
-                    bytes = &bytes[1 + len..];
-                    return Some(Ok(label));
+        iter::from_fn(move || {
+            loop {
+                if bytes.is_empty() {
+                    return Some(Err(Error));
                 }
-                x if x & 0xC0 == 0xC0 => {
-                    if bytes.len() < 2 {
-                        return Some(Err(Error));
+                match bytes[0] {
+                    0x00 => return None,
+                    x if x & 0xC0 == 0x00 => {
+                        let len = (x & 0x3F) as usize;
+                        if bytes.len() < 1 + len {
+                            return Some(Err(Error));
+                        }
+                        let label = &bytes[1..1 + len];
+                        bytes = &bytes[1 + len..];
+                        return Some(Ok(label));
                     }
-                    let y = bytes[1];
-                    let ptr = ((x & 0x3F) as usize) << 8 | (y as usize);
-                    if packet.len() <= ptr {
-                        return Some(Err(Error));
+                    x if x & 0xC0 == 0xC0 => {
+                        if bytes.len() < 2 {
+                            return Some(Err(Error));
+                        }
+                        let y = bytes[1];
+                        let ptr = ((x & 0x3F) as usize) << 8 | (y as usize);
+                        if packet.len() <= ptr {
+                            return Some(Err(Error));
+                        }
+
+                        // RFC1035 says: "In this scheme, an entire domain name or a list of labels at
+                        //      the end of a domain name is replaced with a pointer to a ***prior*** occurrence
+                        //      of the same name.
+                        //
+                        // Is it unclear if this means the pointer MUST point backwards in the packet or not. Either way,
+                        // pointers that don't point backwards are never seen in the fields, so use this to check that
+                        // there are no pointer loops.
+
+                        // Split packet into parts before and after `ptr`.
+                        // parse the part after, keep only the part before in `packet`. This ensure we never
+                        // parse the same byte twice, therefore eliminating pointer loops.
+
+                        bytes = &packet[ptr..];
+                        packet = &packet[..ptr];
                     }
-
-                    // RFC1035 says: "In this scheme, an entire domain name or a list of labels at
-                    //      the end of a domain name is replaced with a pointer to a ***prior*** occurrence
-                    //      of the same name.
-                    //
-                    // Is it unclear if this means the pointer MUST point backwards in the packet or not. Either way,
-                    // pointers that don't point backwards are never seen in the fields, so use this to check that
-                    // there are no pointer loops.
-
-                    // Split packet into parts before and after `ptr`.
-                    // parse the part after, keep only the part before in `packet`. This ensure we never
-                    // parse the same byte twice, therefore eliminating pointer loops.
-
-                    bytes = &packet[ptr..];
-                    packet = &packet[..ptr];
+                    _ => return Some(Err(Error)),
                 }
-                _ => return Some(Err(Error)),
             }
         })
     }
@@ -336,19 +338,13 @@ impl<'a> RecordData<'a> {
     pub fn parse(type_: Type, data: &'a [u8]) -> Result<RecordData<'a>> {
         match type_ {
             #[cfg(feature = "proto-ipv4")]
-            Type::A => {
-                if data.len() != 4 {
-                    return Err(Error);
-                }
-                Ok(RecordData::A(Ipv4Address::from_bytes(data)))
-            }
+            Type::A => Ok(RecordData::A(Ipv4Address::from_octets(
+                data.try_into().map_err(|_| Error)?,
+            ))),
             #[cfg(feature = "proto-ipv6")]
-            Type::Aaaa => {
-                if data.len() != 16 {
-                    return Err(Error);
-                }
-                Ok(RecordData::Aaaa(Ipv6Address::from_bytes(data)))
-            }
+            Type::Aaaa => Ok(RecordData::Aaaa(Ipv6Address::from_octets(
+                data.try_into().map_err(|_| Error)?,
+            ))),
             Type::Cname => Ok(RecordData::Cname(data)),
             x => Ok(RecordData::Other(x, data)),
         }
@@ -417,9 +413,9 @@ impl<'a> Repr<'a> {
     }
 
     /// Emit a high-level representation into a DNS packet.
-    pub fn emit<T: ?Sized>(&self, packet: &mut Packet<&mut T>)
+    pub fn emit<T>(&self, packet: &mut Packet<&mut T>)
     where
-        T: AsRef<[u8]> + AsMut<[u8]>,
+        T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         packet.set_transaction_id(self.transaction_id);
         packet.set_flags(self.flags);
@@ -564,7 +560,9 @@ mod test {
         assert_eq!(p.questions.len(), 1);
         assert_eq!(
             p.questions[0].name,
-            &[0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00]
+            &[
+                0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00
+            ]
         );
         assert_eq!(p.questions[0].type_, Type::A);
 
@@ -597,7 +595,9 @@ mod test {
 
         assert_eq!(
             p.questions[0].name,
-            &[0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00]
+            &[
+                0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00
+            ]
         );
         assert_eq!(p.questions[0].type_, Type::A);
 
@@ -779,8 +779,7 @@ mod test {
             },
         };
 
-        let mut buf = Vec::new();
-        buf.resize(repr.buffer_len(), 0);
+        let mut buf = vec![0; repr.buffer_len()];
         repr.emit(&mut Packet::new_unchecked(&mut buf));
 
         let want = &[

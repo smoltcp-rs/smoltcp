@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::iface::Route;
+
 /// Enum used for the process_hopbyhop function. In some cases, when discarding a packet, an ICMP
 /// parameter problem message needs to be transmitted to the source of the address. In other cases,
 /// the processing of the IP packet can continue.
@@ -37,9 +39,9 @@ impl InterfaceInner {
             }
 
             if dst_addr.is_multicast()
-                && matches!(dst_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+                && matches!(dst_addr.x_multicast_scope(), Ipv6MulticastScope::LinkLocal)
                 && src_addr.is_multicast()
-                && !matches!(src_addr.multicast_scope(), Ipv6MulticastScope::LinkLocal)
+                && !matches!(src_addr.x_multicast_scope(), Ipv6MulticastScope::LinkLocal)
             {
                 return false;
             }
@@ -58,7 +60,7 @@ impl InterfaceInner {
         fn common_prefix_length(dst_addr: &Ipv6Cidr, src_addr: &Ipv6Address) -> usize {
             let addr = dst_addr.address();
             let mut bits = 0;
-            for (l, r) in addr.as_bytes().iter().zip(src_addr.as_bytes().iter()) {
+            for (l, r) in addr.octets().iter().zip(src_addr.octets().iter()) {
                 if l == r {
                     bits += 8;
                 } else {
@@ -82,7 +84,7 @@ impl InterfaceInner {
                 .count()
                 == 0
         {
-            return Ipv6Address::LOOPBACK;
+            return Ipv6Address::LOCALHOST;
         }
 
         let mut candidate = self
@@ -111,15 +113,16 @@ impl InterfaceInner {
             }
 
             // Rule 2: prefer appropriate scope.
-            if (candidate.address().multicast_scope() as u8)
-                < (addr.address().multicast_scope() as u8)
+            if (candidate.address().x_multicast_scope() as u8)
+                < (addr.address().x_multicast_scope() as u8)
             {
-                if (candidate.address().multicast_scope() as u8)
-                    < (dst_addr.multicast_scope() as u8)
+                if (candidate.address().x_multicast_scope() as u8)
+                    < (dst_addr.x_multicast_scope() as u8)
                 {
                     candidate = addr;
                 }
-            } else if (addr.address().multicast_scope() as u8) > (dst_addr.multicast_scope() as u8)
+            } else if (addr.address().x_multicast_scope() as u8)
+                > (dst_addr.x_multicast_scope() as u8)
             {
                 candidate = addr;
             }
@@ -147,10 +150,10 @@ impl InterfaceInner {
     pub fn has_solicited_node(&self, addr: Ipv6Address) -> bool {
         self.ip_addrs.iter().any(|cidr| {
             match *cidr {
-                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOOPBACK => {
+                IpCidr::Ipv6(cidr) if cidr.address() != Ipv6Address::LOCALHOST => {
                     // Take the lower order 24 bits of the IPv6 address and
                     // append those bits to FF02:0:0:0:0:1:FF00::/104.
-                    addr.as_bytes()[14..] == cidr.address().as_bytes()[14..]
+                    addr.octets()[14..] == cidr.address().octets()[14..]
                 }
                 _ => false,
             }
@@ -187,11 +190,12 @@ impl InterfaceInner {
         &mut self,
         sockets: &mut SocketSet,
         meta: PacketMeta,
+        source_hardware_addr: HardwareAddress,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
     ) -> Option<Packet<'frame>> {
         let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
-        if !ipv6_repr.src_addr.is_unicast() {
+        if !ipv6_repr.src_addr.x_is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
             return None;
@@ -210,23 +214,41 @@ impl InterfaceInner {
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
         {
-            // If AnyIP is enabled, also check if the packet is routed locally.
-            if !self.any_ip
-                || !ipv6_repr.dst_addr.is_unicast()
-                || self
-                    .routes
-                    .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
-                    .map_or(true, |router_addr| !self.has_ip_addr(router_addr))
-            {
-                net_trace!("packet IP address not for this interface");
+            if !ipv6_repr.dst_addr.x_is_unicast() {
+                net_trace!(
+                    "Rejecting IPv6 packet; {} is not a unicast address",
+                    ipv6_repr.dst_addr
+                );
                 return None;
             }
+
+            if self
+                .routes
+                .lookup(&IpAddress::Ipv6(ipv6_repr.dst_addr), self.now)
+                .is_none_or(|router_addr| !self.has_ip_addr(router_addr))
+            {
+                net_trace!("Rejecting IPv6 packet; no matching routes");
+
+                return None;
+            }
+
+            net_trace!("Rejecting IPv6 packet; no assigned address");
+            return None;
         }
 
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload);
         #[cfg(not(feature = "socket-raw"))]
         let handled_by_raw_socket = false;
+
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+        if ipv6_repr.dst_addr.x_is_unicast() {
+            self.neighbor_cache.reset_expiry_if_existing(
+                IpAddress::Ipv6(ipv6_repr.src_addr),
+                source_hardware_addr,
+                self.now,
+            );
+        }
 
         self.process_nxt_hdr(
             sockets,
@@ -278,12 +300,13 @@ impl InterfaceInner {
                         Ipv6OptionFailureType::DiscardSendAll => {
                             return HopByHopResponse::Discard(param_problem());
                         }
-                        Ipv6OptionFailureType::DiscardSendUnicast
-                            if !ipv6_repr.dst_addr.is_multicast() =>
-                        {
-                            return HopByHopResponse::Discard(param_problem());
+                        Ipv6OptionFailureType::DiscardSendUnicast => {
+                            if !ipv6_repr.dst_addr.is_multicast() {
+                                return HopByHopResponse::Discard(param_problem());
+                            } else {
+                                return HopByHopResponse::Discard(None);
+                            }
                         }
-                        _ => unreachable!(),
                     }
                 }
             }
@@ -319,7 +342,9 @@ impl InterfaceInner {
             ),
 
             #[cfg(feature = "socket-tcp")]
-            IpProtocol::Tcp => self.process_tcp(sockets, ipv6_repr.into(), ip_payload),
+            IpProtocol::Tcp => {
+                self.process_tcp(sockets, handled_by_raw_socket, ipv6_repr.into(), ip_payload)
+            }
 
             #[cfg(feature = "socket-raw")]
             _ if handled_by_raw_socket => None,
@@ -373,6 +398,7 @@ impl InterfaceInner {
 
         match icmp_repr {
             // Respond to echo requests.
+            #[cfg(feature = "auto-icmp-echo-reply")]
             Icmpv6Repr::EchoRequest {
                 ident,
                 seq_no,
@@ -399,6 +425,16 @@ impl InterfaceInner {
                 #[cfg(feature = "medium-ip")]
                 Medium::Ip => None,
             },
+            #[cfg(feature = "multicast")]
+            Icmpv6Repr::Mld(repr) => match repr {
+                // [RFC 3810 § 6.2], reception checks
+                MldRepr::Query { .. }
+                    if ip_repr.hop_limit == 1 && ip_repr.src_addr.is_link_local() =>
+                {
+                    self.process_mldv2(ip_repr, repr)
+                }
+                _ => None,
+            },
 
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
@@ -406,6 +442,7 @@ impl InterfaceInner {
             _ if handled_by_icmp_socket => None,
 
             // FIXME: do something correct here?
+            // By doing nothing, this arm handles the case when auto echo replies are disabled.
             _ => None,
         }
     }
@@ -425,7 +462,7 @@ impl InterfaceInner {
                 let ip_addr = ip_repr.src_addr.into();
                 if let Some(lladdr) = lladdr {
                     let lladdr = check!(lladdr.parse(self.caps.medium));
-                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                    if !lladdr.is_unicast() || !target_addr.x_is_unicast() {
                         return None;
                     }
                     if flags.contains(NdiscNeighborFlags::OVERRIDE)
@@ -443,7 +480,7 @@ impl InterfaceInner {
             } => {
                 if let Some(lladdr) = lladdr {
                     let lladdr = check!(lladdr.parse(self.caps.medium));
-                    if !lladdr.is_unicast() || !target_addr.is_unicast() {
+                    if !lladdr.is_unicast() || !target_addr.x_is_unicast() {
                         return None;
                     }
                     self.neighbor_cache
@@ -469,6 +506,31 @@ impl InterfaceInner {
                     None
                 }
             }
+            #[cfg(feature = "proto-ipv6-slaac")]
+            NdiscRepr::RouterAdvert {
+                hop_limit: _,
+                flags: _,
+                router_lifetime,
+                reachable_time: _,
+                retrans_time: _,
+                lladdr: _,
+                mtu: _,
+                prefix_info,
+            } if self.slaac_enabled => {
+                if ip_repr.src_addr.is_link_local()
+                    && (ip_repr.dst_addr == IPV6_LINK_LOCAL_ALL_NODES
+                        || ip_repr.dst_addr.is_link_local())
+                    && ip_repr.hop_limit == 255
+                {
+                    self.slaac.process_advertisement(
+                        &ip_repr.src_addr,
+                        router_lifetime,
+                        prefix_info,
+                        self.now,
+                    )
+                }
+                None
+            }
             _ => None,
         }
     }
@@ -481,7 +543,7 @@ impl InterfaceInner {
         let src_addr = ipv6_repr.dst_addr;
         let dst_addr = ipv6_repr.src_addr;
 
-        let src_addr = if src_addr.is_unicast() {
+        let src_addr = if src_addr.x_is_unicast() {
             src_addr
         } else {
             self.get_source_address_ipv6(&dst_addr)
@@ -513,7 +575,7 @@ impl InterfaceInner {
 
         // Per [RFC 3810 § 5.2.14], all MLDv2 reports are sent to ff02::16.
         // [RFC 3810 § 5.2.14]: https://tools.ietf.org/html/rfc3810#section-5.2.14
-        let dst_addr = Ipv6Address::LINK_LOCAL_ALL_MLDV2_ROUTERS;
+        let dst_addr = IPV6_LINK_LOCAL_ALL_MLDV2_ROUTERS;
 
         // Create a dummy IPv6 extension header so we can calculate the total length of the packet.
         // The actual extension header will be created later by Packet::emit_payload().
@@ -546,5 +608,128 @@ impl InterfaceInner {
             },
             IpPayload::HopByHopIcmpv6(hbh_repr, Icmpv6Repr::Mld(mld_repr)),
         ))
+    }
+}
+
+impl Interface {
+    /// Synchronize the slaac address and router state with the interface state.
+    #[cfg(feature = "proto-ipv6-slaac")]
+    pub(super) fn sync_slaac_state(&mut self, timestamp: Instant) {
+        let required_addresses: Vec<_, IFACE_MAX_PREFIX_COUNT> = self
+            .inner
+            .slaac
+            .prefix()
+            .iter()
+            .filter_map(|(prefix, prefixinfo)| {
+                if prefixinfo.is_valid(timestamp) {
+                    Ipv6Cidr::from_link_prefix(prefix, self.inner.hardware_addr())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let removed_addresses: Vec<_, IFACE_MAX_PREFIX_COUNT> = self
+            .inner
+            .slaac
+            .prefix()
+            .iter()
+            .filter_map(|(prefix, prefixinfo)| {
+                if !prefixinfo.is_valid(timestamp) {
+                    Ipv6Cidr::from_link_prefix(prefix, self.inner.hardware_addr())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        self.update_ip_addrs(|addresses| {
+            for address in required_addresses {
+                if !addresses.contains(&IpCidr::Ipv6(address)) {
+                    let _ = addresses.push(IpCidr::Ipv6(address));
+                }
+            }
+            addresses.retain(|address| {
+                if let IpCidr::Ipv6(address) = address {
+                    !removed_addresses.contains(address)
+                } else {
+                    true
+                }
+            });
+        });
+
+        {
+            let required_routes = self
+                .inner
+                .slaac
+                .routes()
+                .into_iter()
+                .filter(|required| required.is_valid(timestamp));
+
+            let removed_routes = self
+                .inner
+                .slaac
+                .routes()
+                .into_iter()
+                .filter(|r| !r.is_valid(timestamp));
+
+            self.inner.routes.update(|routes| {
+                routes.retain(|r| match (&r.cidr, &r.via_router) {
+                    (IpCidr::Ipv6(cidr), IpAddress::Ipv6(via_router)) => !removed_routes
+                        .clone()
+                        .any(|f| f.same_route(cidr, via_router)),
+                    _ => true,
+                });
+
+                for route in required_routes {
+                    if routes.iter().all(|r| match (&r.cidr, &r.via_router) {
+                        (IpCidr::Ipv6(cidr), IpAddress::Ipv6(via_router)) => {
+                            !route.same_route(cidr, via_router)
+                        }
+                        _ => false,
+                    }) {
+                        let _ = routes.push(Route {
+                            cidr: route.cidr.into(),
+                            via_router: route.via_router.into(),
+                            preferred_until: None,
+                            expires_at: None,
+                        });
+                    }
+                }
+            });
+        }
+
+        self.inner.slaac.update_slaac_state(timestamp);
+    }
+
+    /// Emit a router solicitation when required by the interface's slaac state machine.
+    #[cfg(feature = "proto-ipv6-slaac")]
+    pub(super) fn ndisc_rs_egress(&mut self, device: &mut (impl Device + ?Sized)) {
+        if !self.inner.slaac.rs_required(self.inner.now) {
+            return;
+        }
+        let rs_repr = Icmpv6Repr::Ndisc(NdiscRepr::RouterSolicit {
+            lladdr: Some(self.hardware_addr().into()),
+        });
+        let ipv6_repr = Ipv6Repr {
+            src_addr: self.inner.link_local_ipv6_address().unwrap(),
+            dst_addr: IPV6_LINK_LOCAL_ALL_ROUTERS,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: rs_repr.buffer_len(),
+            hop_limit: 255,
+        };
+        let packet = Packet::new_ipv6(ipv6_repr, IpPayload::Icmpv6(rs_repr));
+        let Some(tx_token) = device.transmit(self.inner.now) else {
+            return;
+        };
+        // NOTE(unwrap): packet destination is multicast, which is always routable and doesn't require neighbor discovery.
+        self.inner
+            .dispatch_ip(
+                tx_token,
+                PacketMeta::default(),
+                packet,
+                &mut self.fragmenter,
+            )
+            .unwrap();
+        self.inner.slaac.rs_sent(self.inner.now);
     }
 }
