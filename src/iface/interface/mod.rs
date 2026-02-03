@@ -876,7 +876,14 @@ impl InterfaceInner {
     }
 
     /// Check whether the interface has the given IP address assigned.
+    ///
+    /// Always returns true if [`InterfaceInner::any_ip`].
     pub(crate) fn has_ip_addr<T: Into<IpAddress>>(&self, addr: T) -> bool {
+        // If any IP is set to true, we don't bother about checking the IP.
+        if self.any_ip {
+            return true;
+        }
+
         let addr = addr.into();
         self.ip_addrs.iter().any(|probe| probe.address() == addr)
     }
