@@ -187,12 +187,6 @@ impl InterfaceInner {
             && !self.is_broadcast_v4(ipv4_repr.dst_addr)
         {
             // Ignore IP packets not directed at us, or broadcast, or any of the multicast groups.
-            // If AnyIP is enabled, also check if the packet is routed locally.
-
-            if !self.any_ip {
-                net_trace!("Rejecting IPv4 packet; any_ip=false");
-                return None;
-            }
 
             if !ipv4_repr.dst_addr.x_is_unicast() {
                 net_trace!(
@@ -211,6 +205,9 @@ impl InterfaceInner {
 
                 return None;
             }
+
+            net_trace!("Rejecting IPv4 packet; no assigned address");
+            return None;
         }
 
         #[cfg(feature = "medium-ethernet")]
@@ -272,7 +269,7 @@ impl InterfaceInner {
                 ..
             } => {
                 // Only process ARP packets for us.
-                if !self.has_ip_addr(target_protocol_addr) && !self.any_ip {
+                if !self.has_ip_addr(target_protocol_addr) {
                     return None;
                 }
 
