@@ -214,11 +214,6 @@ impl InterfaceInner {
             && !self.has_multicast_group(ipv6_repr.dst_addr)
             && !ipv6_repr.dst_addr.is_loopback()
         {
-            if !self.any_ip {
-                net_trace!("Rejecting IPv6 packet; any_ip=false");
-                return None;
-            }
-
             if !ipv6_repr.dst_addr.x_is_unicast() {
                 net_trace!(
                     "Rejecting IPv6 packet; {} is not a unicast address",
@@ -236,6 +231,9 @@ impl InterfaceInner {
 
                 return None;
             }
+
+            net_trace!("Rejecting IPv6 packet; no assigned address");
+            return None;
         }
 
         #[cfg(feature = "socket-raw")]
