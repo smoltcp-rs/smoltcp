@@ -727,7 +727,7 @@ impl Interface {
 
                 result = PollResult::SocketStateChanged;
 
-                Ok(())
+                Ok::<(), EgressError>(())
             };
 
             let result = match &mut item.socket {
@@ -738,6 +738,16 @@ impl Interface {
                         PacketMeta::default(),
                         Packet::new(ip, IpPayload::Raw(raw)),
                     )
+                }),
+                #[cfg(feature = "socket-raw-ethernet")]
+                Socket::RawEthernet(socket) => socket.dispatch(&mut self.inner, |inner, frame| {
+                    let t = device.transmit(inner.now).ok_or_else(|| {
+                        net_debug!("failed to transmit Ethernet: device exhausted");
+                        EgressError::Exhausted
+                    })?;
+                    t.consume(frame.len(), |tx_buffer| tx_buffer.copy_from_slice(frame));
+                    result = PollResult::SocketStateChanged;
+                    Ok(())
                 }),
                 #[cfg(feature = "socket-icmp")]
                 Socket::Icmp(socket) => {
@@ -955,6 +965,28 @@ impl InterfaceInner {
             }
         }
         handled_by_raw_socket
+    }
+
+    #[cfg(feature = "socket-raw-ethernet")]
+    fn raw_ethernet_socket_filter(
+        &mut self,
+        sockets: &mut SocketSet,
+        frame: &EthernetFrame<&[u8]>,
+        frame_bytes: &[u8],
+    ) -> bool {
+        let mut handled_by_raw_ethernet_socket = false;
+
+        for raw_socket in sockets
+            .items_mut()
+            .filter_map(|i| raw_ethernet::Socket::downcast_mut(&mut i.socket))
+        {
+            if raw_socket.accepts(frame) {
+                raw_socket.process(self, frame_bytes);
+                handled_by_raw_ethernet_socket = true;
+            }
+        }
+
+        handled_by_raw_ethernet_socket
     }
 
     /// Checks if an address is broadcast, taking into account ipv4 subnet-local

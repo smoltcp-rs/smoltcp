@@ -1,3 +1,5 @@
+#[cfg(feature = "medium-ethernet")]
+mod ethernet;
 #[cfg(feature = "proto-ipv4")]
 mod ipv4;
 #[cfg(feature = "proto-ipv6")]

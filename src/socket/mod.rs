@@ -22,6 +22,8 @@ pub mod dns;
 pub mod icmp;
 #[cfg(feature = "socket-raw")]
 pub mod raw;
+#[cfg(feature = "socket-raw-ethernet")]
+pub mod raw_ethernet;
 #[cfg(feature = "socket-tcp")]
 pub mod tcp;
 #[cfg(feature = "socket-udp")]
@@ -60,6 +62,8 @@ pub(crate) enum PollAt {
 pub enum Socket<'a> {
     #[cfg(feature = "socket-raw")]
     Raw(raw::Socket<'a>),
+    #[cfg(feature = "socket-raw-ethernet")]
+    RawEthernet(raw_ethernet::Socket<'a>),
     #[cfg(feature = "socket-icmp")]
     Icmp(icmp::Socket<'a>),
     #[cfg(feature = "socket-udp")]
@@ -77,6 +81,8 @@ impl<'a> Socket<'a> {
         match self {
             #[cfg(feature = "socket-raw")]
             Socket::Raw(s) => s.poll_at(cx),
+            #[cfg(feature = "socket-raw-ethernet")]
+            Socket::RawEthernet(s) => s.poll_at(cx),
             #[cfg(feature = "socket-icmp")]
             Socket::Icmp(s) => s.poll_at(cx),
             #[cfg(feature = "socket-udp")]
@@ -153,6 +159,8 @@ macro_rules! from_socket {
 
 #[cfg(feature = "socket-raw")]
 from_socket!(raw::Socket<'a>, Raw);
+#[cfg(feature = "socket-raw-ethernet")]
+from_socket!(raw_ethernet::Socket<'a>, RawEthernet);
 #[cfg(feature = "socket-icmp")]
 from_socket!(icmp::Socket<'a>, Icmp);
 #[cfg(feature = "socket-udp")]

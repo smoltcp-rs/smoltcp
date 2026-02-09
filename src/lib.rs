@@ -104,6 +104,7 @@ compile_error!(
     feature = "socket",
     not(any(
         feature = "socket-raw",
+        feature = "socket-raw-ethernet",
         feature = "socket-udp",
         feature = "socket-tcp",
         feature = "socket-icmp",
@@ -112,7 +113,7 @@ compile_error!(
     ))
 ))]
 compile_error!(
-    "If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-udp, socket-tcp, socket-icmp, socket-dhcpv4, socket-dns"
+    "If you enable the socket feature, you must enable at least one of the following features: socket-raw, socket-raw-ethernet, socket-udp, socket-tcp, socket-icmp, socket-dhcpv4, socket-dns"
 );
 
 #[cfg(all(
