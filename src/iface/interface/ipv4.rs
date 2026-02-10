@@ -133,7 +133,9 @@ impl InterfaceInner {
                     return None;
                 }
 
+                // Returns early if assembly is incomplete.
                 let payload = f.assemble()?;
+
                 // Update the payload length, so that the raw sockets get the correct value.
                 ipv4_repr.payload_len = payload.len();
                 payload

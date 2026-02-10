@@ -27,6 +27,16 @@ pub const MULTICAST_ALL_SYSTEMS: Address = Address::new(224, 0, 0, 1);
 /// All multicast-capable routers
 pub const MULTICAST_ALL_ROUTERS: Address = Address::new(224, 0, 0, 2);
 
+/// Maximum size of options in octets. The header length field is 4 bits, which limits the
+/// possible header size, and is in units of 4-octets. Since the fixed size fields are always
+/// present in the header, the remaining possible size is the maximum size of the options field.
+/// 0xF * 4 - HEADER_LEN == 40
+pub const MAX_OPTIONS_SIZE: usize = 40;
+
+/// Size of 32 bits in octets for alignment within the header. The header length must be a multiple
+/// of this value.
+pub const ALIGNMENT_32_BITS: usize = 4;
+
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Key {
@@ -202,6 +212,7 @@ mod field {
     pub const CHECKSUM: Field = 10..12;
     pub const SRC_ADDR: Field = 12..16;
     pub const DST_ADDR: Field = 16..20;
+    pub const OPTIONS_START: usize = 20;
 }
 
 pub const HEADER_LEN: usize = field::DST_ADDR.end;
@@ -242,6 +253,8 @@ impl<T: AsRef<[u8]>> Packet<T> {
         } else if self.header_len() as u16 > self.total_len() {
             Err(Error)
         } else if len < self.total_len() as usize {
+            Err(Error)
+        } else if (self.header_len() as usize) < HEADER_LEN {
             Err(Error)
         } else {
             Ok(())
@@ -347,6 +360,29 @@ impl<T: AsRef<[u8]>> Packet<T> {
     pub fn dst_addr(&self) -> Address {
         let data = self.buffer.as_ref();
         Address::from_octets(data[field::DST_ADDR].try_into().unwrap())
+    }
+
+    /// Return true if options exist according to the header length.
+    #[inline]
+    pub fn has_options(&self) -> bool {
+        self.header_len() as usize > HEADER_LEN
+    }
+
+    /// Return a reference to the options if the field exists according to the header length.
+    #[inline]
+    pub fn options(&self) -> Option<&[u8]> {
+        if self.has_options() {
+            let data = self.buffer.as_ref();
+            Some(&data[field::OPTIONS_START..self.header_len() as usize])
+        } else {
+            None
+        }
+    }
+
+    /// Return the length of the options field as calculated from the header length.
+    #[inline]
+    pub fn options_len(&self) -> usize {
+        self.header_len() as usize - HEADER_LEN
     }
 
     /// Validate the header checksum.
@@ -511,6 +547,25 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         let range = self.header_len() as usize..self.total_len() as usize;
         let data = self.buffer.as_mut();
         &mut data[range]
+    }
+
+    /// Return a mutable pointer to the options if they are present according to the header length.
+    #[inline]
+    pub fn options_mut(&mut self) -> Option<&mut [u8]> {
+        if self.has_options() {
+            let range = field::OPTIONS_START..self.header_len() as usize;
+            let data = self.buffer.as_mut();
+            Some(&mut data[range])
+        } else {
+            None
+        }
+    }
+
+    /// Set options without checking if the input is sized properly or if the header length is
+    /// appropriate.
+    pub fn set_options_unchecked(&mut self, options: &[u8]) {
+        let data = self.buffer.as_mut();
+        data[HEADER_LEN..HEADER_LEN + options.len()].copy_from_slice(options);
     }
 }
 
