@@ -735,11 +735,23 @@ impl Interface {
             let result = match &mut item.socket {
                 #[cfg(feature = "socket-raw")]
                 Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, (ip, raw)| {
-                    respond(
-                        inner,
-                        PacketMeta::default(),
-                        Packet::new(ip, IpPayload::Raw(raw)),
-                    )
+                    match ip.version() {
+                        IpVersion::Ipv4 => {
+                            // TODO operate on raw bytes to get full header
+                            respond(
+                                inner,
+                                PacketMeta::default(),
+                                Packet::Ipv4(PacketV4{header, payload}),
+                            )
+                        }
+                        IpVersion::Ipv6 => {
+                            respond(
+                                inner,
+                                PacketMeta::default(),
+                                Packet::new(ip, IpPayload::Raw(raw)),
+                            )
+                        }
+                    }
                 }),
                 #[cfg(feature = "socket-icmp")]
                 Socket::Icmp(socket) => {

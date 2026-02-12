@@ -462,7 +462,7 @@ impl<'a> Socket<'a> {
                         }
                     };
                     net_trace!("raw:{:?}:{:?}: sending", ip_version, ip_protocol);
-                    emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.payload()))
+                    emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.into_inner()))
                 }
                 #[cfg(feature = "proto-ipv6")]
                 Ok(IpVersion::Ipv6) => {
@@ -487,7 +487,7 @@ impl<'a> Socket<'a> {
                     };
 
                     net_trace!("raw:{:?}:{:?}: sending", ip_version, ip_protocol);
-                    emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.payload()))
+                    emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.into_inner()))
                 }
                 Err(_) => {
                     net_trace!("raw: sent packet with invalid IP version, dropping.");
