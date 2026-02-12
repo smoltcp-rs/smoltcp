@@ -1,7 +1,6 @@
 use core::cmp::min;
 #[cfg(feature = "async")]
 use core::task::Waker;
-
 use crate::iface::Context;
 use crate::socket::PollAt;
 #[cfg(feature = "async")]
@@ -13,6 +12,8 @@ use crate::wire::{IpProtocol, IpRepr, IpVersion};
 use crate::wire::{Ipv4Packet, Ipv4Repr};
 #[cfg(feature = "proto-ipv6")]
 use crate::wire::{Ipv6Packet, Ipv6Repr};
+use crate::wire::ip::{Packet, Version};
+use crate::wire::IpCidr::Ipv4;
 
 /// Error returned by [`Socket::bind`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -337,29 +338,79 @@ impl<'a> Socket<'a> {
         self.rx_buffer.payload_bytes_count()
     }
 
-    pub(crate) fn accepts(&self, ip_repr: &IpRepr) -> bool {
-        if self
-            .ip_version
-            .is_some_and(|version| version != ip_repr.version())
-        {
+    pub(crate) fn accepts(&self, candidate: &[u8]) -> bool {
+        if let Ok(candidate_version) = Version::of_packet(candidate) {
+            if self
+                .ip_version
+                .is_some_and(|version| version != candidate_version)
+            {
+                return false;
+            }
+        } else {
             return false;
         }
-
-        if self
-            .ip_protocol
-            .is_some_and(|next_header| next_header != ip_repr.next_header())
-        {
-            return false;
+        match self.ip_version {
+            Some(IpVersion::Ipv4) => {
+                if let Ok(ipv4_packet) = Ipv4Packet::new_checked(candidate) {
+                    if self
+                        .ip_protocol
+                        .is_some_and(|next_header| next_header != ipv4_packet.next_header())
+                    {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            },
+            Some(IpVersion::Ipv6) => {
+                if let Ok(ipv6_packet) = Ipv6Packet::new_checked(candidate) {
+                    if self
+                        .ip_protocol
+                        .is_some_and(|next_header| next_header != ipv6_packet.next_header())
+                    {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            },
+            _ => return false,
         }
-
         true
     }
 
-    pub(crate) fn process(&mut self, cx: &mut Context, ip_repr: &IpRepr, payload: &[u8]) {
-        debug_assert!(self.accepts(ip_repr));
+    pub(crate) fn process(&mut self, cx: &mut Context, packet: &[u8]) {
+        debug_assert!(self.accepts(packet));
 
-        let header_len = ip_repr.header_len();
-        let total_len = header_len + payload.len();
+        let total_len: usize = match self.ip_version {
+            Some(IpVersion::Ipv4) => {
+                let ipv4_packet = Ipv4Packet::new_unchecked(packet);
+                ipv4_packet.total_len() as usize
+            },
+            Some(IpVersion::Ipv6) => {
+                let ipv6_packet = Ipv6Packet::new_unchecked(packet);
+                ipv6_packet.total_len()
+            },
+            _ => {
+                net_trace!(
+                    "raw:{:?}:{:?}: unknown ip version, dropped incoming packet",
+                    self.ip_version,
+                    self.ip_protocol
+                );
+                return;
+            }
+        };
+
+        match self.rx_buffer.enqueue(total_len, ()) {
+            Ok(buf) => {
+                buf[..total_len].copy_from_slice(&packet[..total_len]);
+            }
+            Err(_) => net_trace!(
+                            "raw:{:?}:{:?}: buffer full, dropped incoming packet",
+                            self.ip_version,
+                            self.ip_protocol
+                        ),
+        }
 
         net_trace!(
             "raw:{:?}:{:?}: receiving {} octets",
@@ -367,18 +418,6 @@ impl<'a> Socket<'a> {
             self.ip_protocol,
             total_len
         );
-
-        match self.rx_buffer.enqueue(total_len, ()) {
-            Ok(buf) => {
-                ip_repr.emit(&mut buf[..header_len], &cx.checksum_caps());
-                buf[header_len..].copy_from_slice(payload);
-            }
-            Err(_) => net_trace!(
-                "raw:{:?}:{:?}: buffer full, dropped incoming packet",
-                self.ip_version,
-                self.ip_protocol
-            ),
-        }
 
         #[cfg(feature = "async")]
         self.rx_waker.wake();
@@ -423,7 +462,7 @@ impl<'a> Socket<'a> {
                         }
                     };
                     net_trace!("raw:{:?}:{:?}: sending", ip_version, ip_protocol);
-                    emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.payload()))
+                    emit(cx, (IpRepr::Ipv4(ipv4_repr), packet.into_inner()))
                 }
                 #[cfg(feature = "proto-ipv6")]
                 Ok(IpVersion::Ipv6) => {
@@ -448,7 +487,7 @@ impl<'a> Socket<'a> {
                     };
 
                     net_trace!("raw:{:?}:{:?}: sending", ip_version, ip_protocol);
-                    emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.payload()))
+                    emit(cx, (IpRepr::Ipv6(ipv6_repr), packet.into_inner()))
                 }
                 Err(_) => {
                     net_trace!("raw: sent packet with invalid IP version, dropping.");
