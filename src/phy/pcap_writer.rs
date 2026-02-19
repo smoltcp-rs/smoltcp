@@ -108,10 +108,6 @@ impl<T: Write> PcapSink for T {
 /// and written (in the [libpcap] format) using the provided [sink].
 /// Note that writes are fine-grained, and buffering is recommended.
 ///
-/// The packet sink should be cheaply cloneable, as it is cloned on every
-/// transmitted packet. For example, `&'a mut Vec<u8>` is cheaply cloneable
-/// but `&std::io::File`
-///
 /// [libpcap]: https://wiki.wireshark.org/Development/LibpcapFileFormat
 /// [sink]: trait.PcapSink.html
 #[derive(Debug)]
