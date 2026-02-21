@@ -391,6 +391,48 @@ pub trait RxToken {
     fn meta(&self) -> PacketMeta {
         PacketMeta::default()
     }
+
+    /// Preprocess the packet before consumption.
+    ///
+    /// This method is called by [`Interface`][crate::iface::Interface] after receiving
+    /// a packet but before consuming it, allowing implementations to:
+    /// - Inspect packet contents without consuming the token
+    /// - Access the socket set to perform preparatory actions
+    /// - Implement custom packet handling logic
+    ///
+    /// Common use cases include:
+    /// - Pre-allocating sockets for incoming connections (e.g., TCP accept queues)
+    /// - Packet classification and prioritization
+    /// - Traffic monitoring and logging
+    ///
+    /// The default implementation does nothing, ensuring zero overhead for
+    /// implementations that don't need preprocessing.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// impl phy::RxToken for MyRxToken<'_> {
+    ///     fn consume<R, F>(self, f: F) -> R
+    ///     where
+    ///         F: FnOnce(&[u8]) -> R,
+    ///     {
+    ///         f(self.packet_data)
+    ///     }
+    ///
+    ///     fn preprocess(&self, sockets: &mut SocketSet) {
+    ///         // Detect TCP SYN packets and prepare accept queue
+    ///         if let Some(syn_info) = parse_tcp_syn(self.packet_data) {
+    ///             prepare_socket_for_connection(sockets, syn_info);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    #[cfg(any(
+        feature = "medium-ethernet",
+        feature = "medium-ip",
+        feature = "medium-ieee802154"
+    ))]
+    fn preprocess(&self, _sockets: &mut crate::iface::SocketSet<'_>) {}
 }
 
 /// A token to transmit a single network packet.
