@@ -394,6 +394,12 @@ impl From<::core::net::SocketAddrV6> for Endpoint {
     }
 }
 
+impl From<Endpoint> for ::core::net::SocketAddr {
+    fn from(x: Endpoint) -> ::core::net::SocketAddr {
+        ::core::net::SocketAddr::new(x.addr.into(), x.port)
+    }
+}
+
 impl fmt::Display for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}:{}", self.addr, self.port)
