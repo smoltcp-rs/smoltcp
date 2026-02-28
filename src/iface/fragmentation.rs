@@ -9,7 +9,15 @@ use crate::storage::Assembler;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 
+use crate::iface::interface::DispatchError;
+use crate::phy::ChecksumCapabilities;
+#[cfg(feature = "proto-ipv4")]
+use crate::wire::ipv4::{ALIGNMENT_32_BITS, HEADER_LEN, MAX_OPTIONS_SIZE, Packet, Repr};
 use core::result::Result;
+
+// Special option type octets.
+const OPTION_TYPE_PADDING: u8 = 0x00;
+const OPTION_TYPE_NO_OPERATION: u8 = 0x01;
 
 #[cfg(feature = "alloc")]
 type Buffer = alloc::vec::Vec<u8>;
@@ -299,6 +307,10 @@ pub(crate) struct Ipv4Fragmenter {
     pub frag_offset: u16,
     /// The identifier of the stream.
     pub ident: u16,
+    /// The header options.
+    pub options_buffer: [u8; MAX_OPTIONS_SIZE],
+    /// Actual length of the options.
+    pub options_len: usize,
 }
 
 #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -339,6 +351,8 @@ impl Fragmenter {
                 dst_hardware_addr: EthernetAddress::default(),
                 frag_offset: 0,
                 ident: 0,
+                options_buffer: [0u8; MAX_OPTIONS_SIZE],
+                options_len: 0,
             },
 
             #[cfg(feature = "proto-sixlowpan-fragmentation")]
@@ -396,9 +410,115 @@ impl Fragmenter {
     }
 }
 
+#[cfg(feature = "proto-ipv4-fragmentation")]
+#[derive(PartialEq)]
+enum OptionCopyBehavior {
+    // This option is copied for every fragment
+    Copy,
+    // This option is discarded after the first fragment
+    DontCopy,
+}
+
+#[cfg(feature = "proto-ipv4-fragmentation")]
+#[derive(PartialEq)]
+enum OptionLengthType {
+    // This option has an octet specifying the length of the option
+    HasLength,
+    // This option has no length octet and is of single octet length
+    NoLength,
+}
+
+#[cfg(feature = "proto-ipv4-fragmentation")]
+impl Ipv4Fragmenter {
+    /// Determines two characteristics of the option from the type octet.
+    /// Returns (OptionCopyBehavior, OptionLengthType)
+    fn parse_option_type_octet(type_octet: u8) -> (OptionCopyBehavior, OptionLengthType) {
+        let copy_behavior = match (type_octet & 0x80) {
+            0x80 => OptionCopyBehavior::Copy,
+            _ => OptionCopyBehavior::DontCopy,
+        };
+        let length_type = match type_octet {
+            OPTION_TYPE_PADDING | OPTION_TYPE_NO_OPERATION => OptionLengthType::NoLength,
+            _ => OptionLengthType::HasLength,
+        };
+        (copy_behavior, length_type)
+    }
+
+    /// Filters the original option set and overwrites it in the repr for use with subsequent packet fragments.
+    /// Returns Ok(()) if no error occurs during filtering.
+    pub(crate) fn filter_options(&mut self) -> Result<(), DispatchError> {
+        // Exit nicely if no options are present, there is just nothing to filter.
+        if self.options_len == 0 {
+            return Ok(());
+        }
+        // Check for a proper length. There must be enough bytes for at least one operable option.
+        if self.options_len < ALIGNMENT_32_BITS
+            || !self.options_len.is_multiple_of(ALIGNMENT_32_BITS)
+            || self.options_len > MAX_OPTIONS_SIZE
+        {
+            return Err(DispatchError::CannotFragment);
+        }
+        // Initialize read and write pointers.
+        let source: &[u8; MAX_OPTIONS_SIZE] = &self.options_buffer;
+        let mut i_read: usize = 0;
+        let dest: &mut [u8; MAX_OPTIONS_SIZE] = &mut [0u8; MAX_OPTIONS_SIZE];
+        let mut i_write: usize = 0;
+        // Iterate through the options.
+        while i_read < self.options_len {
+            // Parse the type octet to get our instructions for this option.
+            let type_octet = source[i_read];
+            let (copy_behavior, length_type) = Self::parse_option_type_octet(type_octet);
+            match length_type {
+                OptionLengthType::HasLength => {
+                    // Nothing prevents defining an option that has a length octet with a value that indicates zero length data,
+                    // so we allow for the presence of a length octet prior to the last octet.
+                    if i_read + 1 >= self.options_len {
+                        // This is the last octet, and there is no more room for a length octet.
+                        return Err(DispatchError::CannotFragment);
+                    }
+                    // Parse the length octet.
+                    let length = source[i_read + 1] as usize;
+                    // Safely copy the option based on its length.
+                    if copy_behavior == OptionCopyBehavior::Copy {
+                        // Prevent a length from overflowing the end.
+                        if i_write + length > dest.len() || i_read + length > source.len() {
+                            return Err(DispatchError::CannotFragment);
+                        }
+                        dest[i_write..i_write + length]
+                            .copy_from_slice(&source[i_read..i_read + length]);
+                        // Advance the write pointer.
+                        i_write += length;
+                    }
+                    // Advance the read pointer.
+                    i_read += length;
+                }
+                OptionLengthType::NoLength => {
+                    // Advance past any single octets. They are not operable option bytes.
+                    // Padding is inserted once the writing of all options is complete.
+                    // Only option types 0x0 and 0x1 have the length bit unset. All other option types have the
+                    // length bit set. Therefore, no operable option types have both the copy bit set
+                    // and the length bit unset. See the IANA option number list at:
+                    // https://www.iana.org/assignments/ip-parameters/ip-parameters.xhtml#ip-parameters-1
+                    i_read += 1;
+                }
+            }
+        }
+        // If necessary, safely pad the remainder of the alignment in the destination.
+        while !i_write.is_multiple_of(ALIGNMENT_32_BITS) && i_write < MAX_OPTIONS_SIZE {
+            dest[i_write] = OPTION_TYPE_PADDING;
+            i_write += 1;
+        }
+        // Apply the filtered options.
+        Ok(self.options_buffer.copy_from_slice(dest))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::phy::ChecksumCapabilities;
+    #[cfg(feature = "proto-ipv4")]
+    use crate::wire::ipv4::{Packet, Repr};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
     struct Key {
@@ -502,5 +622,183 @@ mod tests {
         let assr = set.get(&key, Instant::ZERO).unwrap();
         assr.add(&[0x01], 1).unwrap();
         assert_eq!(assr.assemble(), Some(&[0x00, 0x01][..]));
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_no_options_present() {
+        const PACKET_BYTES: [u8; 30] = [
+            0x45, 0x21, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x4d, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0xff,
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        assert!(frag.ipv4.filter_options().is_ok());
+        assert_eq!(repr, frag.ipv4.repr);
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_one_persisted_option_present() {
+        const PACKET_BYTES: [u8; 34] = [
+            0x46, 0x21, 0x00, 0x22, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xf1, 0xea, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0x88, 0x04, 0x5a, 0x5a, // Stream Identifier option
+            0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload (10 bytes)
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        frag.ipv4.filter_options();
+        // The stream id remains. Each fragment header is identical.
+        assert_eq!(repr, frag.ipv4.repr);
+        assert_eq!(frag.ipv4.options_len, 4);
+        assert_eq!(frag.ipv4.repr.payload_len, 10);
+        // Repeat as if on next fragment.
+        assert!(frag.ipv4.filter_options().is_ok());
+        // The stream id remains. Each fragment header is identical.
+        assert_eq!(repr, frag.ipv4.repr);
+        assert_eq!(frag.ipv4.options_len, 4);
+        assert_eq!(frag.ipv4.repr.payload_len, 10);
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_one_discarded_option_present_with_noop_padding() {
+        const PACKET_BYTES: [u8; 38] = [
+            0x47, 0x21, 0x00, 0x26, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xc2, 0x39, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0x07, 0x07, 0x04, 0x01, 0x02, 0x03, 0x04, // Route Record
+            0x01, // Padding
+            0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload (10 bytes)
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        assert!(frag.ipv4.filter_options().is_ok());
+        assert_ne!(repr, frag.ipv4.repr);
+        // The route record is discarded in all further fragments.
+        assert_eq!(frag.ipv4.options_len, 0);
+        assert_eq!(frag.ipv4.repr.payload_len, 10);
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_one_discarded_and_one_persisted_with_middle_padding() {
+        const PACKET_BYTES: [u8; 42] = [
+            0x48, 0x21, 0x00, 0x2a, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xde, 0xd6, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0x07, 0x07, 0x04, 0x01, 0x02, 0x03, 0x04, // Route Record
+            0x01, // Padding
+            0x88, 0x04, 0x5a, 0x5a, // Stream Identifier option (4 bytes)
+            0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload (10 bytes)
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        assert!(frag.ipv4.filter_options().is_ok());
+        assert_ne!(repr, frag.ipv4.repr);
+        // The route record is discarded and only the stream id persists to all fragments.
+        assert_eq!(frag.ipv4.options_len, 4); // stream id only in options
+        assert_eq!(frag.ipv4.options_buffer[0..4], [0x88, 0x04, 0x5a, 0x5a]);
+        assert_eq!(frag.ipv4.repr.payload_len, 10);
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_max_options_present() {
+        const PACKET_BYTES: [u8; 70] = [
+            0x4F, 0x21, 0x00, 0x46, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0x14, 0xff, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0x07, 0x23, 0x20, // Route Record
+            0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02,
+            0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04,
+            0x01, 0x02, 0x03, 0x04, 0x88, 0x04, 0x5a,
+            0x5a, // Stream Identifier option (4 bytes)
+            0x01, // Padding
+            0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload (10 bytes)
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        assert!(frag.ipv4.filter_options().is_ok());
+        assert_ne!(repr, frag.ipv4.repr);
+        // The route record is discarded and only the stream id persists to all fragments.
+        assert_eq!(frag.ipv4.options_len, 4); // stream id only in options
+        assert_eq!(frag.ipv4.options_buffer[0..4], [0x88, 0x04, 0x5a, 0x5a]);
+        assert_eq!(frag.ipv4.repr.payload_len, 10);
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_bad_option_at_end_does_not_cause_panic() {
+        const PACKET_BYTES: [u8; 70] = [
+            0x4F, 0x21, 0x00, 0x46, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0x14, 0x7f, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0x07, 0x23, 0x20, // Route Record
+            0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02,
+            0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04, 0x01, 0x02, 0x03, 0x04,
+            0x01, 0x02, 0x03, 0x04, 0x88, 0x04, 0x5a,
+            0x5a, // Stream Identifier option (4 bytes)
+            0x81, // Bad octet that indicates a length octet is following, but we are at the end
+            0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload (10 bytes)
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        assert!(frag.ipv4.filter_options().is_err());
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_one_discarded_and_one_persisted_with_padding_required_of_different_length() {
+        const PACKET_BYTES: [u8; 46] = [
+            0x49, 0x21, 0x00, 0x2e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xac, 0x9d, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0x07, 0x07, 0x04, 0x01, 0x02, 0x03, 0x04, // Route Record
+            0x83, 0x07, 0x04, 0x05, 0x06, 0x07, 0x08, // Loose Source
+            0x00, 0x00, // Padding (two octets)
+            0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload (10 bytes)
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        assert!(frag.ipv4.filter_options().is_ok());
+        assert_ne!(repr, frag.ipv4.repr);
+        // The route record is discarded and only the loose source option persists to all fragments.
+        // Only one octet of padding is needed.
+        assert_eq!(frag.ipv4.options_len, 8);
+        assert_eq!(frag.ipv4.repr.payload_len, 10);
+        assert_eq!(
+            frag.ipv4.options_buffer[0..8],
+            [0x83, 0x07, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00]
+        );
+    }
+
+    #[cfg(feature = "proto-ipv4-fragmentation")]
+    #[test]
+    fn filter_options_length_octet_overflow() {
+        const PACKET_BYTES: [u8; 70] = [
+            0x4F, 0x21, 0x00, 0x46, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xcb, 0x25, 0x11, 0x12,
+            0x13, 0x14, 0x21, 0x22, 0x23, 0x24, // Fixed header
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xaa, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, // Payload (10 bytes)
+        ];
+        let mut packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        let repr = Repr::parse(&packet, &ChecksumCapabilities::default()).unwrap();
+        let mut frag = Fragmenter::new();
+        frag.ipv4.repr = repr;
+        assert!(frag.ipv4.filter_options().is_err());
     }
 }

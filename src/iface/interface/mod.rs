@@ -67,6 +67,8 @@ macro_rules! check {
         }
     };
 }
+#[cfg(feature = "proto-ipv4")]
+use crate::wire::ipv4::MAX_OPTIONS_SIZE;
 use check;
 
 /// Result returned by [`Interface::poll`].
@@ -733,11 +735,23 @@ impl Interface {
             let result = match &mut item.socket {
                 #[cfg(feature = "socket-raw")]
                 Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, (ip, raw)| {
-                    respond(
-                        inner,
-                        PacketMeta::default(),
-                        Packet::new(ip, IpPayload::Raw(raw)),
-                    )
+                    match ip.version() {
+                        IpVersion::Ipv4 => {
+                            // TODO operate on raw bytes to get full header
+                            respond(
+                                inner,
+                                PacketMeta::default(),
+                                Packet::Ipv4(PacketV4{header, payload}),
+                            )
+                        }
+                        IpVersion::Ipv6 => {
+                            respond(
+                                inner,
+                                PacketMeta::default(),
+                                Packet::new(ip, IpPayload::Raw(raw)),
+                            )
+                        }
+                    }
                 }),
                 #[cfg(feature = "socket-icmp")]
                 Socket::Icmp(socket) => {
@@ -1314,6 +1328,14 @@ impl InterfaceInner {
                         // Emit the IP header to the buffer.
                         emit_ip(&ip_repr, &mut frag.buffer);
 
+                        // Verify that we can filter the options for the subsequent packets.
+                        if frag.ipv4.filter_options().is_err() {
+                            net_debug!(
+                                "Could not fragment packet because options cannot be filtered. Dropping."
+                            );
+                            return Ok(());
+                        };
+
                         let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut frag.buffer[..]);
                         frag.ipv4.ident = ipv4_id;
                         ipv4_packet.set_ident(ipv4_id);
@@ -1394,7 +1416,7 @@ impl InterfaceInner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum DispatchError {
+pub enum DispatchError {
     /// No route to dispatch this packet. Retrying won't help unless
     /// configuration is changed.
     NoRoute,
@@ -1402,4 +1424,6 @@ enum DispatchError {
     /// the neighbor for it yet. Discovery has been initiated, dispatch
     /// should be retried later.
     NeighborPending,
+    /// The packet must be fragmented but there was a parse error.
+    CannotFragment,
 }
