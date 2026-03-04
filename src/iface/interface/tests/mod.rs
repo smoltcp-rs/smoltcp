@@ -245,3 +245,112 @@ pub fn tcp_not_accepted() {
         None,
     );
 }
+
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
+fn tcp_listen_socket_syn_queue_accept() {
+    use crate::socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState};
+    use crate::socket::tcp_listener;
+
+    let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
+
+    // Create a TcpListenSocket with room for 2 pending connections.
+    let mut syn_buf = [None; 4];
+    let mut accept_buf = [None, None];
+    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    listen.listen(4243).unwrap();
+    let listen_handle = sockets.add(listen);
+
+    let syn = TcpRepr {
+        src_port: 4242,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(100),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+
+    let emit_ipv6_tcp = |repr: &TcpRepr, src: Ipv6Address, dst: Ipv6Address| {
+        let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+            src_addr: src,
+            dst_addr: dst,
+            next_header: IpProtocol::Tcp,
+            payload_len: repr.buffer_len(),
+            hop_limit: 64,
+        });
+        let mut ip_bytes = vec![0u8; ip_repr.buffer_len()];
+        ip_repr.emit(&mut ip_bytes, &ChecksumCapabilities::default());
+        repr.emit(
+            &mut TcpPacket::new_unchecked(&mut ip_bytes[ip_repr.header_len()..]),
+            &src.into(),
+            &dst.into(),
+            &ChecksumCapabilities::default(),
+        );
+        ip_bytes
+    };
+
+    let client = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+    let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+
+    // Step 1: Send SYN → expect SYN-ACK (half-open created in SYN queue).
+    device.rx_queue.push_back(emit_ipv6_tcp(&syn, client, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // Listen socket should NOT have any pending connection yet.
+    assert!(!sockets.get::<tcp_listener::Socket>(listen_handle).can_accept());
+
+    // A SYN|ACK should have been sent.
+    let synack_ip = device
+        .tx_queue
+        .pop_front()
+        .expect("expected SYN|ACK packet");
+    let synack_ip = Ipv6Packet::new_unchecked(&synack_ip);
+    let synack_tcp = TcpPacket::new_unchecked(synack_ip.payload());
+    assert!(synack_tcp.syn());
+    assert!(synack_tcp.ack());
+
+    // Step 2: Complete the handshake with ACK.
+    let ack = TcpRepr {
+        src_port: syn.src_port,
+        dst_port: syn.dst_port,
+        control: TcpControl::None,
+        seq_number: synack_tcp.ack_number(),
+        ack_number: Some(synack_tcp.seq_number() + 1),
+        window_len: 256,
+        window_scale: None,
+        max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp(&ack, client, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // Now the listen socket should have a pending connection.
+    assert!(sockets.get::<tcp_listener::Socket>(listen_handle).can_accept());
+
+    // Step 3: Accept and create a full TcpSocket.
+    let pending = sockets
+        .get_mut::<tcp_listener::Socket>(listen_handle)
+        .accept()
+        .expect("expected pending connection");
+    assert_eq!(pending.remote.port, 4242);
+    assert_eq!(pending.local.port, 4243);
+
+    let mut tcp = TcpSocket::new(
+        SocketBuffer::new(vec![0; 1024]),
+        SocketBuffer::new(vec![0; 1024]),
+    );
+    tcp.accept(pending).unwrap();
+    assert_eq!(tcp.state(), TcpState::Established);
+    sockets.add(tcp);
+}
