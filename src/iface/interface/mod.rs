@@ -777,6 +777,8 @@ impl Interface {
                         Packet::new(ip, IpPayload::Tcp(tcp)),
                     )
                 }),
+                #[cfg(feature = "socket-tcp")]
+                Socket::TcpListener(_) => Ok(()),
                 #[cfg(feature = "socket-dhcpv4")]
                 Socket::Dhcpv4(socket) => {
                     socket.dispatch(&mut self.inner, |inner, (ip, udp, dhcp)| {

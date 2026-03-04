@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::socket::tcp::Socket;
+use crate::socket::tcp_listener;
 
 impl InterfaceInner {
     pub(crate) fn process_tcp<'frame>(
@@ -25,6 +26,18 @@ impl InterfaceInner {
         {
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
                 return tcp_socket
+                    .process(self, &ip_repr, &tcp_repr)
+                    .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
+            }
+        }
+
+        // Try TCP listen sockets (SYN cookie based).
+        for listen in sockets
+            .items_mut()
+            .filter_map(|i| tcp_listener::Socket::downcast_mut(&mut i.socket))
+        {
+            if listen.accepts(self, &ip_repr, &tcp_repr) {
+                return listen
                     .process(self, &ip_repr, &tcp_repr)
                     .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
             }
