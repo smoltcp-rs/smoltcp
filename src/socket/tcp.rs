@@ -1979,7 +1979,12 @@ impl<'a> Socket<'a> {
                     // Clear the remote endpoint, or we'll send an RST there.
                     self.set_state(State::Closed);
                     self.tuple = None;
+                } else if ack_len == 0 {
+                    // Duplicate ACK; our FIN has not been acknowledged.
+                    // Per RFC 9293 (3.10.7.4), send a challenge ACK.
+                    return self.challenge_ack_reply(cx, ip_repr, repr);
                 }
+                // Partial ACK: fall through to advance SND.UNA normally.
             }
 
             _ => {
@@ -5305,14 +5310,20 @@ mod test {
         );
         assert_eq!(s.state, State::LastAck);
 
-        // ACK received that doesn't ack the FIN: socket should stay in LastAck.
+        // A duplicate ACK (ack_number == SND.UNA, not the FIN ACK) must elicit a
+        // challenge ACK per RFC 9293 §3.10.7.4 and must keep the state in LAST-ACK.
         send!(
             s,
             TcpRepr {
                 seq_number: REMOTE_SEQ + 1 + 1,
                 ack_number: Some(LOCAL_SEQ + 1),
                 ..SEND_TEMPL
-            }
+            },
+            Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1 + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 1),
+                ..RECV_TEMPL
+            })
         );
         assert_eq!(s.state, State::LastAck);
 
@@ -5326,6 +5337,89 @@ mod test {
             }
         );
         assert_eq!(s.state, State::Closed);
+    }
+
+    // RFC 9293 §3.10.7.4: duplicate ACK in LAST-ACK must elicit a challenge ACK,
+    // not be silently dropped.
+    #[test]
+    fn test_last_ack_duplicate_ack_challenge_ack() {
+        let mut s = socket_last_ack();
+        // Trigger dispatch so our FIN is sent and remote_last_seq advances.
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Fin,
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 1),
+                ..RECV_TEMPL
+            }]
+        );
+        assert_eq!(s.state, State::LastAck);
+
+        // Remote re-sends an ACK for SND.UNA (not the FIN).  RFC 9293 requires a
+        // challenge ACK in response so the remote can learn the current state.
+        let challenge = send(
+            &mut s,
+            Instant::from_millis(0),
+            &TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            },
+        );
+        assert_eq!(
+            challenge,
+            Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1 + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 1),
+                ..RECV_TEMPL
+            }),
+            "expected challenge ACK in response to duplicate ACK in LAST-ACK"
+        );
+        // State must remain LAST-ACK: we have not received the FIN ACK.
+        assert_eq!(s.state, State::LastAck);
+
+        // A second duplicate in the same second is rate-limited; the FIN ACK
+        // must still be correctly accepted regardless.
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 1),
+                ..SEND_TEMPL
+            }
+        );
+        assert_eq!(s.state, State::Closed);
+    }
+
+    // A partial ACK in LAST-ACK (ack_len > 0 but not FIN ACK) advances SND.UNA
+    // without a challenge ACK; the FIN will be retransmitted by the timer.
+    #[test]
+    fn test_last_ack_partial_ack_no_challenge_ack() {
+        // Build a LAST-ACK socket that has one byte of data still unacknowledged
+        // before the FIN.  We manually wire the state so we can send a partial ACK.
+        let mut s = socket_last_ack();
+        // Push one byte into the tx buffer to simulate data that preceded the FIN.
+        let _ = s.tx_buffer.enqueue_slice(b"x");
+        // Mark it as already sent (remote_last_seq is past the data byte and the FIN).
+        s.remote_last_seq = LOCAL_SEQ + 1 + 1 + 1; // data(1) + FIN(1)
+
+        // Remote ACKs just the data byte, not the FIN (partial ACK).
+        // ack_number = local_seq_no + 1  =>  ack_len = 1, ack_of_fin = false.
+        // Per RFC 9293, a valid partial ACK should advance SND.UNA normally;
+        // no challenge ACK should be emitted.
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + 1), // acks the data byte, not FIN
+                ..SEND_TEMPL
+            }
+        );
+        // State remains LAST-ACK; FIN retransmission is handled by the timer.
+        assert_eq!(s.state, State::LastAck);
+        // SND.UNA has advanced to the partial ACK number.
+        assert_eq!(s.local_seq_no, LOCAL_SEQ + 1 + 1);
     }
 
     #[test]
