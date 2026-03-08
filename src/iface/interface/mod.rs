@@ -150,6 +150,8 @@ pub struct InterfaceInner {
     slaac_enabled: bool,
     #[cfg(feature = "proto-ipv6-slaac")]
     slaac: Slaac,
+    #[cfg(feature = "proto-ipv6-slaac")]
+    slaac_updated: Instant,
     routes: Routes,
     #[cfg(feature = "multicast")]
     multicast: multicast::State,
@@ -280,6 +282,8 @@ impl Interface {
                 slaac_enabled: config.slaac,
                 #[cfg(feature = "proto-ipv6-slaac")]
                 slaac: Slaac::new(),
+                #[cfg(feature = "proto-ipv6-slaac")]
+                slaac_updated: Instant::from_millis(0),
                 rand,
             },
         }
