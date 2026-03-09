@@ -8,25 +8,25 @@ enum_with_unknown! {
     pub enum Type(u8) {
         /// Source Route (DEPRECATED)
         ///
-        /// See https://tools.ietf.org/html/rfc5095 for details.
+        /// See <https://tools.ietf.org/html/rfc5095> for details.
         Type0 = 0,
         /// Nimrod (DEPRECATED 2009-05-06)
         Nimrod = 1,
         /// Type 2 Routing Header for Mobile IPv6
         ///
-        /// See https://tools.ietf.org/html/rfc6275#section-6.4 for details.
+        /// See <https://tools.ietf.org/html/rfc6275#section-6.4> for details.
         Type2 = 2,
         /// RPL Source Routing Header
         ///
-        /// See https://tools.ietf.org/html/rfc6554 for details.
+        /// See <https://tools.ietf.org/html/rfc6554> for details.
         Rpl = 3,
         /// RFC3692-style Experiment 1
         ///
-        /// See https://tools.ietf.org/html/rfc4727 for details.
+        /// See <https://tools.ietf.org/html/rfc4727> for details.
         Experiment1 = 253,
         /// RFC3692-style Experiment 2
         ///
-        /// See https://tools.ietf.org/html/rfc4727 for details.
+        /// See <https://tools.ietf.org/html/rfc4727> for details.
         Experiment2 = 254,
         /// Reserved for future use
         Reserved = 252
