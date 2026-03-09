@@ -61,6 +61,18 @@ impl Route {
             expires_at: None,
         }
     }
+
+    /// Returns `true` if the route is a default route for IPv6.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn is_ipv6_gateway(&self) -> bool {
+        self.cidr == IPV6_DEFAULT
+    }
+
+    /// Returns `true` if the route is a default route for IPv4.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn is_ipv4_gateway(&self) -> bool {
+        self.cidr == IPV4_DEFAULT
+    }
 }
 
 /// A routing table.
@@ -121,7 +133,7 @@ impl Routes {
             .storage
             .iter()
             .enumerate()
-            .find(|(_, r)| r.cidr == IPV4_DEFAULT)
+            .find(|(_, r)| r.is_ipv4_gateway())
         {
             Some(self.storage.remove(i))
         } else {
@@ -138,7 +150,7 @@ impl Routes {
             .storage
             .iter()
             .enumerate()
-            .find(|(_, r)| r.cidr == IPV6_DEFAULT)
+            .find(|(_, r)| r.is_ipv6_gateway())
         {
             Some(self.storage.remove(i))
         } else {
