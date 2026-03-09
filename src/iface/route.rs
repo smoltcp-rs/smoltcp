@@ -124,6 +124,18 @@ impl Routes {
         Ok(old)
     }
 
+    /// Returns the ipv4 default route if there is one in the route table.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn get_default_ipv4_route(&self) -> Option<Route> {
+        self.storage.iter().find(|r| r.is_ipv4_gateway()).copied()
+    }
+
+    /// Returns the ipv6 default route if there is one in the route table.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn get_default_ipv6_route(&self) -> Option<Route> {
+        self.storage.iter().find(|r| r.is_ipv6_gateway()).copied()
+    }
+
     /// Remove the default ipv4 gateway
     ///
     /// On success, returns the previous default route, if any.
