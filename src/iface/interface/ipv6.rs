@@ -697,8 +697,14 @@ impl Interface {
                 }
             });
         }
-
+        self.inner.slaac_updated = timestamp;
         self.inner.slaac.update_slaac_state(timestamp);
+    }
+
+    /// Retrieve the timestamp at which the slaac state was last updated.
+    #[cfg(feature = "proto-ipv6-slaac")]
+    pub fn slaac_updated_at(&self) -> Instant {
+        self.inner.slaac_updated
     }
 
     /// Emit a router solicitation when required by the interface's slaac state machine.
