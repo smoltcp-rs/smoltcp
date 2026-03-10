@@ -187,8 +187,8 @@ impl<'p> Packet<'p> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(feature = "proto-ipv4")]
 pub(crate) struct PacketV4<'p> {
-    header: Ipv4Repr,
-    payload: IpPayload<'p>,
+    pub(crate) header: Ipv4Repr,
+    pub(crate) payload: IpPayload<'p>,
 }
 
 #[derive(Debug, PartialEq)]
