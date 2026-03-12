@@ -778,7 +778,15 @@ impl Interface {
                     )
                 }),
                 #[cfg(feature = "socket-tcp")]
-                Socket::TcpListener(_) => Ok(()),
+                Socket::TcpListener(socket) => {
+                    socket.dispatch(&mut self.inner, |inner, (ip, tcp)| {
+                        respond(
+                            inner,
+                            PacketMeta::default(),
+                            Packet::new(ip, IpPayload::Tcp(tcp)),
+                        )
+                    })
+                }
                 #[cfg(feature = "socket-dhcpv4")]
                 Socket::Dhcpv4(socket) => {
                     socket.dispatch(&mut self.inner, |inner, (ip, udp, dhcp)| {
