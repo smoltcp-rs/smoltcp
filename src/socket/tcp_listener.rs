@@ -1,6 +1,6 @@
 use crate::iface::Context;
 use crate::socket::PollAt;
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 use crate::wire::*;
 
 /// Timeout for half-open (SYN_RECEIVED) entries, in milliseconds.
@@ -8,6 +8,7 @@ use crate::wire::*;
 /// Entries older than this are silently evicted when a fresh SYN needs a
 /// slot.
 const SYN_TIMEOUT_MS: i64 = 75_000;
+const SYN_RETRANSMIT_DELAY: Duration = Duration::from_millis(1_000);
 
 /// Lightweight state for a half-open (SYN_RECEIVED) connection.
 ///
@@ -35,6 +36,8 @@ pub struct HalfOpen {
     our_mss: u16,
     /// Creation timestamp (for expiry).
     created_at: Instant,
+    /// When to retransmit the SYN-ACK if the handshake is still incomplete.
+    retransmit_at: Instant,
 }
 
 /// Information about a completed TCP connection, ready to be accepted.
@@ -220,6 +223,17 @@ impl<'a> Socket<'a> {
         None
     }
 
+    fn prune_expired(&mut self, now: Instant) {
+        for slot in self.syn_queue.iter_mut() {
+            if matches!(
+                slot,
+                Some(ho) if now.total_millis() - ho.created_at.total_millis() >= SYN_TIMEOUT_MS
+            ) {
+                *slot = None;
+            }
+        }
+    }
+
     /// Build a SYN-ACK reply from a half-open entry.
     fn make_syn_ack(ho: &HalfOpen) -> (IpRepr, TcpRepr<'static>) {
         let reply = TcpRepr {
@@ -251,17 +265,23 @@ impl<'a> Socket<'a> {
 
     // ── methods called by Interface ──────────────────────────────
 
-    /// Check whether this listen socket should handle the packet.
-    pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &TcpRepr) -> bool {
+    pub(crate) fn ingress_action(
+        &mut self,
+        cx: &mut Context,
+        ip_repr: &IpRepr,
+        repr: &TcpRepr,
+    ) -> IngressAction {
+        self.prune_expired(cx.now());
+
         if !self.is_listening() {
-            return false;
+            return IngressAction::Ignore;
         }
         let addr_ok = match self.listen_endpoint.addr {
             Some(addr) => ip_repr.dst_addr() == addr,
             None => true,
         };
         if !addr_ok || repr.dst_port != self.listen_endpoint.port {
-            return false;
+            return IngressAction::Ignore;
         }
 
         let local = IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port);
@@ -269,31 +289,37 @@ impl<'a> Socket<'a> {
 
         // SYN (new connection attempt)
         if repr.control == TcpControl::Syn && repr.ack_number.is_none() {
-            return self.find_syn(&local, &remote).is_some()
+            return if self.find_syn(&local, &remote).is_some()
                 || self.has_pending(&local, &remote)
-                || self.syn_queue_available(cx.now());
+                || self.syn_queue_available(cx.now())
+            {
+                IngressAction::Handle
+            } else {
+                // Listener exists, but its lightweight backlog is full.
+                IngressAction::Drop
+            };
         }
 
         // Non-RST packet with ACK: might complete a handshake or belong
         // to an already-completed connection.
-        if repr.control != TcpControl::Rst {
-            if repr.ack_number.is_some() {
-                // Already completed? Absorb to suppress an RST.
-                if self.has_pending(&local, &remote) {
-                    return true;
-                }
-                // Matching half-open – claim only if the accept queue has
-                // room.  Otherwise fall through so the caller sends an RST.
-                if self.find_syn(&local, &remote).is_some() {
-                    if self.has_free_accept_slot() {
-                        return true;
-                    }
-                    net_debug!("tcp listen: accept queue full, rejecting");
-                }
+        if repr.control != TcpControl::Rst && repr.ack_number.is_some() {
+            // Already completed? Absorb to suppress an RST.
+            if self.has_pending(&local, &remote) {
+                return IngressAction::Handle;
+            }
+            // Matching half-open – hold the ACK until userspace drains the
+            // accept queue instead of actively rejecting it with an RST.
+            if self.find_syn(&local, &remote).is_some() {
+                return if self.has_free_accept_slot() {
+                    IngressAction::Handle
+                } else {
+                    net_debug!("tcp listen: accept queue full, deferring completion");
+                    IngressAction::Drop
+                };
             }
         }
 
-        false
+        IngressAction::Ignore
     }
 
     /// Process an incoming TCP packet.
@@ -361,6 +387,7 @@ impl<'a> Socket<'a> {
                 remote_has_sack: repr.sack_permitted,
                 our_mss,
                 created_at: now,
+                retransmit_at: now + SYN_RETRANSMIT_DELAY,
             };
             return Some(Self::make_syn_ack(ho));
         }
@@ -389,6 +416,7 @@ impl<'a> Socket<'a> {
             remote_has_sack: repr.sack_permitted,
             our_mss,
             created_at: now,
+            retransmit_at: now + SYN_RETRANSMIT_DELAY,
         });
         Some(Self::make_syn_ack(slot.as_ref().unwrap()))
     }
@@ -446,9 +474,58 @@ impl<'a> Socket<'a> {
         self.waker.wake();
     }
 
-    pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
-        PollAt::Ingress
+    pub(crate) fn dispatch<F, E>(
+        &mut self,
+        cx: &mut Context,
+        emit: F,
+    ) -> core::result::Result<(), E>
+    where
+        F: FnOnce(
+            &mut Context,
+            (IpRepr, TcpRepr<'static>),
+        ) -> core::result::Result<(), E>,
+    {
+        self.prune_expired(cx.now());
+
+        let Some(half_open) = self
+            .syn_queue
+            .iter_mut()
+            .filter_map(|slot| slot.as_mut())
+            .find(|ho| ho.retransmit_at <= cx.now())
+        else {
+            return Ok(());
+        };
+
+        let packet = Self::make_syn_ack(half_open);
+        emit(cx, packet)?;
+        half_open.retransmit_at = cx.now() + SYN_RETRANSMIT_DELAY;
+        Ok(())
     }
+
+    pub(crate) fn poll_at(&self, cx: &mut Context) -> PollAt {
+        let now = cx.now();
+
+        self.syn_queue
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .map(|ho| {
+                let expires_at = ho.created_at + Duration::from_millis(SYN_TIMEOUT_MS as u64);
+                let wake_at = ho.retransmit_at.min(expires_at);
+                if wake_at <= now {
+                    PollAt::Now
+                } else {
+                    PollAt::Time(wake_at)
+                }
+            })
+            .min()
+            .unwrap_or(PollAt::Ingress)
+    }
+}
+
+pub(crate) enum IngressAction {
+    Ignore,
+    Handle,
+    Drop,
 }
 
 impl core::fmt::Debug for Socket<'_> {
