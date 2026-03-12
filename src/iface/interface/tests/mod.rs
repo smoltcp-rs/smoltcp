@@ -36,6 +36,26 @@ fn recv_all(device: &mut crate::tests::TestingDevice, timestamp: Instant) -> Vec
     pkts
 }
 
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
+fn emit_ipv6_tcp_packet(repr: &TcpRepr, src: Ipv6Address, dst: Ipv6Address) -> Vec<u8> {
+    let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+        src_addr: src,
+        dst_addr: dst,
+        next_header: IpProtocol::Tcp,
+        payload_len: repr.buffer_len(),
+        hop_limit: 64,
+    });
+    let mut ip_bytes = vec![0u8; ip_repr.buffer_len()];
+    ip_repr.emit(&mut ip_bytes, &ChecksumCapabilities::default());
+    repr.emit(
+        &mut TcpPacket::new_unchecked(&mut ip_bytes[ip_repr.header_len()..]),
+        &src.into(),
+        &dst.into(),
+        &ChecksumCapabilities::default(),
+    );
+    ip_bytes
+}
+
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct MockTxToken;
@@ -276,30 +296,13 @@ fn tcp_listen_socket_syn_queue_accept() {
         payload: &[],
     };
 
-    let emit_ipv6_tcp = |repr: &TcpRepr, src: Ipv6Address, dst: Ipv6Address| {
-        let ip_repr = IpRepr::Ipv6(Ipv6Repr {
-            src_addr: src,
-            dst_addr: dst,
-            next_header: IpProtocol::Tcp,
-            payload_len: repr.buffer_len(),
-            hop_limit: 64,
-        });
-        let mut ip_bytes = vec![0u8; ip_repr.buffer_len()];
-        ip_repr.emit(&mut ip_bytes, &ChecksumCapabilities::default());
-        repr.emit(
-            &mut TcpPacket::new_unchecked(&mut ip_bytes[ip_repr.header_len()..]),
-            &src.into(),
-            &dst.into(),
-            &ChecksumCapabilities::default(),
-        );
-        ip_bytes
-    };
-
     let client = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
     let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
 
     // Step 1: Send SYN → expect SYN-ACK (half-open created in SYN queue).
-    device.rx_queue.push_back(emit_ipv6_tcp(&syn, client, server));
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&syn, client, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
     // Listen socket should NOT have any pending connection yet.
@@ -332,7 +335,7 @@ fn tcp_listen_socket_syn_queue_accept() {
     };
     device
         .rx_queue
-        .push_back(emit_ipv6_tcp(&ack, client, server));
+        .push_back(emit_ipv6_tcp_packet(&ack, client, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
     // Now the listen socket should have a pending connection.
@@ -353,4 +356,183 @@ fn tcp_listen_socket_syn_queue_accept() {
     tcp.accept(pending).unwrap();
     assert_eq!(tcp.state(), TcpState::Established);
     sockets.add(tcp);
+}
+
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
+fn tcp_listen_socket_retransmits_synack() {
+    use crate::socket::tcp_listener;
+
+    let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
+
+    let mut syn_buf = [None; 1];
+    let mut accept_buf = [None; 1];
+    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    listen.listen(4243).unwrap();
+    sockets.add(listen);
+
+    let client = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+    let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let syn = TcpRepr {
+        src_port: 4242,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(100),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&syn, client, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+    let first = device.tx_queue.pop_front().expect("expected first SYN-ACK");
+
+    iface.poll(Instant::from_millis(1000), &mut device, &mut sockets);
+    let second = device.tx_queue.pop_front().expect("expected retransmitted SYN-ACK");
+
+    let first = Ipv6Packet::new_unchecked(&first);
+    let second = Ipv6Packet::new_unchecked(&second);
+    let first_tcp = TcpPacket::new_unchecked(first.payload());
+    let second_tcp = TcpPacket::new_unchecked(second.payload());
+    assert_eq!(first_tcp.seq_number(), second_tcp.seq_number());
+    assert_eq!(first_tcp.ack_number(), second_tcp.ack_number());
+    assert!(second_tcp.syn());
+    assert!(second_tcp.ack());
+}
+
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
+fn tcp_listen_socket_drops_syn_when_syn_queue_full() {
+    use crate::socket::tcp_listener;
+
+    let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
+
+    let mut syn_buf = [None; 1];
+    let mut accept_buf = [None; 1];
+    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    listen.listen(4243).unwrap();
+    sockets.add(listen);
+
+    let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let syn1 = TcpRepr {
+        src_port: 4242,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(100),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    let syn2 = TcpRepr {
+        src_port: 4343,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(200),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+
+    device.rx_queue.push_back(emit_ipv6_tcp_packet(
+        &syn1,
+        Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
+        server,
+    ));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+    device.tx_queue.clear();
+
+    device.rx_queue.push_back(emit_ipv6_tcp_packet(
+        &syn2,
+        Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 3),
+        server,
+    ));
+    iface.poll(Instant::from_millis(1), &mut device, &mut sockets);
+
+    assert!(device.tx_queue.is_empty(), "queue-full SYN should be dropped, not RSTed");
+}
+
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
+fn tcp_listen_socket_recycles_expired_half_open() {
+    use crate::socket::tcp_listener;
+
+    let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
+
+    let mut syn_buf = [None; 1];
+    let mut accept_buf = [None; 1];
+    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    listen.listen(4243).unwrap();
+    sockets.add(listen);
+
+    let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let syn1 = TcpRepr {
+        src_port: 4242,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(100),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    let syn2 = TcpRepr {
+        src_port: 4343,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(200),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+
+    device.rx_queue.push_back(emit_ipv6_tcp_packet(
+        &syn1,
+        Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2),
+        server,
+    ));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+    device.tx_queue.clear();
+
+    device.rx_queue.push_back(emit_ipv6_tcp_packet(
+        &syn2,
+        Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 3),
+        server,
+    ));
+    iface.poll(Instant::from_millis(75_001), &mut device, &mut sockets);
+
+    let synack = device
+        .tx_queue
+        .pop_front()
+        .expect("expired half-open should free a slot for a new SYN");
+    let synack = Ipv6Packet::new_unchecked(&synack);
+    let synack_tcp = TcpPacket::new_unchecked(synack.payload());
+    assert_eq!(synack_tcp.dst_port(), 4343);
+    assert!(synack_tcp.syn());
+    assert!(synack_tcp.ack());
 }
