@@ -293,6 +293,7 @@ enum Timer {
     },
 }
 
+const SWS_OVERRIDE_DELAY_DEFAULT: Duration = Duration::from_millis(100);
 const ACK_DELAY_DEFAULT: Duration = Duration::from_millis(10);
 const CLOSE_DELAY: Duration = Duration::from_millis(10_000);
 
@@ -342,9 +343,9 @@ impl Timer {
             Timer::Idle {
                 keep_alive_at: None,
             } => PollAt::Ingress,
-            Timer::ZeroWindowProbe { expires_at, .. } => PollAt::Time(expires_at),
             Timer::Retransmit { expires_at, .. } => PollAt::Time(expires_at),
             Timer::FastRetransmit => PollAt::Now,
+            Timer::ZeroWindowProbe { expires_at, .. } => PollAt::Time(expires_at),
             Timer::Close { expires_at } => PollAt::Time(expires_at),
         }
     }
@@ -420,6 +421,29 @@ impl Timer {
 
     fn is_retransmit(&self) -> bool {
         matches!(self, Timer::Retransmit { .. } | Timer::FastRetransmit)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum SWSOverrideTimer {
+    Idle,
+    Waiting(Instant),
+}
+
+impl SWSOverrideTimer {
+    fn is_idle(&self) -> bool {
+        matches!(*self, Self::Idle)
+    }
+
+    fn should_override(&self, timestamp: Instant) -> bool {
+        match *self {
+            Self::Waiting(expires_at) => timestamp >= expires_at,
+            _ => false,
+        }
+    }
+
+    fn set_override(&mut self, timestamp: Instant, delay: Duration) {
+        *self = Self::Waiting(timestamp + delay)
     }
 }
 
@@ -504,6 +528,8 @@ pub struct Socket<'a> {
     remote_win_len: usize,
     /// The receive window scaling factor for remotes which support RFC 1323, None if unsupported.
     remote_win_scale: Option<u8>,
+    /// The maximum remote window size we have seen advertised. Used for SWS avoidance (see RFC 1123)
+    remote_win_max_len: usize,
     /// Whether or not the remote supports selective ACK as described in RFC 2018.
     remote_has_sack: bool,
     /// The maximum number of data octets that the remote side may receive.
@@ -523,6 +549,11 @@ pub struct Socket<'a> {
     /// Delayed ack timer. If set, packets containing exclusively
     /// ACK or window updates (ie, no data) won't be sent until expiry.
     ack_delay_timer: AckDelayTimer,
+
+    /// Duration for SWS avoidance override.
+    sws_override_delay: Duration,
+    /// SWS avoidance override timer.
+    sws_override_timer: SWSOverrideTimer,
 
     /// Used for rate-limiting: No more challenge ACKs will be sent until this instant.
     challenge_ack_timer: Instant,
@@ -591,6 +622,7 @@ impl<'a> Socket<'a> {
             remote_last_win: 0,
             remote_win_len: 0,
             remote_win_shift: rx_cap_log2.saturating_sub(16) as u8,
+            remote_win_max_len: 0,
             remote_win_scale: None,
             remote_has_sack: false,
             remote_mss: DEFAULT_MSS,
@@ -600,6 +632,8 @@ impl<'a> Socket<'a> {
             local_rx_dup_acks: 0,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
+            sws_override_delay: SWS_OVERRIDE_DELAY_DEFAULT,
+            sws_override_timer: SWSOverrideTimer::Idle,
             challenge_ack_timer: Instant::from_secs(0),
             nagle: true,
             tsval_generator: None,
@@ -904,11 +938,13 @@ impl<'a> Socket<'a> {
         self.remote_last_ack = None;
         self.remote_last_win = 0;
         self.remote_win_len = 0;
+        self.remote_win_max_len = 0;
         self.remote_win_scale = None;
         self.remote_win_shift = rx_cap_log2.saturating_sub(16) as u8;
         self.remote_mss = DEFAULT_MSS;
         self.remote_last_ts = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
+        self.sws_override_timer = SWSOverrideTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
         #[cfg(feature = "async")]
@@ -1682,6 +1718,7 @@ impl<'a> Socket<'a> {
         } else {
             window_start
         };
+
         let segment_start = repr.seq_number;
         let segment_end = repr.seq_number + repr.payload.len();
 
@@ -2005,6 +2042,7 @@ impl<'a> Socket<'a> {
         let new_remote_win_len = (repr.window_len as usize) << (scale as usize);
         let is_window_update = new_remote_win_len != self.remote_win_len;
         self.remote_win_len = new_remote_win_len;
+        self.remote_win_max_len = self.remote_win_max_len.max(new_remote_win_len);
 
         self.congestion_controller
             .inner_mut()
@@ -2220,7 +2258,9 @@ impl<'a> Socket<'a> {
         }
     }
 
-    fn seq_to_transmit(&self, cx: &mut Context) -> bool {
+    /// Returns (nagle_blocks, sws_blocks) indicating whether Nagle's algorithm
+    /// and/or sender-side SWS avoidance are preventing transmission.
+    fn send_is_blocked(&self, cx: &mut Context) -> (bool, bool) {
         let ip_header_len = match self.tuple.unwrap().local.addr {
             #[cfg(feature = "proto-ipv4")]
             IpAddress::Ipv4(_) => crate::wire::IPV4_HEADER_LEN,
@@ -2234,6 +2274,64 @@ impl<'a> Socket<'a> {
         // The effective max segment size, taking into account our and remote's limits.
         let effective_mss = local_mss.min(self.remote_mss);
 
+        // Have we sent data that hasn't been ACKed yet?
+        let data_in_flight = self.remote_last_seq != self.local_seq_no;
+
+        // max sequence number we can send.
+        let max_send_seq =
+            self.local_seq_no + core::cmp::min(self.remote_win_len, self.tx_buffer.len());
+
+        // Max amount of octets we can send.
+        let max_send = if max_send_seq >= self.remote_last_seq {
+            max_send_seq - self.remote_last_seq
+        } else {
+            0
+        };
+
+        // Compare max_send with the congestion window.
+        let max_send = max_send.min(self.congestion_controller.inner().window());
+
+        // Can we send at least 1 full segment?
+        let can_send_full = max_send >= effective_mss;
+        // Can we send at least half of the maximum window ever advertised by the receiver?
+        let can_send_half_win = max_send >= usize::min(effective_mss, self.remote_win_max_len / 2);
+        // Can we empty our send buffer with a single segment?
+        let unsent_data = self
+            .tx_buffer
+            .len()
+            .saturating_sub(self.remote_last_seq - self.local_seq_no);
+        let can_empty_buf = unsent_data <= max_send;
+
+        // Do we have to send a FIN?
+        let want_fin = match self.state {
+            State::FinWait1 => true,
+            State::Closing => true,
+            State::LastAck => true,
+            _ => false,
+        };
+
+        // If we're applying the Nagle algorithm we don't want to send more until one of:
+        // * There's no data in flight
+        // * We can send a full packet
+        // * We have all the data we'll ever send (we're closing send)
+        let nagle_blocks =
+            self.nagle && max_send != 0 && data_in_flight && !can_send_full && !want_fin;
+
+        // SWS avoidance only allows us to send if one of the following is true:
+        // * A maximum-sized segment can be sent
+        // * No data is in flight (if Nagles) AND we can empty the send buffer
+        // * No data is in flight (if Nagles) AND we can send half of the receivers largest advertised window
+        let allow_in_flight = !self.nagle || !data_in_flight;
+        let sws_blocks = max_send != 0 // sws_blocks should only be true if it's stopping something from actually being sent
+            && !want_fin
+            && !(can_send_full
+                || allow_in_flight && can_empty_buf
+                || allow_in_flight && can_send_half_win);
+
+        (nagle_blocks, sws_blocks)
+    }
+
+    fn seq_to_transmit(&self, cx: &mut Context) -> bool {
         // Have we sent data that hasn't been ACKed yet?
         let data_in_flight = self.remote_last_seq != self.local_seq_no;
 
@@ -2257,9 +2355,7 @@ impl<'a> Socket<'a> {
         let max_send = max_send.min(self.congestion_controller.inner().window());
 
         // Can we send at least 1 octet?
-        let mut can_send = max_send != 0;
-        // Can we send at least 1 full segment?
-        let can_send_full = max_send >= effective_mss;
+        let can_send = max_send != 0;
 
         // Do we have to send a FIN?
         let want_fin = match self.state {
@@ -2269,14 +2365,9 @@ impl<'a> Socket<'a> {
             _ => false,
         };
 
-        // If we're applying the Nagle algorithm we don't want to send more
-        // until one of:
-        // * There's no data in flight
-        // * We can send a full packet
-        // * We have all the data we'll ever send (we're closing send)
-        if self.nagle && data_in_flight && !can_send_full && !want_fin {
-            can_send = false;
-        }
+        let (nagle_blocks, sws_blocks) = self.send_is_blocked(cx);
+        let sws_blocks = sws_blocks && !self.sws_override_timer.should_override(cx.now());
+        let should_send = !nagle_blocks && !sws_blocks;
 
         // Can we actually send the FIN? We can send it if:
         // 1. We have unsent data that fits in the remote window.
@@ -2284,7 +2375,7 @@ impl<'a> Socket<'a> {
         // This condition matches only if #2, because #1 is already covered by can_data and we're ORing them.
         let can_fin = want_fin && self.remote_last_seq == self.local_seq_no + self.tx_buffer.len();
 
-        can_send || can_fin
+        (can_send && should_send) || can_fin
     }
 
     fn delayed_ack_expired(&self, timestamp: Instant) -> bool {
@@ -2451,6 +2542,18 @@ impl<'a> Socket<'a> {
             self.reset();
             return Ok(());
         } else {
+            if self.sws_override_timer.should_override(cx.now()) {
+                self.sws_override_timer = SWSOverrideTimer::Idle;
+            }
+
+            let (nagles_blocks, sws_blocks) = self.send_is_blocked(cx);
+            if sws_blocks && !nagles_blocks && self.sws_override_timer.is_idle() {
+                // RFC 9293 (3.6.8.2.1) If SWS blocks sending of data, start override timer.
+                tcp_trace!("starting sws override for t+{}", self.sws_override_delay);
+                self.sws_override_timer
+                    .set_override(cx.now(), self.sws_override_delay);
+            }
+
             return Ok(());
         }
 
@@ -2678,6 +2781,16 @@ impl<'a> Socket<'a> {
             self.timer.set_for_retransmit(cx.now(), rto);
         }
 
+        // If we've sent data the SWS override timer isn't needed.
+        self.sws_override_timer = SWSOverrideTimer::Idle;
+        let (nagles_blocks, sws_blocks) = self.send_is_blocked(cx);
+        if sws_blocks && !nagles_blocks {
+            // RFC 9293 (3.6.8.2.1) If SWS blocks sending of data, start override timer.
+            tcp_trace!("starting sws override for t+{}", self.sws_override_delay);
+            self.sws_override_timer
+                .set_override(cx.now(), self.sws_override_delay);
+        }
+
         if self.state == State::Closed {
             // When aborting a connection, forget about it after sending a single RST packet.
             self.tuple = None;
@@ -2725,11 +2838,22 @@ impl<'a> Socket<'a> {
                 (_, _) => PollAt::Ingress,
             };
 
+            // Handle sending data when SWS is enabled
+            let sws_override_poll_at = match self.sws_override_timer {
+                SWSOverrideTimer::Waiting(t) => PollAt::Time(t),
+                _ => PollAt::Ingress,
+            };
+
             // We wait for the earliest of our timers to fire.
-            *[self.timer.poll_at(), timeout_poll_at, delayed_ack_poll_at]
-                .iter()
-                .min()
-                .unwrap_or(&PollAt::Ingress)
+            *[
+                self.timer.poll_at(),
+                timeout_poll_at,
+                delayed_ack_poll_at,
+                sws_override_poll_at,
+            ]
+            .iter()
+            .min()
+            .unwrap_or(&PollAt::Ingress)
         }
     }
 }
@@ -3033,6 +3157,7 @@ mod test {
         s.remote_seq_no = REMOTE_SEQ + 1;
         s.remote_last_seq = LOCAL_SEQ;
         s.remote_win_len = 256;
+        s.remote_win_max_len = 256;
         s
     }
 
@@ -4502,9 +4627,12 @@ mod test {
     fn test_established_send_no_ack_send() {
         let mut s = socket_established();
         s.set_nagle_enabled(false);
+
+        // sws allows this as it empties the buffer
         s.send_slice(b"abcdef").unwrap();
         recv!(
             s,
+            time 0,
             [TcpRepr {
                 seq_number: LOCAL_SEQ + 1,
                 ack_number: Some(REMOTE_SEQ + 1),
@@ -4512,9 +4640,12 @@ mod test {
                 ..RECV_TEMPL
             }]
         );
+
+        // sws allows this because it also empties the buffer (of unsent data)
         s.send_slice(b"foobar").unwrap();
         recv!(
             s,
+            time 0,
             [TcpRepr {
                 seq_number: LOCAL_SEQ + 1 + 6,
                 ack_number: Some(REMOTE_SEQ + 1),
@@ -4533,6 +4664,7 @@ mod test {
 
         let mut s = socket_established();
         s.remote_win_len = 16;
+        s.remote_win_max_len = 16; // To avoid SWS triggering
         s.send_slice(&data[..]).unwrap();
         recv!(
             s,
@@ -6017,6 +6149,7 @@ mod test {
     fn test_established_retransmit_reset_after_ack() {
         let mut s = socket_established();
         s.remote_win_len = 6;
+        s.remote_win_max_len = 6; // To avoid SWS triggering
         s.send_slice(b"abcdef").unwrap();
         s.send_slice(b"123456").unwrap();
         s.send_slice(b"ABCDEF").unwrap();
@@ -6098,6 +6231,7 @@ mod test {
     fn test_close_wait_retransmit_reset_after_ack() {
         let mut s = socket_close_wait();
         s.remote_win_len = 6;
+        s.remote_win_max_len = 6; // To avoid SWS triggering
         s.send_slice(b"abcdef").unwrap();
         s.send_slice(b"123456").unwrap();
         s.send_slice(b"ABCDEF").unwrap();
@@ -7413,6 +7547,7 @@ mod test {
     #[test]
     fn test_zero_window_probe_exit_ack() {
         let mut s = socket_established();
+        s.remote_win_max_len = 6; // To avoid SWS triggering
 
         s.send_slice(b"abcdef123456!@#$%^").unwrap();
         send!(
