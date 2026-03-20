@@ -592,10 +592,11 @@ impl Interface {
             .items()
             .filter_map(|item| {
                 let socket_poll_at = item.socket.poll_at(&mut self.inner);
-                match item
-                    .meta
-                    .poll_at(socket_poll_at, |ip_addr| self.inner.has_neighbor(&ip_addr))
-                {
+                match item.meta.poll_at(
+                    socket_poll_at,
+                    |ip_addr| self.inner.has_neighbor(&ip_addr),
+                    timestamp,
+                ) {
                     PollAt::Ingress => None,
                     PollAt::Time(instant) => Some(instant),
                     PollAt::Now => Some(Instant::from_millis(0)),
