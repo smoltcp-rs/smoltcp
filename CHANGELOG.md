@@ -8,6 +8,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet. Please send PRs!
 
+## [0.13.0] - 2026-03-20
+
+Highlights of this release are IPv6 SLAAC support, TCP improvements (zero window probes, retransmit fixes, RFC compliance), raw socket enhancements, and a bump to Rust Edition 2024.
+
+- Minimum Supported Rust Version (MSRV) bumped to 1.91.
+- Rust Edition bumped to 2024. ([#1084](https://github.com/smoltcp-rs/smoltcp/pull/1084))
+- `heapless` dependency bumped to v0.9. ([#1083](https://github.com/smoltcp-rs/smoltcp/pull/1083))
+- iface
+    - IPv6 SLAAC (Stateless Address Autoconfiguration), gated behind a new `slaac` feature flag. ([#1039](https://github.com/smoltcp-rs/smoltcp/pull/1039))
+    - Add `slaac_updated_at` method to check when SLAAC addresses were last updated. ([#1130](https://github.com/smoltcp-rs/smoltcp/pull/1130))
+    - Add getters for the default IPv4/IPv6 route and `is_ipv4_gateway`/`is_ipv6_gateway` helpers. ([#1129](https://github.com/smoltcp-rs/smoltcp/pull/1129))
+    - Exhaust egress socket state on `poll`, so sockets don't have to wait for the next poll to send queued data. ([#1059](https://github.com/smoltcp-rs/smoltcp/pull/1059))
+    - Remove always-Ok `Result`s in `consume()`. ([#1093](https://github.com/smoltcp-rs/smoltcp/pull/1093))
+    - Honor `any_ip` when checking local address. ([#1119](https://github.com/smoltcp-rs/smoltcp/pull/1119))
+    - Add `iface_max_route_count-0` feature flag to disable the routing table entirely. ([#1057](https://github.com/smoltcp-rs/smoltcp/pull/1057))
+    - Improve IPv4 source address selection for multi-subnet interfaces. ([#1074](https://github.com/smoltcp-rs/smoltcp/pull/1074))
+    - Fix `poll_at` returning stale timestamps due to `silent_until` expiry check. ([#1127](https://github.com/smoltcp-rs/smoltcp/pull/1127))
+    - Fix fragment payload sizes not being a multiple of eight octets. ([#1116](https://github.com/smoltcp-rs/smoltcp/pull/1116))
+    - Fix incorrect packet length after defragmentation. ([#1094](https://github.com/smoltcp-rs/smoltcp/pull/1094))
+    - Fix compilation of IPv6+Multicast without Ethernet. ([#1043](https://github.com/smoltcp-rs/smoltcp/pull/1043))
+    - Log and drop IPv6 packets requiring fragmentation (IPv6 routers must not fragment). ([#1038](https://github.com/smoltcp-rs/smoltcp/pull/1038))
+- tcp
+    - Add zero window probe support. ([#1026](https://github.com/smoltcp-rs/smoltcp/pull/1026))
+    - Close socket if the local IP is no longer assigned to the interface. ([#1113](https://github.com/smoltcp-rs/smoltcp/pull/1113))
+    - Reject bytes outside the receive window. ([#1079](https://github.com/smoltcp-rs/smoltcp/pull/1079))
+    - Don't accept RST packets on listening sockets. ([#1058](https://github.com/smoltcp-rs/smoltcp/pull/1058))
+    - Don't send TCP RST when packet is handled by a raw socket. ([#1069](https://github.com/smoltcp-rs/smoltcp/pull/1069))
+    - Send challenge ACK for duplicate ACK in LAST-ACK state. ([#1126](https://github.com/smoltcp-rs/smoltcp/pull/1126))
+    - Fix retransmit exponential backoff, align to RFC 6298. ([#1023](https://github.com/smoltcp-rs/smoltcp/pull/1023))
+    - Restart retransmit timer on new data ACK. ([#1018](https://github.com/smoltcp-rs/smoltcp/pull/1018))
+    - Fix FIN retransmit in CLOSING state. ([#1026](https://github.com/smoltcp-rs/smoltcp/pull/1026))
+    - Add `pause_synack` feature flag to allow user code to withhold SYN|ACK. ([#1063](https://github.com/smoltcp-rs/smoltcp/pull/1063))
+- socket
+    - ICMP: support binding to a TCP port. ([#1089](https://github.com/smoltcp-rs/smoltcp/pull/1089))
+    - ICMP: add `no-auto-icmp-echo-reply` feature flag to disable automatic echo replies. ([#1106](https://github.com/smoltcp-rs/smoltcp/pull/1106))
+    - Raw: allow receiving all protocols and IP versions (unfiltered mode). ([#1067](https://github.com/smoltcp-rs/smoltcp/pull/1067))
+    - Raw: fix panic when payload buffer exceeds packet size during fragmentation. ([#1077](https://github.com/smoltcp-rs/smoltcp/pull/1077))
+    - DHCPv4: reuse DHCPOFFER transaction ID in DHCPREQUEST. ([#1061](https://github.com/smoltcp-rs/smoltcp/pull/1061))
+    - DHCPv4: fix panic when T1 < T2 < lease duration is not respected by server. ([#1029](https://github.com/smoltcp-rs/smoltcp/pull/1029))
+    - DNS: fix compilation when `socket-dns` is enabled but `socket-udp` isn't. ([#1041](https://github.com/smoltcp-rs/smoltcp/pull/1041))
+    - Implement `AnySocket` for the `Socket` enum. ([#1092](https://github.com/smoltcp-rs/smoltcp/pull/1092))
+- phy
+    - `Tracer`: update public API to allow custom inspection and printing of packets. ([#1076](https://github.com/smoltcp-rs/smoltcp/pull/1076))
+    - `TunTapInterface`: no longer automatically enables `medium-ethernet` feature. ([#1055](https://github.com/smoltcp-rs/smoltcp/pull/1055))
+- wire
+    - Add generic IPv4/IPv6 packet parsing support to `IpRepr`. ([#1087](https://github.com/smoltcp-rs/smoltcp/pull/1087))
+    - Make `Cidr` initialization `const`. ([#1036](https://github.com/smoltcp-rs/smoltcp/pull/1036))
+    - Add conversion from `Endpoint` into `SocketAddr`. ([#1124](https://github.com/smoltcp-rs/smoltcp/pull/1124))
+    - Use newly stable IP methods from `core::net`. ([#1115](https://github.com/smoltcp-rs/smoltcp/pull/1115))
+    - Fix `RawHardwareAddress` panic when parsing to specific link-layer address. ([#1027](https://github.com/smoltcp-rs/smoltcp/pull/1027))
+    - Fix multicast panic when `max_resp_code` is zero. ([#1047](https://github.com/smoltcp-rs/smoltcp/pull/1047))
+    - Fix partial checksum in tcpdump/pcap. ([#1015](https://github.com/smoltcp-rs/smoltcp/pull/1015))
+
 ## [0.12.0] - 2024-11-28
 
 Almost a year in the making, the highlights of the release are the migration to `core::net` IP types, IPv6 multicast, TCP improvements, and many fixes. Smoltcp now connects your gadgets to the Internet better than ever.
@@ -327,7 +380,8 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Use #[non_exhaustive] for enums and structs ([409](https://github.com/smoltcp-rs/smoltcp/pull/409), [411](https://github.com/smoltcp-rs/smoltcp/pull/411))
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
-[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.9.1...v0.10.0
