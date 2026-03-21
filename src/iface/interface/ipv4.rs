@@ -107,6 +107,16 @@ impl InterfaceInner {
             return None;
         }
 
+        // If this is the first fragment, capture the options.
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        if ipv4_packet.frag_offset() == 0 {
+            if let Some(options) = ipv4_packet.options() {
+                frag.options_buffer[..ipv4_packet.options_len()]
+                    .copy_from_slice(&options[..ipv4_packet.options_len()]);
+                frag.options_len = ipv4_packet.options_len()
+            }
+        }
+
         #[cfg(feature = "proto-ipv4-fragmentation")]
         let ip_payload = {
             if ipv4_packet.more_frags() || ipv4_packet.frag_offset() != 0 {
@@ -133,7 +143,9 @@ impl InterfaceInner {
                     return None;
                 }
 
+                // Returns early if assembly is incomplete.
                 let payload = f.assemble()?;
+
                 // Update the payload length, so that the raw sockets get the correct value.
                 ipv4_repr.payload_len = payload.len();
                 payload
@@ -144,6 +156,16 @@ impl InterfaceInner {
 
         #[cfg(not(feature = "proto-ipv4-fragmentation"))]
         let ip_payload = ipv4_packet.payload();
+
+        #[cfg(feature = "proto-ipv4-fragmentation")]
+        // The first fragment will by definition have all options. The length of the options it
+        // contains will be greater than or equal to size of the options in the other fragments.
+        // Therefore, this is guaranteed to overwrite whatever was captured when the repr object
+        // parsed the current packet.
+        if let Err(e) = ipv4_repr.set_options(&frag.options_buffer[..frag.options_len]) {
+            net_debug!("fragmentation assembler options error: {:?}", e);
+            return None;
+        }
 
         let ip_repr = IpRepr::Ipv4(ipv4_repr);
 
