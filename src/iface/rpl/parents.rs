@@ -1,7 +1,7 @@
+use crate::wire::Ipv6Address;
+
 use super::{lollipop::SequenceCounter, rank::Rank};
 use crate::config::RPL_PARENTS_BUFFER_COUNT;
-use crate::data_structure::LinearMap;
-use crate::wire::Ipv6Address;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Parent {
@@ -35,7 +35,7 @@ impl Parent {
 
 #[derive(Debug, Default)]
 pub(crate) struct ParentSet {
-    parents: LinearMap<Ipv6Address, Parent, { RPL_PARENTS_BUFFER_COUNT }>,
+    parents: crate::data_structure::LinearMap<Ipv6Address, Parent, { RPL_PARENTS_BUFFER_COUNT }>,
 }
 
 impl ParentSet {
