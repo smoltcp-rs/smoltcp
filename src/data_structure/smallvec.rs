@@ -1,4 +1,5 @@
 use core::{
+    convert::Infallible,
     iter::FromIterator,
     ops::{Deref, DerefMut},
     slice::{Iter, IterMut},
@@ -18,14 +19,14 @@ impl<T, const N: usize> Vec<T, N> {
 
 impl<T: Clone, const N: usize> Vec<T, N> {
     #[inline(always)]
-    pub fn from_slice(slice: &[T]) -> Result<Self, ()> {
+    pub fn from_slice(slice: &[T]) -> Result<Self, Infallible> {
         let mut v = Self::new();
         v.extend_from_slice(slice)?;
         Ok(v)
     }
 
     #[inline(always)]
-    pub fn extend_from_slice(&mut self, slice: &[T]) -> Result<(), ()> {
+    pub fn extend_from_slice(&mut self, slice: &[T]) -> Result<(), Infallible> {
         self.0.extend_from_slice(slice);
         Ok(())
     }
@@ -49,7 +50,7 @@ impl<T, const N: usize> DerefMut for Vec<T, N> {
 
 impl<T, const N: usize> Vec<T, N> {
     #[inline(always)]
-    pub fn push(&mut self, value: T) -> Result<(), T> {
+    pub fn push(&mut self, value: T) -> Result<(), Infallible> {
         self.0.push(value);
         Ok(())
     }
