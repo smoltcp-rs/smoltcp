@@ -1,7 +1,7 @@
+use crate::config::RPL_RELATIONS_BUFFER_COUNT;
+use crate::data_structure::Vec;
 use crate::time::Instant;
 use crate::wire::Ipv6Address;
-
-use crate::config::RPL_RELATIONS_BUFFER_COUNT;
 
 #[derive(Debug)]
 pub struct Relation {
@@ -12,7 +12,7 @@ pub struct Relation {
 
 #[derive(Default, Debug)]
 pub struct Relations {
-    relations: heapless::Vec<Relation, { RPL_RELATIONS_BUFFER_COUNT }>,
+    relations: Vec<Relation, { RPL_RELATIONS_BUFFER_COUNT }>,
 }
 
 impl Relations {
