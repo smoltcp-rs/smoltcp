@@ -38,6 +38,11 @@ pub struct HalfOpen {
     created_at: Instant,
     /// When to retransmit the SYN-ACK if the handshake is still incomplete.
     retransmit_at: Instant,
+    /// The final ACK of the three-way handshake has been received, but the
+    /// accept queue was full at that moment.  Stop retransmitting SYN-ACK and
+    /// wait for userspace to drain the accept queue; promote without needing
+    /// another client ACK.
+    ack_received: bool,
 }
 
 /// Information about a completed TCP connection, ready to be accepted.
@@ -388,6 +393,7 @@ impl<'a> Socket<'a> {
                 our_mss,
                 created_at: now,
                 retransmit_at: now + SYN_RETRANSMIT_DELAY,
+                ack_received: false,
             };
             return Some(Self::make_syn_ack(ho));
         }
@@ -417,6 +423,7 @@ impl<'a> Socket<'a> {
             our_mss,
             created_at: now,
             retransmit_at: now + SYN_RETRANSMIT_DELAY,
+            ack_received: false,
         });
         Some(Self::make_syn_ack(slot.as_ref().unwrap()))
     }
@@ -450,9 +457,11 @@ impl<'a> Socket<'a> {
         // Promote to accept_queue.
         let Some(accept_slot) = self.accept_queue.iter_mut().find(|s| s.is_none())
         else {
-            // Should not happen – accepts() already checked for space.
-            net_debug!("tcp listen: accept queue unexpectedly full");
-            self.syn_queue[idx] = None;
+            // accept_queue is full right now.  Mark the half-open entry so we
+            // stop retransmitting SYN-ACK (the client already did its part) and
+            // promote it once userspace drains the queue.
+            net_debug!("tcp listen: accept queue full, parking completed handshake");
+            self.syn_queue[idx].as_mut().unwrap().ack_received = true;
             return;
         };
 
@@ -487,11 +496,37 @@ impl<'a> Socket<'a> {
     {
         self.prune_expired(cx.now());
 
+        // Promote any parked entries whose ACK already arrived but the accept
+        // queue was full at the time.
+        for slot in self.syn_queue.iter_mut() {
+            let promote = matches!(slot, Some(ho) if ho.ack_received);
+            if promote {
+                let Some(accept_slot) = self.accept_queue.iter_mut().find(|s| s.is_none())
+                else {
+                    break; // still full
+                };
+                let ho = slot.take().unwrap();
+                let expected_ack = ho.local_seq_no + 1;
+                *accept_slot = Some(PendingConnection {
+                    local: ho.local,
+                    remote: ho.remote,
+                    local_seq_no: expected_ack,
+                    remote_seq_no: ho.remote_seq_no,
+                    remote_mss: ho.remote_mss as usize,
+                    remote_win_scale: ho.remote_win_scale,
+                    remote_win_len: ho.remote_win_len as usize,
+                    remote_has_sack: ho.remote_has_sack,
+                });
+                #[cfg(feature = "async")]
+                self.waker.wake();
+            }
+        }
+
         let Some(half_open) = self
             .syn_queue
             .iter_mut()
             .filter_map(|slot| slot.as_mut())
-            .find(|ho| ho.retransmit_at <= cx.now())
+            .find(|ho| !ho.ack_received && ho.retransmit_at <= cx.now())
         else {
             return Ok(());
         };
