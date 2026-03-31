@@ -306,7 +306,11 @@ fn tcp_listen_socket_syn_queue_accept() {
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
     // Listen socket should NOT have any pending connection yet.
-    assert!(!sockets.get::<tcp_listener::Socket>(listen_handle).can_accept());
+    assert!(
+        !sockets
+            .get::<tcp_listener::Socket>(listen_handle)
+            .can_accept()
+    );
 
     // A SYN|ACK should have been sent.
     let synack_ip = device
@@ -339,7 +343,11 @@ fn tcp_listen_socket_syn_queue_accept() {
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
     // Now the listen socket should have a pending connection.
-    assert!(sockets.get::<tcp_listener::Socket>(listen_handle).can_accept());
+    assert!(
+        sockets
+            .get::<tcp_listener::Socket>(listen_handle)
+            .can_accept()
+    );
 
     // Step 3: Accept and create a full TcpSocket.
     let pending = sockets
@@ -395,7 +403,10 @@ fn tcp_listen_socket_retransmits_synack() {
     let first = device.tx_queue.pop_front().expect("expected first SYN-ACK");
 
     iface.poll(Instant::from_millis(1000), &mut device, &mut sockets);
-    let second = device.tx_queue.pop_front().expect("expected retransmitted SYN-ACK");
+    let second = device
+        .tx_queue
+        .pop_front()
+        .expect("expected retransmitted SYN-ACK");
 
     let first = Ipv6Packet::new_unchecked(&first);
     let second = Ipv6Packet::new_unchecked(&second);
@@ -465,7 +476,10 @@ fn tcp_listen_socket_drops_syn_when_syn_queue_full() {
     ));
     iface.poll(Instant::from_millis(1), &mut device, &mut sockets);
 
-    assert!(device.tx_queue.is_empty(), "queue-full SYN should be dropped, not RSTed");
+    assert!(
+        device.tx_queue.is_empty(),
+        "queue-full SYN should be dropped, not RSTed"
+    );
 }
 
 #[test]

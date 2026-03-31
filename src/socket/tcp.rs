@@ -960,7 +960,10 @@ impl<'a> Socket<'a> {
     /// The socket must be in the [`Closed`](State::Closed) state. After this
     /// call it enters the [`Established`](State::Established) state with the
     /// sequence numbers and options from `conn`.
-    pub fn accept(&mut self, conn: super::tcp_listener::PendingConnection) -> Result<(), ListenError> {
+    pub fn accept(
+        &mut self,
+        conn: super::tcp_listener::PendingConnection,
+    ) -> Result<(), ListenError> {
         if self.state != State::Closed {
             return Err(ListenError::InvalidState);
         }

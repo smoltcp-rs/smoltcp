@@ -186,16 +186,16 @@ impl<'a> Socket<'a> {
 
     /// Find a half-open entry matching the given 4-tuple.
     fn find_syn(&self, local: &IpEndpoint, remote: &IpEndpoint) -> Option<usize> {
-        self.syn_queue.iter().position(|s| {
-            matches!(s, Some(ho) if ho.local == *local && ho.remote == *remote)
-        })
+        self.syn_queue
+            .iter()
+            .position(|s| matches!(s, Some(ho) if ho.local == *local && ho.remote == *remote))
     }
 
     /// Check whether a completed connection with these endpoints exists.
     fn has_pending(&self, local: &IpEndpoint, remote: &IpEndpoint) -> bool {
-        self.accept_queue.iter().any(|entry| {
-            matches!(entry, Some(pc) if pc.local == *local && pc.remote == *remote)
-        })
+        self.accept_queue
+            .iter()
+            .any(|entry| matches!(entry, Some(pc) if pc.local == *local && pc.remote == *remote))
     }
 
     /// Check whether the SYN queue has a free or expired slot.
@@ -377,10 +377,13 @@ impl<'a> Socket<'a> {
                 return None;
             }
             let ip_tmp = IpRepr::new(
-                ip_repr.dst_addr(), ip_repr.src_addr(), IpProtocol::Tcp, 0, 64,
+                ip_repr.dst_addr(),
+                ip_repr.src_addr(),
+                IpProtocol::Tcp,
+                0,
+                64,
             );
-            let our_mss =
-                (cx.ip_mtu() - ip_tmp.header_len() - TCP_HEADER_LEN) as u16;
+            let our_mss = (cx.ip_mtu() - ip_tmp.header_len() - TCP_HEADER_LEN) as u16;
             *ho = HalfOpen {
                 local,
                 remote,
@@ -404,10 +407,13 @@ impl<'a> Socket<'a> {
             return None;
         }
         let ip_tmp = IpRepr::new(
-            ip_repr.dst_addr(), ip_repr.src_addr(), IpProtocol::Tcp, 0, 64,
+            ip_repr.dst_addr(),
+            ip_repr.src_addr(),
+            IpProtocol::Tcp,
+            0,
+            64,
         );
-        let our_mss =
-            (cx.ip_mtu() - ip_tmp.header_len() - TCP_HEADER_LEN) as u16;
+        let our_mss = (cx.ip_mtu() - ip_tmp.header_len() - TCP_HEADER_LEN) as u16;
         let local_seq = TcpSeqNumber(cx.rand().rand_u32() as i32);
 
         let slot = self.alloc_syn_slot(now)?;
@@ -428,11 +434,7 @@ impl<'a> Socket<'a> {
         Some(Self::make_syn_ack(slot.as_ref().unwrap()))
     }
 
-    fn process_ack(
-        &mut self,
-        ip_repr: &IpRepr,
-        repr: &TcpRepr,
-    ) {
+    fn process_ack(&mut self, ip_repr: &IpRepr, repr: &TcpRepr) {
         let local = IpEndpoint::new(ip_repr.dst_addr(), repr.dst_port);
         let remote = IpEndpoint::new(ip_repr.src_addr(), repr.src_port);
 
@@ -455,8 +457,7 @@ impl<'a> Socket<'a> {
         }
 
         // Promote to accept_queue.
-        let Some(accept_slot) = self.accept_queue.iter_mut().find(|s| s.is_none())
-        else {
+        let Some(accept_slot) = self.accept_queue.iter_mut().find(|s| s.is_none()) else {
             // accept_queue is full right now.  Mark the half-open entry so we
             // stop retransmitting SYN-ACK (the client already did its part) and
             // promote it once userspace drains the queue.
@@ -468,8 +469,8 @@ impl<'a> Socket<'a> {
         *accept_slot = Some(PendingConnection {
             local: ho.local,
             remote: ho.remote,
-            local_seq_no: expected_ack,            // next seq we send
-            remote_seq_no: ho.remote_seq_no,       // next seq we expect
+            local_seq_no: expected_ack,      // next seq we send
+            remote_seq_no: ho.remote_seq_no, // next seq we expect
             remote_mss: ho.remote_mss as usize,
             remote_win_scale: ho.remote_win_scale,
             remote_win_len: ho.remote_win_len as usize,
@@ -489,10 +490,7 @@ impl<'a> Socket<'a> {
         emit: F,
     ) -> core::result::Result<(), E>
     where
-        F: FnOnce(
-            &mut Context,
-            (IpRepr, TcpRepr<'static>),
-        ) -> core::result::Result<(), E>,
+        F: FnOnce(&mut Context, (IpRepr, TcpRepr<'static>)) -> core::result::Result<(), E>,
     {
         self.prune_expired(cx.now());
 
@@ -501,8 +499,7 @@ impl<'a> Socket<'a> {
         for slot in self.syn_queue.iter_mut() {
             let promote = matches!(slot, Some(ho) if ho.ack_received);
             if promote {
-                let Some(accept_slot) = self.accept_queue.iter_mut().find(|s| s.is_none())
-                else {
+                let Some(accept_slot) = self.accept_queue.iter_mut().find(|s| s.is_none()) else {
                     break; // still full
                 };
                 let ho = slot.take().unwrap();
