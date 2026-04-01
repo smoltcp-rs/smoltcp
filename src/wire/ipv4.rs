@@ -296,6 +296,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// Return the "evil" flag, as defined in RFC 3514.
     ///
     /// If set, the packet has been sent with malicious intent.
+    #[cfg(feature = "proto-evil")]
     #[inline]
     pub fn evil(&self) -> bool {
         let data = self.buffer.as_ref();
@@ -443,6 +444,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
     }
 
     /// Set the "evil" flag, as defined in RFC 3514.
+    #[cfg(feature = "proto-evil")]
     #[inline]
     pub fn set_evil(&mut self, value: bool) {
         let data = self.buffer.as_mut();
@@ -605,6 +607,7 @@ impl Repr {
         packet.set_total_len(total_len);
         packet.set_ident(0);
         packet.clear_flags();
+        #[cfg(feature = "proto-evil")]
         packet.set_evil(false);
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
@@ -651,6 +654,7 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&T> {
                     write!(f, " ecn={}", self.ecn())?;
                 }
                 write!(f, " tlen={}", self.total_len())?;
+                #[cfg(feature = "proto-evil")]
                 if self.evil() {
                     write!(f, " evil")?;
                 }
@@ -737,7 +741,7 @@ pub(crate) mod test {
     pub(crate) const MOCK_UNSPECIFIED: Address = Address::UNSPECIFIED;
 
     static PACKET_BYTES: [u8; 30] = [
-        0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0xe2, 0x03, 0x1a, 0x01, 0x55, 0x6e, 0x11, 0x12, 0x13,
+        0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x6e, 0x11, 0x12, 0x13,
         0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
     ];
 
@@ -752,13 +756,12 @@ pub(crate) mod test {
         assert_eq!(packet.ecn(), 0);
         assert_eq!(packet.total_len(), 30);
         assert_eq!(packet.ident(), 0x102);
-        assert!(packet.evil());
         assert!(packet.more_frags());
         assert!(packet.dont_frag());
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.hop_limit(), 0x1a);
         assert_eq!(packet.next_header(), Protocol::Icmp);
-        assert_eq!(packet.checksum(), 0x556e);
+        assert_eq!(packet.checksum(), 0xd56e);
         assert_eq!(packet.src_addr(), Address::new(0x11, 0x12, 0x13, 0x14));
         assert_eq!(packet.dst_addr(), Address::new(0x21, 0x22, 0x23, 0x24));
         assert!(packet.verify_checksum());
@@ -776,7 +779,6 @@ pub(crate) mod test {
         packet.set_ecn(0);
         packet.set_total_len(30);
         packet.set_ident(0x102);
-        packet.set_evil(true);
         packet.set_more_frags(true);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0x203 * 8);
@@ -867,6 +869,26 @@ pub(crate) mod test {
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&*packet.into_inner(), &REPR_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    #[cfg(feature = "proto-evil")]
+    fn test_evil_bit() {
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        assert!(!packet.evil());
+        assert!(packet.dont_frag());
+        assert!(packet.more_frags());
+
+        let mut bytes = [0u8; 30];
+        bytes.copy_from_slice(&PACKET_BYTES[..]);
+        let mut packet: Packet<&mut [u8]> = Packet::new_unchecked(&mut bytes[..]);
+        packet.set_evil(true);
+        assert!(packet.evil());
+        assert!(packet.dont_frag());
+        assert!(packet.more_frags());
+
+        packet.clear_flags();
+        assert!(!packet.evil());
     }
 
     #[test]
