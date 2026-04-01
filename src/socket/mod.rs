@@ -24,8 +24,6 @@ pub mod icmp;
 pub mod raw;
 #[cfg(feature = "socket-tcp")]
 pub mod tcp;
-#[cfg(feature = "socket-tcp")]
-pub mod tcp_listener;
 #[cfg(feature = "socket-udp")]
 pub mod udp;
 
@@ -69,7 +67,7 @@ pub enum Socket<'a> {
     #[cfg(feature = "socket-tcp")]
     Tcp(tcp::Socket<'a>),
     #[cfg(feature = "socket-tcp")]
-    TcpListener(tcp_listener::Socket<'a>),
+    TcpListener(tcp::listener::Listener<'a>),
     #[cfg(feature = "socket-dhcpv4")]
     Dhcpv4(dhcpv4::Socket<'a>),
     #[cfg(feature = "socket-dns")]
@@ -166,7 +164,7 @@ from_socket!(udp::Socket<'a>, Udp);
 #[cfg(feature = "socket-tcp")]
 from_socket!(tcp::Socket<'a>, Tcp);
 #[cfg(feature = "socket-tcp")]
-from_socket!(tcp_listener::Socket<'a>, TcpListener);
+from_socket!(tcp::listener::Listener<'a>, TcpListener);
 #[cfg(feature = "socket-dhcpv4")]
 from_socket!(dhcpv4::Socket<'a>, Dhcpv4);
 #[cfg(feature = "socket-dns")]

@@ -270,14 +270,13 @@ pub fn tcp_not_accepted() {
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_syn_queue_accept() {
     use crate::socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState};
-    use crate::socket::tcp_listener;
+    use crate::socket::tcp::listener as tcp_listener;
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
 
     // Create a TcpListenSocket with room for 2 pending connections.
-    let mut syn_buf = [None; 4];
-    let mut accept_buf = [None, None];
-    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    let mut backlog = [None; 6];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
     listen.listen(4243).unwrap();
     let listen_handle = sockets.add(listen);
 
@@ -308,7 +307,7 @@ fn tcp_listen_socket_syn_queue_accept() {
     // Listen socket should NOT have any pending connection yet.
     assert!(
         !sockets
-            .get::<tcp_listener::Socket>(listen_handle)
+            .get::<tcp_listener::Listener>(listen_handle)
             .can_accept()
     );
 
@@ -345,13 +344,13 @@ fn tcp_listen_socket_syn_queue_accept() {
     // Now the listen socket should have a pending connection.
     assert!(
         sockets
-            .get::<tcp_listener::Socket>(listen_handle)
+            .get::<tcp_listener::Listener>(listen_handle)
             .can_accept()
     );
 
     // Step 3: Accept and create a full TcpSocket.
     let pending = sockets
-        .get_mut::<tcp_listener::Socket>(listen_handle)
+        .get_mut::<tcp_listener::Listener>(listen_handle)
         .accept()
         .expect("expected pending connection");
     assert_eq!(pending.remote.port, 4242);
@@ -369,13 +368,12 @@ fn tcp_listen_socket_syn_queue_accept() {
 #[test]
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_retransmits_synack() {
-    use crate::socket::tcp_listener;
+    use crate::socket::tcp::listener as tcp_listener;
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
 
-    let mut syn_buf = [None; 1];
-    let mut accept_buf = [None; 1];
-    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    let mut backlog = [None; 2];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
     listen.listen(4243).unwrap();
     sockets.add(listen);
 
@@ -421,13 +419,12 @@ fn tcp_listen_socket_retransmits_synack() {
 #[test]
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_drops_syn_when_syn_queue_full() {
-    use crate::socket::tcp_listener;
+    use crate::socket::tcp::listener as tcp_listener;
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
 
-    let mut syn_buf = [None; 1];
-    let mut accept_buf = [None; 1];
-    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    let mut backlog = [None; 1];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
     listen.listen(4243).unwrap();
     sockets.add(listen);
 
@@ -485,13 +482,12 @@ fn tcp_listen_socket_drops_syn_when_syn_queue_full() {
 #[test]
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_recycles_expired_half_open() {
-    use crate::socket::tcp_listener;
+    use crate::socket::tcp::listener as tcp_listener;
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
 
-    let mut syn_buf = [None; 1];
-    let mut accept_buf = [None; 1];
-    let mut listen = tcp_listener::Socket::new(&mut syn_buf, &mut accept_buf);
+    let mut backlog = [None; 1];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
     listen.listen(4243).unwrap();
     sockets.add(listen);
 
@@ -549,4 +545,231 @@ fn tcp_listen_socket_recycles_expired_half_open() {
     assert_eq!(synack_tcp.dst_port(), 4343);
     assert!(synack_tcp.syn());
     assert!(synack_tcp.ack());
+}
+
+// ── unit tests that exercise tcp_listener::Listener directly ──────────────────
+
+#[test]
+fn tcp_listen_socket_listen_errors() {
+    use crate::socket::tcp::listener as tcp_listener;
+
+    let mut backlog = [None; 4];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
+
+    // port 0 → Unaddressable
+    assert_eq!(
+        listen.listen(0u16),
+        Err(crate::socket::tcp::ListenError::Unaddressable)
+    );
+    assert!(!listen.is_listening());
+
+    // first real listen succeeds
+    listen.listen(4243u16).unwrap();
+    assert!(listen.is_listening());
+    assert_eq!(listen.listen_endpoint().port, 4243);
+
+    // same endpoint again → idempotent Ok
+    listen.listen(4243u16).unwrap();
+
+    // different port while already listening → InvalidState
+    assert_eq!(
+        listen.listen(4244u16),
+        Err(crate::socket::tcp::ListenError::InvalidState)
+    );
+}
+
+#[test]
+fn tcp_listen_socket_accept_and_can_accept_empty() {
+    use crate::socket::tcp::listener as tcp_listener;
+
+    let mut backlog = [None; 4];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
+
+    assert!(!listen.can_accept());
+    assert!(listen.accept().is_none());
+}
+
+#[test]
+fn tcp_listen_socket_debug_impl() {
+    use crate::socket::tcp::listener as tcp_listener;
+
+    let mut backlog = [None; 4];
+    let listen = tcp_listener::Listener::new(&mut backlog[..]);
+    let s = format!("{:?}", listen);
+    assert!(s.contains("tcp::Listener"));
+    assert!(s.contains("half_open_count"));
+    assert!(s.contains("completed_count"));
+}
+
+#[test]
+fn tcp_listen_socket_bad_ack_ignored() {
+    use crate::socket::tcp::listener as tcp_listener;
+
+    let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
+
+    let mut backlog = [None; 4];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
+    listen.listen(4243).unwrap();
+    let listen_handle = sockets.add(listen);
+
+    let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let client = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+
+    // Send SYN → get SYN-ACK
+    let syn = TcpRepr {
+        src_port: 4242,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(100),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&syn, client, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+    let synack_raw = device.tx_queue.pop_front().unwrap();
+    let synack_pkt = Ipv6Packet::new_unchecked(&synack_raw);
+    let synack_tcp = TcpPacket::new_unchecked(synack_pkt.payload());
+    let our_isn = synack_tcp.seq_number();
+
+    // Send ACK with wrong ack_number (should be our_isn+1)
+    let bad_ack = TcpRepr {
+        src_port: 4242,
+        dst_port: 4243,
+        control: TcpControl::None,
+        seq_number: TcpSeqNumber(101),
+        ack_number: Some(TcpSeqNumber(our_isn.0.wrapping_add(999))), // wrong
+        window_len: 256,
+        window_scale: None,
+        max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&bad_ack, client, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // accept queue must still be empty
+    assert!(!sockets
+        .get_mut::<tcp_listener::Listener>(listen_handle)
+        .can_accept());
+}
+
+#[test]
+fn tcp_listen_socket_two_connections_shared_backlog() {
+    use crate::socket::tcp::listener as tcp_listener;
+
+    let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
+
+    // A unified backlog of 3 slots can hold two half-open + one completed at
+    // the same time, or two completed + one free slot, etc.
+    let mut backlog = [None; 3];
+    let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
+    listen.listen(4243).unwrap();
+    let listen_handle = sockets.add(listen);
+
+    let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+    let client1 = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+    let client2 = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 3);
+
+    let make_syn = |src_port: u16, seq: i32| TcpRepr {
+        src_port,
+        dst_port: 4243,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(seq),
+        ack_number: None,
+        window_len: 256,
+        window_scale: Some(7),
+        max_seg_size: Some(1460),
+        sack_permitted: true,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+
+    // ── client1: full handshake ─────────────────────────────────────────────
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&make_syn(4242, 100), client1, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+    let sa1_raw = device.tx_queue.pop_front().unwrap();
+    let sa1_tcp = TcpPacket::new_unchecked(
+        Ipv6Packet::new_unchecked(&sa1_raw).payload(),
+    );
+    let isn1 = sa1_tcp.seq_number();
+
+    let ack1 = TcpRepr {
+        src_port: 4242,
+        dst_port: 4243,
+        control: TcpControl::None,
+        seq_number: TcpSeqNumber(101),
+        ack_number: Some(TcpSeqNumber(isn1.0.wrapping_add(1))),
+        window_len: 256,
+        window_scale: None,
+        max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&ack1, client1, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+    assert!(sockets
+        .get_mut::<tcp_listener::Listener>(listen_handle)
+        .can_accept());
+
+    // ── client2: full handshake (while client1 is still in backlog) ─────────
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&make_syn(4343, 200), client2, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+    let sa2_raw = device.tx_queue.pop_front().unwrap();
+    let sa2_tcp = TcpPacket::new_unchecked(
+        Ipv6Packet::new_unchecked(&sa2_raw).payload(),
+    );
+    let isn2 = sa2_tcp.seq_number();
+
+    let ack2 = TcpRepr {
+        src_port: 4343,
+        dst_port: 4243,
+        control: TcpControl::None,
+        seq_number: TcpSeqNumber(201),
+        ack_number: Some(TcpSeqNumber(isn2.0.wrapping_add(1))),
+        window_len: 256,
+        window_scale: None,
+        max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    device
+        .rx_queue
+        .push_back(emit_ipv6_tcp_packet(&ack2, client2, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // Both connections should now be completed in the backlog.
+    let pending1 = sockets
+        .get_mut::<tcp_listener::Listener>(listen_handle)
+        .accept()
+        .unwrap();
+    assert_eq!(pending1.remote.port, 4242);
+
+    let pending2 = sockets
+        .get_mut::<tcp_listener::Listener>(listen_handle)
+        .accept()
+        .unwrap();
+    assert_eq!(pending2.remote.port, 4343);
 }

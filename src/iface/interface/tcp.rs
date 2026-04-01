@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::socket::tcp::Socket;
-use crate::socket::tcp_listener::{self, IngressAction};
+use crate::socket::tcp::listener::{self as tcp_listener, IngressAction};
 
 impl InterfaceInner {
     pub(crate) fn process_tcp<'frame>(
@@ -34,7 +34,7 @@ impl InterfaceInner {
         // Try TCP listen sockets.
         for listen in sockets
             .items_mut()
-            .filter_map(|i| tcp_listener::Socket::downcast_mut(&mut i.socket))
+            .filter_map(|i| tcp_listener::Listener::downcast_mut(&mut i.socket))
         {
             match listen.ingress_action(self, &ip_repr, &tcp_repr) {
                 IngressAction::Handle => {

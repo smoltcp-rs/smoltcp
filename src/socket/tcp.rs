@@ -18,6 +18,7 @@ use crate::wire::{
 };
 
 mod congestion;
+pub mod listener;
 
 macro_rules! tcp_trace {
     ($($arg:expr),*) => (net_log!(trace, $($arg),*));
@@ -962,7 +963,7 @@ impl<'a> Socket<'a> {
     /// sequence numbers and options from `conn`.
     pub fn accept(
         &mut self,
-        conn: super::tcp_listener::PendingConnection,
+        conn: self::listener::PendingConnection,
     ) -> Result<(), ListenError> {
         if self.state != State::Closed {
             return Err(ListenError::InvalidState);
