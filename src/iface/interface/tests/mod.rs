@@ -269,8 +269,8 @@ pub fn tcp_not_accepted() {
 #[test]
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_syn_queue_accept() {
-    use crate::socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState};
     use crate::socket::tcp::listener as tcp_listener;
+    use crate::socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState};
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
 
@@ -660,9 +660,11 @@ fn tcp_listen_socket_bad_ack_ignored() {
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
     // accept queue must still be empty
-    assert!(!sockets
-        .get_mut::<tcp_listener::Listener>(listen_handle)
-        .can_accept());
+    assert!(
+        !sockets
+            .get_mut::<tcp_listener::Listener>(listen_handle)
+            .can_accept()
+    );
 }
 
 #[test]
@@ -703,9 +705,7 @@ fn tcp_listen_socket_two_connections_shared_backlog() {
         .push_back(emit_ipv6_tcp_packet(&make_syn(4242, 100), client1, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
     let sa1_raw = device.tx_queue.pop_front().unwrap();
-    let sa1_tcp = TcpPacket::new_unchecked(
-        Ipv6Packet::new_unchecked(&sa1_raw).payload(),
-    );
+    let sa1_tcp = TcpPacket::new_unchecked(Ipv6Packet::new_unchecked(&sa1_raw).payload());
     let isn1 = sa1_tcp.seq_number();
 
     let ack1 = TcpRepr {
@@ -726,9 +726,11 @@ fn tcp_listen_socket_two_connections_shared_backlog() {
         .rx_queue
         .push_back(emit_ipv6_tcp_packet(&ack1, client1, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
-    assert!(sockets
-        .get_mut::<tcp_listener::Listener>(listen_handle)
-        .can_accept());
+    assert!(
+        sockets
+            .get_mut::<tcp_listener::Listener>(listen_handle)
+            .can_accept()
+    );
 
     // ── client2: full handshake (while client1 is still in backlog) ─────────
     device
@@ -736,9 +738,7 @@ fn tcp_listen_socket_two_connections_shared_backlog() {
         .push_back(emit_ipv6_tcp_packet(&make_syn(4343, 200), client2, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
     let sa2_raw = device.tx_queue.pop_front().unwrap();
-    let sa2_tcp = TcpPacket::new_unchecked(
-        Ipv6Packet::new_unchecked(&sa2_raw).payload(),
-    );
+    let sa2_tcp = TcpPacket::new_unchecked(Ipv6Packet::new_unchecked(&sa2_raw).payload());
     let isn2 = sa2_tcp.seq_number();
 
     let ack2 = TcpRepr {

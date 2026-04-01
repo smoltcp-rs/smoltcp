@@ -1,9 +1,9 @@
+use super::ListenError;
 use crate::iface::Context;
 use crate::socket::PollAt;
 use crate::time::{Duration, Instant};
 use crate::wire::*;
 use managed::ManagedSlice;
-use super::ListenError;
 
 /// Timeout for half-open (SYN_RECEIVED) entries, in milliseconds.
 ///
@@ -384,10 +384,9 @@ impl<'a> Listener<'a> {
                 remote_seq_no: ref rsn,
                 ..
             }) = self.backlog[idx]
+                && repr.seq_number + 1 == *rsn
             {
-                if repr.seq_number + 1 == *rsn {
-                    return Some(Self::make_syn_ack(self.backlog[idx].as_ref().unwrap()));
-                }
+                return Some(Self::make_syn_ack(self.backlog[idx].as_ref().unwrap()));
             }
             // Different ISN → fresh connection on same 4-tuple.
             let remote_mss = repr.max_seg_size.unwrap_or(536);
@@ -463,19 +462,32 @@ impl<'a> Listener<'a> {
             return;
         };
 
-        let (local_seq_no, remote_seq_no, remote_mss, remote_win_scale, remote_win_len, remote_has_sack) =
-            match self.backlog[idx] {
-                Some(BacklogEntry::HalfOpen {
-                    local_seq_no,
-                    remote_seq_no,
-                    remote_mss,
-                    remote_win_scale,
-                    remote_win_len,
-                    remote_has_sack,
-                    ..
-                }) => (local_seq_no, remote_seq_no, remote_mss, remote_win_scale, remote_win_len, remote_has_sack),
-                _ => return,
-            };
+        let (
+            local_seq_no,
+            remote_seq_no,
+            remote_mss,
+            remote_win_scale,
+            remote_win_len,
+            remote_has_sack,
+        ) = match self.backlog[idx] {
+            Some(BacklogEntry::HalfOpen {
+                local_seq_no,
+                remote_seq_no,
+                remote_mss,
+                remote_win_scale,
+                remote_win_len,
+                remote_has_sack,
+                ..
+            }) => (
+                local_seq_no,
+                remote_seq_no,
+                remote_mss,
+                remote_win_scale,
+                remote_win_len,
+                remote_has_sack,
+            ),
+            _ => return,
+        };
 
         let expected_ack = local_seq_no + 1;
         if repr.ack_number != Some(expected_ack) || repr.seq_number != remote_seq_no {
@@ -528,11 +540,7 @@ impl<'a> Listener<'a> {
 
         let packet = Self::make_syn_ack(entry);
         emit(cx, packet)?;
-        if let BacklogEntry::HalfOpen {
-            retransmit_at,
-            ..
-        } = entry
-        {
+        if let BacklogEntry::HalfOpen { retransmit_at, .. } = entry {
             *retransmit_at = cx.now() + SYN_RETRANSMIT_DELAY;
         }
         Ok(())
@@ -549,8 +557,7 @@ impl<'a> Listener<'a> {
                     retransmit_at,
                     ..
                 }) => {
-                    let expires_at =
-                        *created_at + Duration::from_millis(SYN_TIMEOUT_MS as u64);
+                    let expires_at = *created_at + Duration::from_millis(SYN_TIMEOUT_MS as u64);
                     let wake_at = (*retransmit_at).min(expires_at);
                     if wake_at <= now {
                         Some(PollAt::Now)
