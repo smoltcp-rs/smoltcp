@@ -1,6 +1,7 @@
 use super::*;
 
 use crate::socket::tcp::Socket;
+use crate::socket::tcp::listener::{self as tcp_listener, IngressAction};
 
 impl InterfaceInner {
     pub(crate) fn process_tcp<'frame>(
@@ -27,6 +28,22 @@ impl InterfaceInner {
                 return tcp_socket
                     .process(self, &ip_repr, &tcp_repr)
                     .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
+            }
+        }
+
+        // Try TCP listen sockets.
+        for listen in sockets
+            .items_mut()
+            .filter_map(|i| tcp_listener::Listener::downcast_mut(&mut i.socket))
+        {
+            match listen.ingress_action(self, &ip_repr, &tcp_repr) {
+                IngressAction::Handle => {
+                    return listen
+                        .process(self, &ip_repr, &tcp_repr)
+                        .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
+                }
+                IngressAction::Drop => return None,
+                IngressAction::Ignore => {}
             }
         }
 
