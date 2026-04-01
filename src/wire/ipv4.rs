@@ -293,6 +293,16 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u16(&data[field::IDENT])
     }
 
+    /// Return the "evil" flag, as defined in RFC 3514.
+    ///
+    /// If set, the packet has been sent with malicious intent.
+    #[cfg(feature = "proto-evil")]
+    #[inline]
+    pub fn evil(&self) -> bool {
+        let data = self.buffer.as_ref();
+        NetworkEndian::read_u16(&data[field::FLG_OFF]) & 0x8000 != 0
+    }
+
     /// Return the "don't fragment" flag.
     #[inline]
     pub fn dont_frag(&self) -> bool {
@@ -430,6 +440,16 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
         let raw = raw & !0xe000;
+        NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
+    }
+
+    /// Set the "evil" flag, as defined in RFC 3514.
+    #[cfg(feature = "proto-evil")]
+    #[inline]
+    pub fn set_evil(&mut self, value: bool) {
+        let data = self.buffer.as_mut();
+        let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
+        let raw = if value { raw | 0x8000 } else { raw & !0x8000 };
         NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
     }
 
@@ -587,6 +607,8 @@ impl Repr {
         packet.set_total_len(total_len);
         packet.set_ident(0);
         packet.clear_flags();
+        #[cfg(feature = "proto-evil")]
+        packet.set_evil(false);
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);
@@ -632,6 +654,10 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&T> {
                     write!(f, " ecn={}", self.ecn())?;
                 }
                 write!(f, " tlen={}", self.total_len())?;
+                #[cfg(feature = "proto-evil")]
+                if self.evil() {
+                    write!(f, " evil")?;
+                }
                 if self.dont_frag() {
                     write!(f, " df")?;
                 }
@@ -843,6 +869,26 @@ pub(crate) mod test {
         repr.emit(&mut packet, &ChecksumCapabilities::default());
         packet.payload_mut().copy_from_slice(&REPR_PAYLOAD_BYTES);
         assert_eq!(&*packet.into_inner(), &REPR_PACKET_BYTES[..]);
+    }
+
+    #[test]
+    #[cfg(feature = "proto-evil")]
+    fn test_evil_bit() {
+        let packet = Packet::new_unchecked(&PACKET_BYTES[..]);
+        assert!(!packet.evil());
+        assert!(packet.dont_frag());
+        assert!(packet.more_frags());
+
+        let mut bytes = [0u8; 30];
+        bytes.copy_from_slice(&PACKET_BYTES[..]);
+        let mut packet: Packet<&mut [u8]> = Packet::new_unchecked(&mut bytes[..]);
+        packet.set_evil(true);
+        assert!(packet.evil());
+        assert!(packet.dont_frag());
+        assert!(packet.more_frags());
+
+        packet.clear_flags();
+        assert!(!packet.evil());
     }
 
     #[test]
