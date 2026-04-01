@@ -550,6 +550,7 @@ fn tcp_listen_socket_recycles_expired_half_open() {
 // ── unit tests that exercise tcp_listener::Listener directly ──────────────────
 
 #[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_listen_errors() {
     use crate::socket::tcp::listener as tcp_listener;
 
@@ -579,6 +580,7 @@ fn tcp_listen_socket_listen_errors() {
 }
 
 #[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_accept_and_can_accept_empty() {
     use crate::socket::tcp::listener as tcp_listener;
 
@@ -590,6 +592,7 @@ fn tcp_listen_socket_accept_and_can_accept_empty() {
 }
 
 #[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_debug_impl() {
     use crate::socket::tcp::listener as tcp_listener;
 
@@ -602,6 +605,7 @@ fn tcp_listen_socket_debug_impl() {
 }
 
 #[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_bad_ack_ignored() {
     use crate::socket::tcp::listener as tcp_listener;
 
@@ -668,6 +672,7 @@ fn tcp_listen_socket_bad_ack_ignored() {
 }
 
 #[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_two_connections_shared_backlog() {
     use crate::socket::tcp::listener as tcp_listener;
 
