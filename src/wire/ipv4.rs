@@ -293,6 +293,15 @@ impl<T: AsRef<[u8]>> Packet<T> {
         NetworkEndian::read_u16(&data[field::IDENT])
     }
 
+    /// Return the "evil" flag, as defined in RFC 3514.
+    ///
+    /// If set, the packet has been sent with malicious intent.
+    #[inline]
+    pub fn evil(&self) -> bool {
+        let data = self.buffer.as_ref();
+        NetworkEndian::read_u16(&data[field::FLG_OFF]) & 0x8000 != 0
+    }
+
     /// Return the "don't fragment" flag.
     #[inline]
     pub fn dont_frag(&self) -> bool {
@@ -430,6 +439,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
         let data = self.buffer.as_mut();
         let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
         let raw = raw & !0xe000;
+        NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
+    }
+
+    /// Set the "evil" flag, as defined in RFC 3514.
+    #[inline]
+    pub fn set_evil(&mut self, value: bool) {
+        let data = self.buffer.as_mut();
+        let raw = NetworkEndian::read_u16(&data[field::FLG_OFF]);
+        let raw = if value { raw | 0x8000 } else { raw & !0x8000 };
         NetworkEndian::write_u16(&mut data[field::FLG_OFF], raw);
     }
 
@@ -587,6 +605,7 @@ impl Repr {
         packet.set_total_len(total_len);
         packet.set_ident(0);
         packet.clear_flags();
+        packet.set_evil(false);
         packet.set_more_frags(false);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0);
@@ -632,6 +651,9 @@ impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&T> {
                     write!(f, " ecn={}", self.ecn())?;
                 }
                 write!(f, " tlen={}", self.total_len())?;
+                if self.evil() {
+                    write!(f, " evil")?;
+                }
                 if self.dont_frag() {
                     write!(f, " df")?;
                 }
@@ -715,7 +737,7 @@ pub(crate) mod test {
     pub(crate) const MOCK_UNSPECIFIED: Address = Address::UNSPECIFIED;
 
     static PACKET_BYTES: [u8; 30] = [
-        0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0x62, 0x03, 0x1a, 0x01, 0xd5, 0x6e, 0x11, 0x12, 0x13,
+        0x45, 0x00, 0x00, 0x1e, 0x01, 0x02, 0xe2, 0x03, 0x1a, 0x01, 0x55, 0x6e, 0x11, 0x12, 0x13,
         0x14, 0x21, 0x22, 0x23, 0x24, 0xaa, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
     ];
 
@@ -730,12 +752,13 @@ pub(crate) mod test {
         assert_eq!(packet.ecn(), 0);
         assert_eq!(packet.total_len(), 30);
         assert_eq!(packet.ident(), 0x102);
+        assert!(packet.evil());
         assert!(packet.more_frags());
         assert!(packet.dont_frag());
         assert_eq!(packet.frag_offset(), 0x203 * 8);
         assert_eq!(packet.hop_limit(), 0x1a);
         assert_eq!(packet.next_header(), Protocol::Icmp);
-        assert_eq!(packet.checksum(), 0xd56e);
+        assert_eq!(packet.checksum(), 0x556e);
         assert_eq!(packet.src_addr(), Address::new(0x11, 0x12, 0x13, 0x14));
         assert_eq!(packet.dst_addr(), Address::new(0x21, 0x22, 0x23, 0x24));
         assert!(packet.verify_checksum());
@@ -753,6 +776,7 @@ pub(crate) mod test {
         packet.set_ecn(0);
         packet.set_total_len(30);
         packet.set_ident(0x102);
+        packet.set_evil(true);
         packet.set_more_frags(true);
         packet.set_dont_frag(true);
         packet.set_frag_offset(0x203 * 8);
