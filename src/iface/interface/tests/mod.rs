@@ -298,20 +298,38 @@ fn tcp_listen_socket_syn_queue_accept() {
     let client = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
     let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
 
-    // Step 1: Send SYN → expect SYN-ACK (half-open created in SYN queue).
+    // Step 1: Send SYN → expect it to be queued, without sending SYN-ACK yet.
     device
         .rx_queue
         .push_back(emit_ipv6_tcp_packet(&syn, client, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
-    // Listen socket should NOT have any pending connection yet.
+    // The listen socket should now have a queued connection attempt.
     assert!(
-        !sockets
+        sockets
             .get::<tcp_listener::Listener>(listen_handle)
             .can_accept()
     );
+    assert!(device.tx_queue.is_empty());
 
-    // A SYN|ACK should have been sent.
+    // Step 2: Accept and create a full TcpSocket in SYN-RECEIVED.
+    let pending = sockets
+        .get_mut::<tcp_listener::Listener>(listen_handle)
+        .accept()
+        .expect("expected pending connection");
+    assert_eq!(pending.remote.port, 4242);
+    assert_eq!(pending.local.port, 4243);
+
+    let mut tcp = TcpSocket::new(
+        SocketBuffer::new(vec![0; 1024]),
+        SocketBuffer::new(vec![0; 1024]),
+    );
+    tcp.accept(pending).unwrap();
+    assert_eq!(tcp.state(), TcpState::SynReceived);
+    let tcp_handle = sockets.add(tcp);
+
+    // Step 3: Poll again so the accepted TcpSocket sends SYN|ACK.
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
     let synack_ip = device
         .tx_queue
         .pop_front()
@@ -321,7 +339,7 @@ fn tcp_listen_socket_syn_queue_accept() {
     assert!(synack_tcp.syn());
     assert!(synack_tcp.ack());
 
-    // Step 2: Complete the handshake with ACK.
+    // Step 4: Complete the handshake with ACK.
     let ack = TcpRepr {
         src_port: syn.src_port,
         dst_port: syn.dst_port,
@@ -341,41 +359,22 @@ fn tcp_listen_socket_syn_queue_accept() {
         .push_back(emit_ipv6_tcp_packet(&ack, client, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
-    // Now the listen socket should have a pending connection.
-    assert!(
-        sockets
-            .get::<tcp_listener::Listener>(listen_handle)
-            .can_accept()
-    );
-
-    // Step 3: Accept and create a full TcpSocket.
-    let pending = sockets
-        .get_mut::<tcp_listener::Listener>(listen_handle)
-        .accept()
-        .expect("expected pending connection");
-    assert_eq!(pending.remote.port, 4242);
-    assert_eq!(pending.local.port, 4243);
-
-    let mut tcp = TcpSocket::new(
-        SocketBuffer::new(vec![0; 1024]),
-        SocketBuffer::new(vec![0; 1024]),
-    );
-    tcp.accept(pending).unwrap();
-    assert_eq!(tcp.state(), TcpState::Established);
-    sockets.add(tcp);
+    let accepted_tcp = sockets.get::<TcpSocket>(tcp_handle);
+    assert_eq!(accepted_tcp.state(), TcpState::Established);
 }
 
 #[test]
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
 fn tcp_listen_socket_retransmits_synack() {
     use crate::socket::tcp::listener as tcp_listener;
+    use crate::socket::tcp::{Socket as TcpSocket, SocketBuffer, State as TcpState};
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
 
     let mut backlog = [None; 2];
     let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
     listen.listen(4243).unwrap();
-    sockets.add(listen);
+    let listen_handle = sockets.add(listen);
 
     let client = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
     let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
@@ -397,6 +396,21 @@ fn tcp_listen_socket_retransmits_synack() {
     device
         .rx_queue
         .push_back(emit_ipv6_tcp_packet(&syn, client, server));
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    let pending = sockets
+        .get_mut::<tcp_listener::Listener>(listen_handle)
+        .accept()
+        .expect("expected queued SYN");
+
+    let mut tcp = TcpSocket::new(
+        SocketBuffer::new(vec![0; 1024]),
+        SocketBuffer::new(vec![0; 1024]),
+    );
+    tcp.accept(pending).unwrap();
+    assert_eq!(tcp.state(), TcpState::SynReceived);
+    sockets.add(tcp);
+
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
     let first = device.tx_queue.pop_front().expect("expected first SYN-ACK");
 
@@ -489,7 +503,7 @@ fn tcp_listen_socket_recycles_expired_half_open() {
     let mut backlog = [None; 1];
     let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
     listen.listen(4243).unwrap();
-    sockets.add(listen);
+    let listen_handle = sockets.add(listen);
 
     let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     let syn1 = TcpRepr {
@@ -527,7 +541,7 @@ fn tcp_listen_socket_recycles_expired_half_open() {
         server,
     ));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
-    device.tx_queue.clear();
+    assert!(device.tx_queue.is_empty());
 
     device.rx_queue.push_back(emit_ipv6_tcp_packet(
         &syn2,
@@ -536,15 +550,11 @@ fn tcp_listen_socket_recycles_expired_half_open() {
     ));
     iface.poll(Instant::from_millis(75_001), &mut device, &mut sockets);
 
-    let synack = device
-        .tx_queue
-        .pop_front()
-        .expect("expired half-open should free a slot for a new SYN");
-    let synack = Ipv6Packet::new_unchecked(&synack);
-    let synack_tcp = TcpPacket::new_unchecked(synack.payload());
-    assert_eq!(synack_tcp.dst_port(), 4343);
-    assert!(synack_tcp.syn());
-    assert!(synack_tcp.ack());
+    let pending = sockets
+        .get_mut::<tcp_listener::Listener>(listen_handle)
+        .accept()
+        .expect("expired queued SYN should free a slot for a new SYN");
+    assert_eq!(pending.remote.port, 4343);
 }
 
 // ── unit tests that exercise tcp_listener::Listener directly ──────────────────
@@ -600,13 +610,12 @@ fn tcp_listen_socket_debug_impl() {
     let listen = tcp_listener::Listener::new(&mut backlog[..]);
     let s = format!("{:?}", listen);
     assert!(s.contains("tcp::Listener"));
-    assert!(s.contains("half_open_count"));
-    assert!(s.contains("completed_count"));
+    assert!(s.contains("pending_count"));
 }
 
 #[test]
 #[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv6"))]
-fn tcp_listen_socket_bad_ack_ignored() {
+fn tcp_listen_socket_bad_ack_suppressed_until_accept() {
     use crate::socket::tcp::listener as tcp_listener;
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
@@ -619,7 +628,7 @@ fn tcp_listen_socket_bad_ack_ignored() {
     let server = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
     let client = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
 
-    // Send SYN → get SYN-ACK
+    // Send SYN → queue it without replying yet.
     let syn = TcpRepr {
         src_port: 4242,
         dst_port: 4243,
@@ -638,18 +647,15 @@ fn tcp_listen_socket_bad_ack_ignored() {
         .rx_queue
         .push_back(emit_ipv6_tcp_packet(&syn, client, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
-    let synack_raw = device.tx_queue.pop_front().unwrap();
-    let synack_pkt = Ipv6Packet::new_unchecked(&synack_raw);
-    let synack_tcp = TcpPacket::new_unchecked(synack_pkt.payload());
-    let our_isn = synack_tcp.seq_number();
+    assert!(device.tx_queue.is_empty());
 
-    // Send ACK with wrong ack_number (should be our_isn+1)
+    // Send an ACK anyway; listener should suppress fallback RSTs until accept.
     let bad_ack = TcpRepr {
         src_port: 4242,
         dst_port: 4243,
         control: TcpControl::None,
         seq_number: TcpSeqNumber(101),
-        ack_number: Some(TcpSeqNumber(our_isn.0.wrapping_add(999))), // wrong
+        ack_number: Some(TcpSeqNumber(9999)),
         window_len: 256,
         window_scale: None,
         max_seg_size: None,
@@ -663,9 +669,9 @@ fn tcp_listen_socket_bad_ack_ignored() {
         .push_back(emit_ipv6_tcp_packet(&bad_ack, client, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
 
-    // accept queue must still be empty
+    assert!(device.tx_queue.is_empty());
     assert!(
-        !sockets
+        sockets
             .get_mut::<tcp_listener::Listener>(listen_handle)
             .can_accept()
     );
@@ -678,8 +684,7 @@ fn tcp_listen_socket_two_connections_shared_backlog() {
 
     let (mut iface, mut sockets, mut device) = setup(Medium::Ip);
 
-    // A unified backlog of 3 slots can hold two half-open + one completed at
-    // the same time, or two completed + one free slot, etc.
+    // A backlog of 3 slots can hold multiple queued SYNs at once.
     let mut backlog = [None; 3];
     let mut listen = tcp_listener::Listener::new(&mut backlog[..]);
     listen.listen(4243).unwrap();
@@ -704,68 +709,26 @@ fn tcp_listen_socket_two_connections_shared_backlog() {
         payload: &[],
     };
 
-    // ── client1: full handshake ─────────────────────────────────────────────
+    // ── client1: queue SYN ──────────────────────────────────────────────────
     device
         .rx_queue
         .push_back(emit_ipv6_tcp_packet(&make_syn(4242, 100), client1, server));
-    iface.poll(Instant::ZERO, &mut device, &mut sockets);
-    let sa1_raw = device.tx_queue.pop_front().unwrap();
-    let sa1_tcp = TcpPacket::new_unchecked(Ipv6Packet::new_unchecked(&sa1_raw).payload());
-    let isn1 = sa1_tcp.seq_number();
-
-    let ack1 = TcpRepr {
-        src_port: 4242,
-        dst_port: 4243,
-        control: TcpControl::None,
-        seq_number: TcpSeqNumber(101),
-        ack_number: Some(TcpSeqNumber(isn1.0.wrapping_add(1))),
-        window_len: 256,
-        window_scale: None,
-        max_seg_size: None,
-        sack_permitted: false,
-        sack_ranges: [None, None, None],
-        timestamp: None,
-        payload: &[],
-    };
-    device
-        .rx_queue
-        .push_back(emit_ipv6_tcp_packet(&ack1, client1, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
     assert!(
         sockets
             .get_mut::<tcp_listener::Listener>(listen_handle)
             .can_accept()
     );
+    assert!(device.tx_queue.is_empty());
 
-    // ── client2: full handshake (while client1 is still in backlog) ─────────
+    // ── client2: queue SYN while client1 is still pending ───────────────────
     device
         .rx_queue
         .push_back(emit_ipv6_tcp_packet(&make_syn(4343, 200), client2, server));
     iface.poll(Instant::ZERO, &mut device, &mut sockets);
-    let sa2_raw = device.tx_queue.pop_front().unwrap();
-    let sa2_tcp = TcpPacket::new_unchecked(Ipv6Packet::new_unchecked(&sa2_raw).payload());
-    let isn2 = sa2_tcp.seq_number();
+    assert!(device.tx_queue.is_empty());
 
-    let ack2 = TcpRepr {
-        src_port: 4343,
-        dst_port: 4243,
-        control: TcpControl::None,
-        seq_number: TcpSeqNumber(201),
-        ack_number: Some(TcpSeqNumber(isn2.0.wrapping_add(1))),
-        window_len: 256,
-        window_scale: None,
-        max_seg_size: None,
-        sack_permitted: false,
-        sack_ranges: [None, None, None],
-        timestamp: None,
-        payload: &[],
-    };
-    device
-        .rx_queue
-        .push_back(emit_ipv6_tcp_packet(&ack2, client2, server));
-    iface.poll(Instant::ZERO, &mut device, &mut sockets);
-
-    // Both connections should now be completed in the backlog.
+    // Both connections should now be queued in the backlog.
     let pending1 = sockets
         .get_mut::<tcp_listener::Listener>(listen_handle)
         .accept()

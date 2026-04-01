@@ -959,8 +959,8 @@ impl<'a> Socket<'a> {
     /// Accept an incoming connection from a [`tcp_listener::Socket`](super::tcp_listener::Socket).
     ///
     /// The socket must be in the [`Closed`](State::Closed) state. After this
-    /// call it enters the [`Established`](State::Established) state with the
-    /// sequence numbers and options from `conn`.
+    /// call it enters the [`SynReceived`](State::SynReceived) state, and
+    /// proceeds with the normal passive-open handshake on subsequent polls.
     pub fn accept(&mut self, conn: self::listener::PendingConnection) -> Result<(), ListenError> {
         if self.state != State::Closed {
             return Err(ListenError::InvalidState);
@@ -973,14 +973,17 @@ impl<'a> Socket<'a> {
         self.local_seq_no = conn.local_seq_no;
         self.remote_seq_no = conn.remote_seq_no;
         self.remote_last_seq = conn.local_seq_no;
-        self.remote_last_ack = Some(conn.remote_seq_no);
+        self.remote_last_ack = None;
         self.remote_mss = conn.remote_mss;
+        self.congestion_controller
+            .inner_mut()
+            .set_mss(self.remote_mss);
         self.remote_has_sack = conn.remote_has_sack;
         self.remote_win_scale = conn.remote_win_scale;
-        self.remote_win_len = conn.remote_win_len;
-        // Listener SYN-ACK advertised window_scale=0, so we must not scale.
-        self.remote_win_shift = 0;
-        self.set_state(State::Established);
+        if self.remote_win_scale.is_none() {
+            self.remote_win_shift = 0;
+        }
+        self.set_state(State::SynReceived);
         Ok(())
     }
 
