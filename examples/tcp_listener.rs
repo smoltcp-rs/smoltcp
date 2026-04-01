@@ -63,7 +63,7 @@ fn main() {
         connection_handles.push(sockets.add(socket));
     }
 
-    let mut established = vec![false; CONNECTION_SLOTS];
+    let mut established = [false; CONNECTION_SLOTS];
 
     debug!("listening on tcp:{} using tcp::Listener", LISTEN_PORT);
 
