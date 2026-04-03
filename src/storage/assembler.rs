@@ -593,6 +593,18 @@ mod test {
     }
 
     #[test]
+    fn test_iter_offset_negative() {
+        let assr = contigs![(100, 10)];
+        let offset: usize = (-5_i32) as usize; // 0xFFFF_FFFF_FFFF_FFFB on 64-bit
+        let segments: Vec<_> = assr.iter_data(offset).collect();
+        assert_eq!(segments.len(), 1);
+        let (left, right) = segments[0];
+        // In u32 space: (100 + 0xFFFFFFFB) = 95, (110 + 0xFFFFFFFB) = 105
+        assert_eq!(left as u32, 95);
+        assert_eq!(right as u32, 105);
+    }
+
+    #[test]
     fn test_iter_one_front() {
         let mut assr = Assembler::new();
         assert_eq!(assr.add(0, 4), Ok(()));
