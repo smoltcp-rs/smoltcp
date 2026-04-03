@@ -4431,10 +4431,7 @@ mod test {
                 ack_number: Some(TcpSeqNumber(-4)),
                 window_len: 64,
                 sack_ranges: [
-                    Some((
-                        (-4_i32 + 10) as u32,
-                        (-4_i32 + 20) as u32,
-                    )),
+                    Some(((-4_i32 + 10) as u32, (-4_i32 + 20) as u32,)),
                     None,
                     None,
                 ],
