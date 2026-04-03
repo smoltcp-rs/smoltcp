@@ -1478,7 +1478,7 @@ impl<'a> Socket<'a> {
             if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| s.0 as u32) {
                 reply_repr.sack_ranges[0] = self
                     .assembler
-                    .iter_data(reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
+                    .iter_data(reply_repr.ack_number.map(|s| s.0 as u32 as usize).unwrap_or(0))
                     .map(|(left, right)| (left as u32, right as u32))
                     .find(|(left, right)| *left <= last_seg_seq && *right >= last_seg_seq);
             }
@@ -1493,7 +1493,7 @@ impl<'a> Socket<'a> {
                 // most quickly advance the acknowledgement number.
                 reply_repr.sack_ranges[0] = self
                     .assembler
-                    .iter_data(reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
+                    .iter_data(reply_repr.ack_number.map(|s| s.0 as u32 as usize).unwrap_or(0))
                     .map(|(left, right)| (left as u32, right as u32))
                     .next();
             }
