@@ -1475,12 +1475,15 @@ impl<'a> Socket<'a> {
             // Acknowledgment Number field in the header.
             reply_repr.sack_ranges[0] = None;
 
-            if let Some(last_seg_seq) = self.local_rx_last_seq.map(|s| s.0 as u32) {
+            let ack = reply_repr.ack_number.unwrap_or(TcpSeqNumber(0));
+
+            if let Some(last_seg_seq) = self.local_rx_last_seq {
                 reply_repr.sack_ranges[0] = self
                     .assembler
-                    .iter_data(reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
-                    .map(|(left, right)| (left as u32, right as u32))
-                    .find(|(left, right)| *left <= last_seg_seq && *right >= last_seg_seq);
+                    .iter_data()
+                    .map(|(left, right)| (ack + left, ack + right))
+                    .find(|&(left, right)| left <= last_seg_seq && right >= last_seg_seq)
+                    .map(|(left, right)| (left.0 as u32, right.0 as u32));
             }
 
             if reply_repr.sack_ranges[0].is_none() {
@@ -1493,9 +1496,10 @@ impl<'a> Socket<'a> {
                 // most quickly advance the acknowledgement number.
                 reply_repr.sack_ranges[0] = self
                     .assembler
-                    .iter_data(reply_repr.ack_number.map(|s| s.0 as usize).unwrap_or(0))
-                    .map(|(left, right)| (left as u32, right as u32))
-                    .next();
+                    .iter_data()
+                    .map(|(left, right)| (ack + left, ack + right))
+                    .next()
+                    .map(|(left, right)| (left.0 as u32, right.0 as u32));
             }
         }
 
@@ -4397,6 +4401,37 @@ mod test {
                 })
             );
         }
+    }
+
+    #[test]
+    fn test_established_sack_no_overflow_on_near_max_seqnumber() {
+        let mut s = socket_established();
+        s.remote_has_sack = true;
+        s.remote_seq_no = TcpSeqNumber(-4);
+        s.remote_last_ack = Some(TcpSeqNumber(-4));
+
+        // Send an out-of-order segment 10 bytes past the expected sequence,
+        // creating a 10-byte hole at the front of the assembler.
+        send!(
+            s,
+            TcpRepr {
+                seq_number: TcpSeqNumber(-4 + 10),
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"AAAAAAAAAA"[..],
+                ..SEND_TEMPL
+            },
+            Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(TcpSeqNumber(-4)),
+                window_len: 64,
+                sack_ranges: [
+                    Some(((-4_i32 + 10) as u32, (-4_i32 + 20) as u32,)),
+                    None,
+                    None,
+                ],
+                ..RECV_TEMPL
+            })
+        );
     }
 
     #[test]

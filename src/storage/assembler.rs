@@ -316,57 +316,26 @@ impl Assembler {
 
     /// Iterate over all of the contiguous data ranges.
     ///
-    /// This is used in calculating what data ranges have been received. The offset indicates the
-    /// number of bytes of contiguous data received before the beginnings of this Assembler.
+    /// Returns `(offset, size)` tuples for each contiguous data range, where
+    /// offset is relative to the start of the assembler.
     ///
     ///    Data        Hole        Data
     /// |--- 100 ---|--- 200 ---|--- 100 ---|
     ///
-    /// An offset of 1500 would return the ranges: ``(1500, 1600), (1800, 1900)``
-    pub fn iter_data(&self, first_offset: usize) -> AssemblerIter<'_> {
-        AssemblerIter::new(self, first_offset)
-    }
-}
-
-pub struct AssemblerIter<'a> {
-    assembler: &'a Assembler,
-    offset: usize,
-    index: usize,
-    left: usize,
-    right: usize,
-}
-
-impl<'a> AssemblerIter<'a> {
-    fn new(assembler: &'a Assembler, offset: usize) -> AssemblerIter<'a> {
-        AssemblerIter {
-            assembler,
-            offset,
-            index: 0,
-            left: 0,
-            right: 0,
-        }
-    }
-}
-
-impl<'a> Iterator for AssemblerIter<'a> {
-    type Item = (usize, usize);
-
-    fn next(&mut self) -> Option<(usize, usize)> {
-        let mut data_range = None;
-        while data_range.is_none() && self.index < self.assembler.contigs.len() {
-            let contig = self.assembler.contigs[self.index];
-            self.left += contig.hole_size;
-            self.right = self.left + contig.data_size;
-            data_range = if self.left < self.right {
-                let data_range = (self.left + self.offset, self.right + self.offset);
-                self.left = self.right;
-                Some(data_range)
+    /// Would return the ranges: ``(0, 100), (300, 400)``
+    pub fn iter_data(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        let mut offset = 0;
+        self.contigs.iter().filter_map(move |contig| {
+            offset += contig.hole_size;
+            let left = offset;
+            offset += contig.data_size;
+            let right = offset;
+            if left < right {
+                Some((left, right))
             } else {
                 None
-            };
-            self.index += 1;
-        }
-        data_range
+            }
+        })
     }
 }
 
@@ -569,7 +538,7 @@ mod test {
     #[test]
     fn test_iter_empty() {
         let assr = Assembler::new();
-        let segments: Vec<_> = assr.iter_data(10).collect();
+        let segments: Vec<_> = assr.iter_data().collect();
         assert_eq!(segments, vec![]);
     }
 
@@ -577,61 +546,53 @@ mod test {
     fn test_iter_full() {
         let mut assr = Assembler::new();
         assert_eq!(assr.add(0, 16), Ok(()));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(10, 26)]);
-    }
-
-    #[test]
-    fn test_iter_offset() {
-        let mut assr = Assembler::new();
-        assert_eq!(assr.add(0, 16), Ok(()));
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(100, 116)]);
+        let segments: Vec<_> = assr.iter_data().collect();
+        assert_eq!(segments, vec![(0, 16)]);
     }
 
     #[test]
     fn test_iter_one_front() {
         let mut assr = Assembler::new();
         assert_eq!(assr.add(0, 4), Ok(()));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(10, 14)]);
+        let segments: Vec<_> = assr.iter_data().collect();
+        assert_eq!(segments, vec![(0, 4)]);
     }
 
     #[test]
     fn test_iter_one_back() {
         let mut assr = Assembler::new();
         assert_eq!(assr.add(12, 4), Ok(()));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(22, 26)]);
+        let segments: Vec<_> = assr.iter_data().collect();
+        assert_eq!(segments, vec![(12, 16)]);
     }
 
     #[test]
     fn test_iter_one_mid() {
         let mut assr = Assembler::new();
         assert_eq!(assr.add(4, 8), Ok(()));
-        let segments: Vec<_> = assr.iter_data(10).collect();
-        assert_eq!(segments, vec![(14, 22)]);
+        let segments: Vec<_> = assr.iter_data().collect();
+        assert_eq!(segments, vec![(4, 12)]);
     }
 
     #[test]
     fn test_iter_one_trailing_gap() {
         let assr = contigs![(4, 8)];
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(104, 112)]);
+        let segments: Vec<_> = assr.iter_data().collect();
+        assert_eq!(segments, vec![(4, 12)]);
     }
 
     #[test]
     fn test_iter_two_split() {
         let assr = contigs![(2, 6), (4, 1)];
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(102, 108), (112, 113)]);
+        let segments: Vec<_> = assr.iter_data().collect();
+        assert_eq!(segments, vec![(2, 8), (12, 13)]);
     }
 
     #[test]
     fn test_iter_three_split() {
         let assr = contigs![(2, 6), (2, 1), (2, 2)];
-        let segments: Vec<_> = assr.iter_data(100).collect();
-        assert_eq!(segments, vec![(102, 108), (110, 111), (113, 115)]);
+        let segments: Vec<_> = assr.iter_data().collect();
+        assert_eq!(segments, vec![(2, 8), (10, 11), (13, 15)]);
     }
 
     #[test]
