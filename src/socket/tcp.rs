@@ -18,6 +18,7 @@ use crate::wire::{
 };
 
 mod congestion;
+pub mod listener;
 
 macro_rules! tcp_trace {
     ($($arg:expr),*) => (net_log!(trace, $($arg),*));
@@ -952,6 +953,37 @@ impl<'a> Socket<'a> {
         self.listen_endpoint = local_endpoint;
         self.tuple = None;
         self.set_state(State::Listen);
+        Ok(())
+    }
+
+    /// Accept an incoming connection from a [`tcp_listener::Socket`](super::tcp_listener::Socket).
+    ///
+    /// The socket must be in the [`Closed`](State::Closed) state. After this
+    /// call it enters the [`SynReceived`](State::SynReceived) state, and
+    /// proceeds with the normal passive-open handshake on subsequent polls.
+    pub fn accept(&mut self, conn: self::listener::PendingConnection) -> Result<(), ListenError> {
+        if self.state != State::Closed {
+            return Err(ListenError::InvalidState);
+        }
+        self.reset();
+        self.tuple = Some(Tuple {
+            local: conn.local,
+            remote: conn.remote,
+        });
+        self.local_seq_no = conn.local_seq_no;
+        self.remote_seq_no = conn.remote_seq_no;
+        self.remote_last_seq = conn.local_seq_no;
+        self.remote_last_ack = None;
+        self.remote_mss = conn.remote_mss;
+        self.congestion_controller
+            .inner_mut()
+            .set_mss(self.remote_mss);
+        self.remote_has_sack = conn.remote_has_sack;
+        self.remote_win_scale = conn.remote_win_scale;
+        if self.remote_win_scale.is_none() {
+            self.remote_win_shift = 0;
+        }
+        self.set_state(State::SynReceived);
         Ok(())
     }
 
