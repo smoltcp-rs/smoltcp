@@ -26,8 +26,8 @@ mod udp;
 
 use super::packet::*;
 
+use crate::data_structure::Vec;
 use core::result::Result;
-use heapless::Vec;
 
 #[cfg(feature = "_proto-fragmentation")]
 use super::fragmentation::FragKey;

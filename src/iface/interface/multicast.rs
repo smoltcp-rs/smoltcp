@@ -1,5 +1,5 @@
+use crate::data_structure::{LinearMap, Vec};
 use core::result::Result;
-use heapless::{LinearMap, Vec};
 
 use super::{Interface, InterfaceInner};
 #[cfg(any(feature = "proto-ipv4", feature = "proto-ipv6"))]
@@ -361,7 +361,7 @@ impl Interface {
                         #[allow(unreachable_patterns)]
                         _ => None,
                     })
-                    .collect::<heapless::Vec<_, IFACE_MAX_MULTICAST_GROUP_COUNT>>();
+                    .collect::<crate::data_structure::Vec<_, IFACE_MAX_MULTICAST_GROUP_COUNT>>();
                 if let Some(pkt) = self.inner.mldv2_report_packet(&records)
                     && let Some(tx_token) = device.transmit(self.inner.now)
                 {

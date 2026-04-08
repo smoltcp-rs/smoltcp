@@ -8972,6 +8972,7 @@ mod test {
 
     #[test]
     fn test_established_close_on_src_ip_change() {
+        use crate::data_structure::Vec;
         let mut s = socket_established();
 
         // Verify socket is working normally
@@ -8988,7 +8989,7 @@ mod test {
 
         // Simulate interface IP change - remove the socket's source IP
         // and add a different one.
-        let mut new_addrs = heapless::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
+        let mut new_addrs = Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
         new_addrs.push(IpCidr::new(OTHER_ADDR.into(), 24)).unwrap();
         s.cx.set_ip_addrs(new_addrs);
 

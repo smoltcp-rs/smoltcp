@@ -12,7 +12,7 @@ pub struct Relation {
 
 #[derive(Default, Debug)]
 pub struct Relations {
-    relations: heapless::Vec<Relation, { RPL_RELATIONS_BUFFER_COUNT }>,
+    relations: crate::data_structure::Vec<Relation, { RPL_RELATIONS_BUFFER_COUNT }>,
 }
 
 impl Relations {
