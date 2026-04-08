@@ -39,12 +39,6 @@ pub(crate) struct Meta {
 }
 
 impl Meta {
-    /// Minimum delay between neighbor discovery requests for this particular
-    /// socket, in milliseconds.
-    ///
-    /// See also `iface::NeighborCache::SILENT_TIME`.
-    pub(crate) const DISCOVERY_SILENT_TIME: Duration = Duration::from_millis(1_000);
-
     pub(crate) fn poll_at<F>(
         &self,
         socket_poll_at: PollAt,
@@ -96,16 +90,21 @@ impl Meta {
         }
     }
 
-    pub(crate) fn neighbor_missing(&mut self, timestamp: Instant, neighbor: IpAddress) {
+    pub(crate) fn neighbor_missing(
+        &mut self,
+        timestamp: Instant,
+        neighbor: IpAddress,
+        delay: Duration,
+    ) {
         net_trace!(
             "{}: neighbor {} missing, silencing until t+{}",
             self.handle,
             neighbor,
-            Self::DISCOVERY_SILENT_TIME
+            delay
         );
         self.neighbor_state = NeighborState::Waiting {
             neighbor,
-            silent_until: timestamp + Self::DISCOVERY_SILENT_TIME,
+            silent_until: timestamp + delay,
         };
     }
 }
@@ -143,7 +142,11 @@ mod tests {
     #[test]
     fn poll_at_waiting_neighbor_found() {
         let mut m = meta();
-        m.neighbor_missing(Instant::from_millis(1000), NEIGHBOR);
+        m.neighbor_missing(
+            Instant::from_millis(1000),
+            NEIGHBOR,
+            Duration::from_millis(1000),
+        );
 
         assert_eq!(
             m.poll_at(PollAt::Now, |_| true, Instant::from_millis(1000)),
@@ -159,8 +162,8 @@ mod tests {
     fn poll_at_waiting_before_silent_until() {
         let mut m = meta();
         let t0 = Instant::from_millis(1000);
-        m.neighbor_missing(t0, NEIGHBOR);
-        let silent_until = t0 + Meta::DISCOVERY_SILENT_TIME;
+        m.neighbor_missing(t0, NEIGHBOR, Duration::from_millis(1000));
+        let silent_until = t0 + Duration::from_millis(1000);
 
         let t_before = Instant::from_millis(1500);
         assert!(t_before < silent_until);
@@ -179,8 +182,8 @@ mod tests {
     fn poll_at_waiting_after_silent_until_returns_socket_poll_at() {
         let mut m = meta();
         let t0 = Instant::from_millis(1000);
-        m.neighbor_missing(t0, NEIGHBOR);
-        let silent_until = t0 + Meta::DISCOVERY_SILENT_TIME;
+        m.neighbor_missing(t0, NEIGHBOR, Duration::from_millis(1000));
+        let silent_until = t0 + Duration::from_millis(1000);
 
         let t_after = Instant::from_millis(2500);
         assert!(t_after >= silent_until);
@@ -201,8 +204,8 @@ mod tests {
     fn poll_at_waiting_at_exact_silent_until() {
         let mut m = meta();
         let t0 = Instant::from_millis(1000);
-        m.neighbor_missing(t0, NEIGHBOR);
-        let silent_until = t0 + Meta::DISCOVERY_SILENT_TIME;
+        m.neighbor_missing(t0, NEIGHBOR, Duration::from_millis(1000));
+        let silent_until = t0 + Duration::from_millis(1000);
 
         assert_eq!(
             m.poll_at(PollAt::Ingress, |_| false, silent_until),
@@ -214,8 +217,8 @@ mod tests {
     fn egress_permitted_consistent_with_poll_at() {
         let mut m = meta();
         let t0 = Instant::from_millis(1000);
-        m.neighbor_missing(t0, NEIGHBOR);
-        let silent_until = t0 + Meta::DISCOVERY_SILENT_TIME;
+        m.neighbor_missing(t0, NEIGHBOR, Duration::from_millis(1000));
+        let silent_until = t0 + Duration::from_millis(1000);
 
         let t_before = Instant::from_millis(1500);
         assert!(!m.egress_permitted(t_before, |_| false));
