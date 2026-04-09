@@ -62,7 +62,7 @@ pub trait PcapSink {
         self.write_u16(4); // minor version
         self.write_u32(0); // timezone (= UTC)
         self.write_u32(0); // accuracy (not used)
-        self.write_u32(65535); // maximum packet length
+        self.write_u32(self.max_packet_size()); // maximum packet length
         self.write_u32(link_type.into()); // link-layer header type
     }
 
@@ -71,23 +71,40 @@ pub trait PcapSink {
     /// See also the note for [global_header](#method.global_header).
     ///
     /// # Panics
-    /// This function panics if `length` is greater than 65535.
+    /// This function panics if `length` is greater than [u32::MAX].
     fn packet_header(&mut self, timestamp: Instant, length: usize) {
-        assert!(length <= 65535);
+        let original_length = length.try_into().unwrap();
 
         self.write_u32(timestamp.secs() as u32); // timestamp seconds
         self.write_u32(timestamp.micros() as u32); // timestamp microseconds
-        self.write_u32(length as u32); // captured length
-        self.write_u32(length as u32); // original length
+        self.write_u32(self.max_packet_size().min(original_length)); // captured length
+        self.write_u32(original_length);
     }
 
     /// Write the libpcap packet header followed by packet data into the sink.
     ///
+    /// The default implementation truncates packets that are larger than [Self::max_packet_size].
+    ///
     /// See also the note for [global_header](#method.global_header).
     fn packet(&mut self, timestamp: Instant, packet: &[u8]) {
-        self.packet_header(timestamp, packet.len());
-        self.write(packet);
+        let packet_len = packet.len();
+        let max_packet_size = usize::try_from(self.max_packet_size()).unwrap();
+
+        self.packet_header(timestamp, packet_len);
+        self.write(&packet[..max_packet_size.min(packet_len)]);
         self.flush();
+    }
+
+    /// Return the maximum size for captured packets.
+    ///
+    /// The captures of packets larger than this size will be truncated by default. Excessively
+    /// large values may cause the software reading the captures to allocate unnecessarily large
+    /// buffers.
+    fn max_packet_size(&self) -> u32 {
+        // Use the default value used by [libpcap] and [Wireshark].
+        // [Wireshark]: https://gitlab.com/wireshark/wireshark/-/blob/v3.5.0/wiretap/wtap.h#L334
+        // [libpcap]: https://github.com/the-tcpdump-group/libpcap/blob/libpcap-1.6.0-bp/pcap-int.h#L106
+        262144
     }
 }
 
