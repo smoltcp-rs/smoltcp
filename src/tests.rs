@@ -60,6 +60,7 @@ pub struct TestingDevice {
     pub(crate) rx_queue: VecDeque<Vec<u8>>,
     max_transmission_unit: usize,
     medium: Medium,
+    pub(crate) transmit_exhausted: bool,
 }
 
 #[allow(clippy::new_without_default)]
@@ -81,6 +82,7 @@ impl TestingDevice {
                 Medium::Ieee802154 => 1500,
             },
             medium,
+            transmit_exhausted: false,
         }
     }
 }
@@ -108,6 +110,9 @@ impl Device for TestingDevice {
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+        if self.transmit_exhausted {
+            return None;
+        }
         Some(TxToken {
             queue: &mut self.tx_queue,
         })

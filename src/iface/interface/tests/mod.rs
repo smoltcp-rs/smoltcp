@@ -18,7 +18,7 @@ use crate::iface::Interface;
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "alloc")]
 use crate::phy::Loopback;
-use crate::time::Instant;
+use crate::time::{Duration, Instant};
 
 #[allow(unused)]
 fn fill_slice(s: &mut [u8], val: u8) {
@@ -244,4 +244,92 @@ pub fn tcp_not_accepted() {
         ),
         None,
     );
+}
+
+#[cfg(all(feature = "medium-ip", feature = "socket-udp", feature = "proto-ipv4"))]
+mod device_exhausted {
+    use super::*;
+    use crate::socket::udp;
+
+    fn setup_udp_with_data() -> (Interface, SocketSet<'static>, crate::tests::TestingDevice) {
+        let (iface, mut sockets, device) = setup(Medium::Ip);
+
+        let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 64]);
+        let tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 64]);
+        let mut socket = udp::Socket::new(rx_buffer, tx_buffer);
+        socket.bind(1234).unwrap();
+        let handle = sockets.add(socket);
+
+        let socket = sockets.get_mut::<udp::Socket>(handle);
+        socket
+            .send_slice(
+                b"hello",
+                IpEndpoint::new(IpAddress::v4(192, 168, 1, 2), 4321),
+            )
+            .unwrap();
+
+        (iface, sockets, device)
+    }
+
+    #[test]
+    fn first_exhaustion_allows_immediate_repoll() {
+        let (mut iface, mut sockets, mut device) = setup_udp_with_data();
+        device.transmit_exhausted = true;
+
+        let t = Instant::from_millis(1000);
+        iface.poll(t, &mut device, &mut sockets);
+
+        assert_eq!(
+            iface.poll_delay(t, &sockets),
+            Some(Duration::from_millis(0))
+        );
+    }
+
+    #[test]
+    fn second_exhaustion_starts_backoff() {
+        let (mut iface, mut sockets, mut device) = setup_udp_with_data();
+        device.transmit_exhausted = true;
+
+        iface.poll(Instant::from_millis(1000), &mut device, &mut sockets);
+
+        let t = Instant::from_millis(1001);
+        iface.poll(t, &mut device, &mut sockets);
+
+        let delay = iface.poll_delay(t, &sockets).unwrap();
+        assert!(delay > Duration::from_millis(0));
+    }
+
+    #[test]
+    fn backoff_caps_when_poll_interval_ignored() {
+        let (mut iface, mut sockets, mut device) = setup_udp_with_data();
+        device.transmit_exhausted = true;
+
+        iface.poll(Instant::from_millis(1000), &mut device, &mut sockets);
+        iface.poll(Instant::from_millis(1001), &mut device, &mut sockets);
+
+        // Tight-loop poll at the same timestamp to ramp to the cap.
+        let t = Instant::from_millis(1001);
+        for _ in 0..100 {
+            iface.poll(t, &mut device, &mut sockets);
+        }
+
+        let delay = iface.poll_delay(t, &sockets).unwrap();
+        assert_eq!(delay, InterfaceInner::DEVICE_EXHAUST_SILENT_TIME);
+    }
+
+    #[test]
+    fn successful_transmit_clears_backoff() {
+        let (mut iface, mut sockets, mut device) = setup_udp_with_data();
+        device.transmit_exhausted = true;
+
+        iface.poll(Instant::from_millis(1000), &mut device, &mut sockets);
+        iface.poll(Instant::from_millis(1001), &mut device, &mut sockets);
+
+        device.transmit_exhausted = false;
+        let t = Instant::from_millis(1012);
+        iface.poll(t, &mut device, &mut sockets);
+
+        // Packet was transmitted, back-off cleared.
+        assert_eq!(iface.poll_at(t, &sockets), None);
+    }
 }
