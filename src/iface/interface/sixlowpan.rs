@@ -19,11 +19,14 @@ impl Interface {
         }
 
         let pkt = &self.fragmenter;
-        if pkt.packet_len > pkt.sent_bytes
-            && let Some(tx_token) = device.transmit(self.inner.now)
-        {
-            self.inner
-                .dispatch_ieee802154_frag(tx_token, &mut self.fragmenter);
+        if pkt.packet_len > pkt.sent_bytes {
+            if let Some(tx_token) = device.transmit(self.inner.now) {
+                self.inner
+                    .dispatch_ieee802154_frag(tx_token, &mut self.fragmenter);
+                self.inner.clear_device_exhausted();
+            } else {
+                self.inner.mark_device_exhausted();
+            }
         }
     }
 

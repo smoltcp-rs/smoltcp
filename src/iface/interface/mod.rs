@@ -155,6 +155,10 @@ pub struct InterfaceInner {
     routes: Routes,
     #[cfg(feature = "multicast")]
     multicast: multicast::State,
+    /// Deadline before which `poll_at` should avoid returning an immediate
+    /// deadline, because the device was recently unable to transmit.
+    device_exhausted_until: Instant,
+    device_exhausted_this_poll: bool,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -285,6 +289,8 @@ impl Interface {
                 #[cfg(feature = "proto-ipv6-slaac")]
                 slaac_updated: Instant::from_millis(0),
                 rand,
+                device_exhausted_until: Instant::ZERO,
+                device_exhausted_this_poll: false,
             },
         }
     }
@@ -510,6 +516,7 @@ impl Interface {
         sockets: &mut SocketSet<'_>,
     ) -> PollResult {
         self.inner.now = timestamp;
+        self.inner.device_exhausted_this_poll = false;
 
         match self.inner.caps.medium {
             #[cfg(feature = "medium-ieee802154")]
@@ -584,7 +591,7 @@ impl Interface {
 
         #[cfg(feature = "_proto-fragmentation")]
         if !self.fragmenter.is_empty() {
-            return Some(Instant::from_millis(0));
+            return Some(self.inner.poll_at_immediate());
         }
 
         #[allow(unused_mut)]
@@ -599,7 +606,7 @@ impl Interface {
                 ) {
                     PollAt::Ingress => None,
                     PollAt::Time(instant) => Some(instant),
-                    PollAt::Now => Some(Instant::from_millis(0)),
+                    PollAt::Now => Some(self.inner.poll_at_immediate()),
                 }
             })
             .min();
@@ -725,6 +732,7 @@ impl Interface {
                     net_debug!("failed to transmit IP: device exhausted");
                     EgressError::Exhausted
                 })?;
+                inner.clear_device_exhausted();
 
                 inner
                     .dispatch_ip(t, meta, response, &mut self.fragmenter)
@@ -798,7 +806,10 @@ impl Interface {
             };
 
             match result {
-                Err(EgressError::Exhausted) => break, // Device buffer full.
+                Err(EgressError::Exhausted) => {
+                    self.inner.mark_device_exhausted();
+                    break;
+                }
                 Err(EgressError::Dispatch) => {
                     // `NeighborCache` already takes care of rate limiting the neighbor discovery
                     // requests from the socket. However, without an additional rate limiting
@@ -817,6 +828,36 @@ impl Interface {
 }
 
 impl InterfaceInner {
+    const DEVICE_EXHAUST_SILENT_TIME: Duration = Duration::from_millis(10);
+
+    pub(crate) fn mark_device_exhausted(&mut self) {
+        if !self.device_exhausted_this_poll {
+            self.device_exhausted_this_poll = true;
+
+            self.device_exhausted_until = if self.device_exhausted_until == Instant::ZERO {
+                // Allow one immediate re-poll.
+                self.now
+            } else {
+                // Wait a bit to avoid spinning on a continuously exhausted device.
+                self.now + Self::DEVICE_EXHAUST_SILENT_TIME
+            };
+        }
+    }
+
+    pub(crate) fn clear_device_exhausted(&mut self) {
+        // One or two immediate re-polls are not a big deal, we don't have to reset the
+        // device_exhausted_this_poll flag.
+        self.device_exhausted_until = Instant::ZERO;
+    }
+
+    /// Returns the instant to use for "immediate" poll deadlines, accounting
+    /// for device exhaustion back-off.
+    fn poll_at_immediate(&self) -> Instant {
+        // Either the timeout has expired in which case we return an Instant in the past,
+        // or we're still in the back-off period, in which case we return the back-off deadline.
+        self.device_exhausted_until
+    }
+
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn now(&self) -> Instant {
         self.now
