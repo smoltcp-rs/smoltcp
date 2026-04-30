@@ -245,3 +245,57 @@ pub fn tcp_not_accepted() {
         None,
     );
 }
+
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv4"))]
+pub fn tcp_listen_drops_unspecified_src() {
+    use crate::socket::tcp;
+
+    let (mut iface, mut sockets, _) = setup(Medium::Ip);
+
+    let tcp_socket = tcp::Socket::new(
+        tcp::SocketBuffer::new(vec![0; 64]),
+        tcp::SocketBuffer::new(vec![0; 64]),
+    );
+    let handle = sockets.add(tcp_socket);
+    sockets.get_mut::<tcp::Socket>(handle).listen(1234).unwrap();
+
+    let tcp = TcpRepr {
+        src_port: 65000,
+        dst_port: 1234,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(0),
+        ack_number: None,
+        window_len: 1024,
+        window_scale: None,
+        max_seg_size: Some(1460),
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+
+    let mut tcp_bytes = vec![0u8; tcp.buffer_len()];
+    tcp.emit(
+        &mut TcpPacket::new_unchecked(&mut tcp_bytes),
+        &Ipv4Address::UNSPECIFIED.into(),
+        &Ipv4Address::new(127, 0, 0, 1).into(),
+        &ChecksumCapabilities::default(),
+    );
+
+    let reply = iface.inner.process_tcp(
+        &mut sockets,
+        false,
+        IpRepr::Ipv4(Ipv4Repr {
+            src_addr: Ipv4Address::UNSPECIFIED,
+            dst_addr: Ipv4Address::new(127, 0, 0, 1),
+            next_header: IpProtocol::Tcp,
+            payload_len: tcp.buffer_len(),
+            hop_limit: 64,
+        }),
+        &tcp_bytes,
+    );
+
+    assert_eq!(reply, None);
+    assert!(sockets.get_mut::<tcp::Socket>(handle).is_listening());
+}

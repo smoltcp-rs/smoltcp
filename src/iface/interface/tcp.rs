@@ -11,6 +11,16 @@ impl InterfaceInner {
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
+
+        // Per RFC 1122 §3.2.1.3, the unspecified address must never appear as a source
+        // or destination in any IP datagram. Drop such TCP segments early to avoid
+        // creating sockets with unspecified peers (which would later panic on egress).
+        // This is not done at the iface level because it might be useful with
+        // UDP or raw sockets, but it's definitely not useful for TCP.
+        if src_addr.is_unspecified() || dst_addr.is_unspecified() {
+            return None;
+        }
+
         let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
         let tcp_repr = check!(TcpRepr::parse(
             &tcp_packet,
