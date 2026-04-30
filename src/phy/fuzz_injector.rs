@@ -8,7 +8,7 @@ const MTU: usize = 1536;
 /// Represents a fuzzer. It is expected to replace bytes in the packet with fuzzed data.
 pub trait Fuzzer {
     /// Modify a single packet with fuzzed data.
-    fn fuzz_packet(&self, packet_data: &mut [u8]);
+    fn fuzz_packet(&mut self, packet_data: &mut [u8]);
 }
 
 /// A fuzz injector device.
@@ -88,7 +88,7 @@ where
 
 #[doc(hidden)]
 pub struct RxToken<'a, Rx: phy::RxToken, F: Fuzzer + 'a> {
-    fuzzer: &'a F,
+    fuzzer: &'a mut F,
     token: Rx,
 }
 
@@ -111,7 +111,7 @@ impl<'a, Rx: phy::RxToken, FRx: Fuzzer> phy::RxToken for RxToken<'a, Rx, FRx> {
 
 #[doc(hidden)]
 pub struct TxToken<'a, Tx: phy::TxToken, F: Fuzzer + 'a> {
-    fuzzer: &'a F,
+    fuzzer: &'a mut F,
     token: Tx,
 }
 
