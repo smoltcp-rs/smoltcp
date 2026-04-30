@@ -141,16 +141,16 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                                 if let Ok(frame) = TcpPacket::new_checked(payload) {
                                     if let Ok(repr) = TcpRepr::parse(
                                         &frame,
-                                        &iphc_repr.src_addr.into_address(),
-                                        &iphc_repr.dst_addr.into_address(),
+                                        &IpAddress::from(iphc_repr.src_addr),
+                                        &IpAddress::from(iphc_repr.dst_addr),
                                         &ChecksumCapabilities::default(),
                                     ) {
                                         let mut buffer = vec![0; repr.buffer_len()];
                                         let mut frame = TcpPacket::new_unchecked(&mut buffer[..]);
                                         repr.emit(
                                             &mut frame,
-                                            &iphc_repr.src_addr.into_address(),
-                                            &iphc_repr.dst_addr.into_address(),
+                                            &IpAddress::from(iphc_repr.src_addr),
+                                            &IpAddress::from(iphc_repr.dst_addr),
                                             &ChecksumCapabilities::default(),
                                         );
                                     }
@@ -160,8 +160,8 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                                 if let Ok(frame) = UdpPacket::new_checked(payload) {
                                     if let Ok(repr) = UdpRepr::parse(
                                         &frame,
-                                        &iphc_repr.src_addr.into_address(),
-                                        &iphc_repr.dst_addr.into_address(),
+                                        &IpAddress::from(iphc_repr.src_addr),
+                                        &IpAddress::from(iphc_repr.dst_addr),
                                         &ChecksumCapabilities::default(),
                                     ) {
                                         let mut buffer =
@@ -169,8 +169,8 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                                         let mut packet = UdpPacket::new_unchecked(&mut buffer[..]);
                                         repr.emit(
                                             &mut packet,
-                                            &iphc_repr.src_addr.into_address(),
-                                            &iphc_repr.dst_addr.into_address(),
+                                            &IpAddress::from(iphc_repr.src_addr),
+                                            &IpAddress::from(iphc_repr.dst_addr),
                                             frame.payload().len(),
                                             |b| b.copy_from_slice(frame.payload()),
                                             &ChecksumCapabilities::default(),
@@ -200,8 +200,8 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                             IpProtocol::Icmpv6 => {
                                 if let Ok(packet) = Icmpv6Packet::new_checked(payload) {
                                     if let Ok(repr) = Icmpv6Repr::parse(
-                                        &iphc_repr.src_addr.into_address(),
-                                        &iphc_repr.dst_addr.into_address(),
+                                        &iphc_repr.src_addr,
+                                        &iphc_repr.dst_addr,
                                         &packet,
                                         &ChecksumCapabilities::default(),
                                     ) {
@@ -209,8 +209,8 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                                         let mut packet =
                                             Icmpv6Packet::new_unchecked(&mut buffer[..]);
                                         repr.emit(
-                                            &iphc_repr.src_addr.into_address(),
-                                            &iphc_repr.dst_addr.into_address(),
+                                            &iphc_repr.src_addr,
+                                            &iphc_repr.dst_addr,
                                             &mut packet,
                                             &ChecksumCapabilities::default(),
                                         );
@@ -228,6 +228,7 @@ fuzz_target!(|fuzz: SixlowpanPacketFuzzer| {
                                 }
                             }
                             IpProtocol::Unknown(_) => (),
+                            _ => (),
                         },
                     };
 

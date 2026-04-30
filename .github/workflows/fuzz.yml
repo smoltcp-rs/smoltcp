@@ -13,5 +13,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
+      - name: Build all fuzz targets
+        run: cargo fuzz build
+      - name: Build all fuzz targets (with log feature)
+        run: cargo fuzz build --features log
       - name: Fuzz
         run: cargo fuzz run packet_parser -- -max_len=1536 -max_total_time=30

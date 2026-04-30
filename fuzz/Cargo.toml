@@ -8,11 +8,23 @@ edition = "2018"
 [package.metadata]
 cargo-fuzz = true
 
+[features]
+log = ["dep:log", "smoltcp/log", "dep:env_logger"]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 arbitrary = { version = "1", features = ["derive"] }
 getopts = "0.2"
-smoltcp = { path = ".." }
+smoltcp = { path = "..", default-features = false, features = [
+    "std",
+    "medium-ethernet", "medium-ieee802154",
+    "proto-ipv4", "proto-dhcpv4", "proto-ipv6", "proto-sixlowpan",
+    "socket-raw", "socket-icmp", "socket-udp", "socket-tcp", "socket-dhcpv4",
+    "multicast",
+]}
+
+env_logger = { version = "0.9.0", optional = true }
+log = { version = "0.4.14", optional = true }
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -25,8 +37,8 @@ test = false
 doc = false
 
 [[bin]]
-name = "tcp_headers"
-path = "fuzz_targets/tcp_headers.rs"
+name = "iface"
+path = "fuzz_targets/iface.rs"
 test = false
 doc = false
 
