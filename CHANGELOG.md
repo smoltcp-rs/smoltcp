@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 No unreleased changes yet. Please send PRs!
 
+## [0.13.1] - 2026-05-01
+
+- tcp: Fix panic when a listening socket receives a SYN from the unspecified addr.
+- tcp: fix SACK sequence number overflow, which could cause a panic when compiling with overflow checks enabled.
+- ipv4: Check IPv4 IHL to be at least 20 bytes.
+
 ## [0.13.0] - 2026-03-20
 
 Highlights of this release are IPv6 SLAAC support, TCP improvements (zero window probes, retransmit fixes, RFC compliance), raw socket enhancements, and a bump to Rust Edition 2024.
@@ -380,7 +386,8 @@ only processed when directed to the 255.255.255.255 address. ([377](https://gith
 - Use #[non_exhaustive] for enums and structs ([409](https://github.com/smoltcp-rs/smoltcp/pull/409), [411](https://github.com/smoltcp-rs/smoltcp/pull/411))
 - Simplify lifetime parameters of sockets, SocketSet, EthernetInterface ([410](https://github.com/smoltcp-rs/smoltcp/pull/410), [413](https://github.com/smoltcp-rs/smoltcp/pull/413))
 
-[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/smoltcp-rs/smoltcp/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/smoltcp-rs/smoltcp/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/smoltcp-rs/smoltcp/compare/v0.10.0...v0.11.0
