@@ -1535,6 +1535,41 @@ fn get_source_address_empty_interface(#[case] medium: Medium) {
     );
 }
 
+#[rstest]
+#[case(Medium::Ip)]
+#[cfg(feature = "medium-ip")]
+#[cfg(feature = "proto-evil")]
+fn test_drop_evil_packet(#[case] medium: Medium) {
+    let (mut iface, mut sockets, _) = setup(medium);
+
+    let repr = IpRepr::Ipv4(Ipv4Repr {
+        src_addr: Ipv4Address::new(0x7f, 0x00, 0x00, 0x01),
+        dst_addr: Ipv4Address::new(192, 168, 1, 1),
+        next_header: IpProtocol::Unknown(0x0c),
+        payload_len: 0,
+        hop_limit: 0x40,
+    });
+
+    let mut bytes = vec![0u8; 54];
+    repr.emit(&mut bytes, &ChecksumCapabilities::default());
+
+    let mut frame = Ipv4Packet::new_unchecked(&mut bytes[..]);
+    frame.set_evil(true);
+    frame.fill_checksum();
+
+    let frame = Ipv4Packet::new_unchecked(&bytes[..]);
+    assert_eq!(
+        iface.inner.process_ipv4(
+            &mut sockets,
+            PacketMeta::default(),
+            HardwareAddress::default(),
+            &frame,
+            &mut iface.fragments
+        ),
+        None
+    );
+}
+
 use crate::wire::ipv4::HEADER_LEN;
 #[rstest]
 #[cfg(all(feature = "medium-ip", feature = "proto-ipv4-fragmentation",))]
