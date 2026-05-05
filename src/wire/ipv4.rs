@@ -590,7 +590,16 @@ impl Repr {
         packet.set_header_len(field::DST_ADDR.end as u8);
         packet.set_dscp(0);
         packet.set_ecn(0);
+        #[cfg(not(feature = "segmentation-offload"))]
         let total_len = packet.header_len() as u16 + self.payload_len as u16;
+        #[cfg(feature = "segmentation-offload")]
+        // If because of segmentation offload the length of the buffer exceeds what can be
+        // represented in the length field of the IP header, we fall back to 0. It will be
+        // filled by the device during segmentation anyways.
+        let total_len = u16::try_from(self.payload_len)
+            .ok()
+            .and_then(|payload_len: u16| payload_len.checked_add(packet.header_len() as u16))
+            .unwrap_or(0);
         packet.set_total_len(total_len);
         packet.set_ident(0);
         packet.clear_flags();

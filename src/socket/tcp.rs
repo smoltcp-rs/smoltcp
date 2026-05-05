@@ -7,6 +7,7 @@ use core::fmt::Display;
 use core::task::Waker;
 use core::{fmt, mem};
 
+use crate::phy::PacketMeta;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
 use crate::socket::{Context, PollAt};
@@ -2351,7 +2352,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, TcpRepr)) -> Result<(), E>,
+        F: FnOnce(&mut Context, PacketMeta, (IpRepr, TcpRepr)) -> Result<(), E>,
     {
         if self.tuple.is_none() {
             return Ok(());
@@ -2478,6 +2479,15 @@ impl<'a> Socket<'a> {
 
         let mut is_zero_window_probe = false;
 
+        #[cfg_attr(
+            not(feature = "segmentation-offload"),
+            expect(
+                unused_mut,
+                reason = "The default is not mutated if the segmentation offload feature is not enabled."
+            )
+        )]
+        let mut packet_meta = PacketMeta::default();
+
         match self.state {
             // We transmit an RST in the CLOSED state. If we ended up in the CLOSED state
             // with a specified endpoint, it means that the socket was aborted.
@@ -2536,16 +2546,53 @@ impl<'a> Socket<'a> {
                     is_zero_window_probe = true;
                 }
 
-                // Maximum size we're allowed to send. This can be limited by 3 factors:
+                // Maximum size we're allowed to send can be limited by 3 factors:
                 // 1. remote window
                 // 2. MSS the remote is willing to accept, probably determined by their MTU
                 // 3. MSS we can send, determined by our MTU.
-                let size = win_limit
-                    .min(self.remote_mss)
+                //
+                // If the device supports its offload, segmentation that is needed
+                // to comply with the latter two will be handled by the device based on the
+                // metadata we provide.
+
+                let segment_size = self
+                    .remote_mss
                     .min(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
+
+                #[cfg(not(feature = "segmentation-offload"))]
+                let device_limit = segment_size;
+
+                #[cfg(feature = "segmentation-offload")]
+                let device_limit = {
+                    let segmentation_caps = cx.segmentation_caps();
+                    match ip_repr.version() {
+                        #[cfg(feature = "proto-ipv4")]
+                        crate::wire::IpVersion::Ipv4 => segmentation_caps.tcpv4,
+                        #[cfg(feature = "proto-ipv6")]
+                        crate::wire::IpVersion::Ipv6 => segmentation_caps.tcpv6,
+                    }
+                    .map(|buf_size| {
+                        #[cfg(feature = "medium-ethernet")]
+                        let ip_mtu = buf_size.get() - crate::wire::ETHERNET_HEADER_LEN;
+                        #[cfg(not(feature = "medium-ethernet"))]
+                        let ip_mtu = buf_size.get();
+                        ip_mtu - ip_repr.header_len() - TCP_HEADER_LEN
+                    })
+                    .unwrap_or(segment_size)
+                };
+
+                let size = win_limit.min(device_limit);
 
                 let offset = self.remote_last_seq - self.local_seq_no;
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
+
+                #[cfg(feature = "segmentation-offload")]
+                if repr.payload.len() > segment_size {
+                    packet_meta.segmentation_offload_size =
+                        core::num::NonZeroU16::try_from(u16::try_from(segment_size).unwrap())
+                            .unwrap()
+                            .into();
+                }
 
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
                 // flags, depending on whether the transmit half of the connection is open.
@@ -2616,7 +2663,7 @@ impl<'a> Socket<'a> {
         // to not waste time waiting for the retransmit timer on packets that we know
         // for sure will not be successfully transmitted.
         ip_repr.set_payload_len(repr.buffer_len());
-        emit(cx, (ip_repr, repr))?;
+        emit(cx, packet_meta, (ip_repr, repr))?;
 
         // We've sent something, whether useful data or a keep-alive packet, so rewind
         // the keep-alive timer.
@@ -2909,7 +2956,7 @@ mod test {
         let mut sent = 0;
         let result = socket
             .socket
-            .dispatch(&mut socket.cx, |_, (ip_repr, tcp_repr)| {
+            .dispatch(&mut socket.cx, |_, _, (ip_repr, tcp_repr)| {
                 assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
                 assert_eq!(ip_repr.src_addr(), LOCAL_ADDR.into());
                 assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR.into());
@@ -2930,7 +2977,7 @@ mod test {
         socket.cx.set_now(timestamp);
 
         let mut fail = false;
-        let result: Result<(), ()> = socket.socket.dispatch(&mut socket.cx, |_, _| {
+        let result: Result<(), ()> = socket.socket.dispatch(&mut socket.cx, |_, _, _| {
             fail = true;
             Ok(())
         });
@@ -7994,7 +8041,7 @@ mod test {
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(
-            s.socket.dispatch(&mut s.cx, |_, (ip_repr, _)| {
+            s.socket.dispatch(&mut s.cx, |_, _, (ip_repr, _)| {
                 assert_eq!(ip_repr.hop_limit(), 0x2a);
                 Ok::<_, ()>(())
             }),
