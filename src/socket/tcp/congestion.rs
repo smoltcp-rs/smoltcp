@@ -18,11 +18,16 @@ pub(super) trait Controller {
     /// Set the remote window size.
     fn set_remote_window(&mut self, remote_window: usize) {}
 
-    fn on_ack(&mut self, now: Instant, len: usize, rtt: &RttEstimator) {}
+    fn on_ack(&mut self, now: Instant, len: usize, in_flight: usize, rtt: &RttEstimator) {}
 
-    fn on_retransmit(&mut self, now: Instant) {}
+    /// Fired on each duplicate ack received, after `on_loss` has been called.
+    fn on_dup_ack(&mut self, now: Instant, len: usize, in_flight: usize) {}
 
-    fn on_duplicate_ack(&mut self, now: Instant) {}
+    /// Fired on a Retransmission Timeout.
+    fn on_rto(&mut self, now: Instant, in_flight: usize) {}
+
+    /// Fired after an inferred loss via three duplicate acks.
+    fn on_loss(&mut self, now: Instant, in_flight: usize) {}
 
     fn pre_transmit(&mut self, now: Instant) {}
 
