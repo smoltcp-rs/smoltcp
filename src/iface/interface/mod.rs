@@ -155,6 +155,8 @@ pub struct InterfaceInner {
     routes: Routes,
     #[cfg(feature = "multicast")]
     multicast: multicast::State,
+
+    discovery_silent_time: Duration,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -183,9 +185,14 @@ pub struct Config {
     /// Enable stateless address autoconfiguration on the interface.
     #[cfg(feature = "proto-ipv6")]
     pub slaac: bool,
+
+    /// Minimum delay between neighbor discovery requests for the interface.
+    pub discovery_silent_time: Duration,
 }
 
 impl Config {
+    pub(crate) const DEFAULT_DISCOVERY_SILENT_TIME: Duration = Duration::from_millis(1_000);
+
     pub fn new(hardware_addr: HardwareAddress) -> Self {
         Config {
             random_seed: 0,
@@ -194,6 +201,7 @@ impl Config {
             pan_id: None,
             #[cfg(feature = "proto-ipv6")]
             slaac: false,
+            discovery_silent_time: Self::DEFAULT_DISCOVERY_SILENT_TIME,
         }
     }
 }
@@ -285,6 +293,7 @@ impl Interface {
                 #[cfg(feature = "proto-ipv6-slaac")]
                 slaac_updated: Instant::from_millis(0),
                 rand,
+                discovery_silent_time: config.discovery_silent_time,
             },
         }
     }
@@ -807,6 +816,7 @@ impl Interface {
                     item.meta.neighbor_missing(
                         self.inner.now,
                         neighbor_addr.expect("non-IP response packet"),
+                        self.inner.discovery_silent_time,
                     );
                 }
                 Ok(()) => {}
@@ -1181,7 +1191,8 @@ impl InterfaceInner {
         }
 
         // The request got dispatched, limit the rate on the cache.
-        self.neighbor_cache.limit_rate(self.now);
+        self.neighbor_cache
+            .limit_rate(self.now, self.discovery_silent_time);
         Err(DispatchError::NeighborPending)
     }
 

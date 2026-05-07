@@ -49,9 +49,6 @@ pub struct Cache {
 }
 
 impl Cache {
-    /// Minimum delay between discovery requests, in milliseconds.
-    pub(crate) const SILENT_TIME: Duration = Duration::from_millis(1_000);
-
     /// Neighbor entry lifetime, in milliseconds.
     pub(crate) const ENTRY_LIFETIME: Duration = Duration::from_millis(60_000);
 
@@ -165,8 +162,8 @@ impl Cache {
         }
     }
 
-    pub(crate) fn limit_rate(&mut self, timestamp: Instant) {
-        self.silent_until = timestamp + Self::SILENT_TIME;
+    pub(crate) fn limit_rate(&mut self, timestamp: Instant, delay: Duration) {
+        self.silent_until = timestamp + delay;
     }
 
     pub(crate) fn flush(&mut self) {
@@ -305,7 +302,7 @@ mod test {
             Answer::NotFound
         );
 
-        cache.limit_rate(Instant::from_millis(0));
+        cache.limit_rate(Instant::from_millis(0), Duration::from_millis(1000));
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(100)),
             Answer::RateLimited
