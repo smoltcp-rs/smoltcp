@@ -1377,6 +1377,17 @@ impl<'a> Socket<'a> {
         self.tx_buffer.len()
     }
 
+    /// Return the number of octets sent but not yet acknowledged, includes unacknowledged SYN or FIN.
+    fn bytes_in_flight(&self) -> usize {
+        let control_len = match self.state {
+            State::SynSent | State::SynReceived => 1,
+            State::FinWait1 | State::LastAck | State::Closing => 1,
+            _ => 0,
+        };
+
+        self.tx_buffer.len() + control_len
+    }
+
     /// Return the amount of octets queued in the receive buffer. This value can be larger than
     /// the slice read by the next `recv` or `peek` call because it includes all queued octets,
     /// and not only the octets that may be returned as a contiguous slice.
@@ -1572,7 +1583,6 @@ impl<'a> Socket<'a> {
             // all of the control flags we sent.
             _ => (false, false),
         };
-        let control_len = (sent_syn as usize) + (sent_fin as usize);
 
         // Reject unacceptable acknowledgements.
         match (self.state, repr.control, repr.ack_number) {
@@ -1642,7 +1652,7 @@ impl<'a> Socket<'a> {
             }
             // Every acknowledgement must be for transmitted but unacknowledged data.
             (_, _, Some(ack_number)) => {
-                let unacknowledged = self.tx_buffer.len() + control_len;
+                let unacknowledged = self.bytes_in_flight();
 
                 // Acceptable ACK range (both inclusive)
                 let mut ack_min = self.local_seq_no;
@@ -1794,9 +1804,11 @@ impl<'a> Socket<'a> {
             }
 
             self.rtte.on_ack(cx.now(), ack_number);
+
+            let in_flight = self.bytes_in_flight().saturating_sub(ack_len);
             self.congestion_controller
                 .inner_mut()
-                .on_ack(cx.now(), ack_len, &self.rtte);
+                .on_ack(cx.now(), ack_len, in_flight, &self.rtte);
         }
 
         // Disregard control flags we don't care about or shouldn't act on yet.
@@ -2050,10 +2062,12 @@ impl<'a> Socket<'a> {
                     // Increment duplicate ACK count
                     self.local_rx_dup_acks = self.local_rx_dup_acks.saturating_add(1);
 
-                    // Inform congestion controller of duplicate ACK
-                    self.congestion_controller
-                        .inner_mut()
-                        .on_duplicate_ack(cx.now());
+                    let in_flight = self.bytes_in_flight();
+                    self.congestion_controller.inner_mut().on_dup_ack(
+                        cx.now(),
+                        self.remote_mss,
+                        in_flight,
+                    );
 
                     net_debug!(
                         "received duplicate ACK for seq {} (duplicate nr {}{})",
@@ -2399,6 +2413,23 @@ impl<'a> Socket<'a> {
             // to be sent again.
             self.remote_last_seq = self.local_seq_no;
 
+            // Report the correct congestion event
+            if let Timer::Retransmit { .. } = self.timer {
+                // Inform the congestion controller that we're retransmitting.
+                // and should enter the slow start state
+                let in_flight = self.bytes_in_flight();
+                self.congestion_controller
+                    .inner_mut()
+                    .on_rto(cx.now(), in_flight);
+            } else {
+                // Inform the congestion controller that we're doing a fast retransmit
+                // and should enter the fast recovery state
+                let in_flight = self.bytes_in_flight();
+                self.congestion_controller
+                    .inner_mut()
+                    .on_loss(cx.now(), in_flight);
+            }
+
             // Clear the `should_retransmit` state. If we can't retransmit right
             // now for whatever reason (like zero window), this avoids an
             // infinite polling loop where `poll_at` returns `Now` but `dispatch`
@@ -2407,11 +2438,6 @@ impl<'a> Socket<'a> {
 
             // Inform RTTE, so that it can avoid bogus measurements.
             self.rtte.on_retransmit();
-
-            // Inform the congestion controller that we're retransmitting.
-            self.congestion_controller
-                .inner_mut()
-                .on_retransmit(cx.now());
         }
 
         #[cfg(feature = "socket-tcp-pause-synack")]
