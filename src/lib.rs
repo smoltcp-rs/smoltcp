@@ -148,7 +148,6 @@ pub mod config {
     #![allow(unused)]
     pub const ASSEMBLER_MAX_SEGMENT_COUNT: usize = 4;
     pub const DNS_MAX_NAME_SIZE: usize = 255;
-    pub const DNS_MAX_RESULT_COUNT: usize = 1;
     pub const DNS_MAX_SERVER_COUNT: usize = 1;
     pub const FRAGMENTATION_BUFFER_SIZE: usize = 4096;
     pub const IFACE_MAX_ADDR_COUNT: usize = 8;
