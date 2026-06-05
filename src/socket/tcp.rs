@@ -535,6 +535,12 @@ pub struct Socket<'a> {
     /// Nagle's Algorithm enabled.
     nagle: bool,
 
+    /// Whether we use selective acknowledgements (RFC 2018). When disabled, we neither
+    /// advertise the SACK-permitted option on SYN / SYN|ACK nor emit SACK ranges.
+    sack_enabled: bool,
+    /// The last three SACK ranges that were sent to the remote.
+    local_sack_history: [Option<(TcpSeqNumber, TcpSeqNumber)>; 3],
+
     /// The congestion control algorithm.
     congestion_controller: congestion::AnyController,
 
@@ -617,6 +623,8 @@ impl<'a> Socket<'a> {
             ack_delay_timer: AckDelayTimer::Idle,
             challenge_ack_timer: Instant::from_secs(0),
             nagle: true,
+            sack_enabled: true,
+            local_sack_history: [None, None, None],
             tsval_generator: None,
             last_remote_tsval: 0,
             congestion_controller: congestion::AnyController::new(),
@@ -821,6 +829,23 @@ impl<'a> Socket<'a> {
         self.nagle = enabled
     }
 
+    /// Return whether selective acknowledgements (RFC 2018) are enabled.
+    ///
+    /// See also the [set_sack_enabled](#method.set_sack_enabled) method.
+    pub fn sack_enabled(&self) -> bool {
+        self.sack_enabled
+    }
+
+    /// Enable or disable selective acknowledgements (SACK, RFC 2018).
+    ///
+    /// By default, SACK is enabled. When enabled, the socket advertises the SACK-permitted
+    /// option on the SYN it sends (and mirrors the peer's on a SYN|ACK), and emits SACK ranges
+    /// for out-of-order data. When disabled, the socket does neither, so the connection falls
+    /// back to cumulative ACKs only.
+    pub fn set_sack_enabled(&mut self, enabled: bool) {
+        self.sack_enabled = enabled
+    }
+
     /// Return the keep-alive interval.
     ///
     /// See also the [set_keep_alive](#method.set_keep_alive) method.
@@ -925,6 +950,7 @@ impl<'a> Socket<'a> {
         self.remote_last_ts = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
+        self.local_sack_history = [None, None, None];
 
         #[cfg(feature = "async")]
         {
@@ -1493,41 +1519,11 @@ impl<'a> Socket<'a> {
 
         // If the remote supports selective acknowledgement, add the option to the outgoing
         // segment.
-        if self.remote_has_sack {
+        if self.remote_has_sack && self.sack_enabled {
             net_debug!("sending sACK option with current assembler ranges");
 
-            // RFC 2018: The first SACK block (i.e., the one immediately following the kind and
-            // length fields in the option) MUST specify the contiguous block of data containing
-            // the segment which triggered this ACK, unless that segment advanced the
-            // Acknowledgment Number field in the header.
-            reply_repr.sack_ranges[0] = None;
-
             let ack = reply_repr.ack_number.unwrap_or(TcpSeqNumber(0));
-
-            if let Some(last_seg_seq) = self.local_rx_last_seq {
-                reply_repr.sack_ranges[0] = self
-                    .assembler
-                    .iter_data()
-                    .map(|(left, right)| (ack + left, ack + right))
-                    .find(|&(left, right)| left <= last_seg_seq && right >= last_seg_seq)
-                    .map(|(left, right)| (left.0 as u32, right.0 as u32));
-            }
-
-            if reply_repr.sack_ranges[0].is_none() {
-                // The matching segment was removed from the assembler, meaning the acknowledgement
-                // number has advanced, or there was no previous sACK.
-                //
-                // While the RFC says we SHOULD keep a list of reported sACK ranges, and iterate
-                // through those, that is currently infeasible. Instead, we offer the range with
-                // the lowest sequence number (if one exists) to hint at what segments would
-                // most quickly advance the acknowledgement number.
-                reply_repr.sack_ranges[0] = self
-                    .assembler
-                    .iter_data()
-                    .map(|(left, right)| (ack + left, ack + right))
-                    .next()
-                    .map(|(left, right)| (left.0 as u32, right.0 as u32));
-            }
+            reply_repr.sack_ranges = self.generate_sack_ranges(ack);
         }
 
         // Since the sACK option may have changed the length of the payload, update that.
@@ -2308,14 +2304,21 @@ impl<'a> Socket<'a> {
             IpAddress::Ipv6(_) => crate::wire::IPV6_HEADER_LEN,
         };
 
-        // The effective max segment size, taking into account the options and the local and remote limits.
-        let options_len = if self.tsval_generator.is_some() {
-            12
-        } else {
-            0
-        };
-
+        // The effective max segment size, taking into account our and remote's limits.
         let local_mss = cx.ip_mtu() - ip_header_len - TCP_HEADER_LEN;
+
+        let mut options_len = 0;
+        if self.tsval_generator.is_some() {
+            options_len += 10;
+        }
+
+        let sack_blocks = self.sack_range_count();
+        if sack_blocks > 0 {
+            options_len += sack_blocks * 8 + 2;
+        }
+
+        // Options are padded to a multiple of four bytes on the wire.
+        options_len = options_len.next_multiple_of(4);
         let effective_mss = local_mss.min(self.remote_mss).saturating_sub(options_len);
 
         // Have we sent data that hasn't been ACKed yet?
@@ -2427,6 +2430,83 @@ impl<'a> Socket<'a> {
             }
             _ => false,
         }
+    }
+
+    /// The number of SACK blocks the next emitted ACK will carry.
+    fn sack_range_count(&self) -> usize {
+        if self.remote_has_sack && self.sack_enabled {
+            self.assembler.iter_data().take(3).count()
+        } else {
+            0
+        }
+    }
+
+    /// Build the SACK blocks for an outgoing ACK, per RFC 2018, and record
+    /// what was reported in `local_sack_history`.
+    ///
+    /// First block contains the triggering segment (if applicable). Subsequent
+    /// blocks are filled from history (after being mapped to their up to date islands)
+    /// and then finally filled from islands within the assembler.
+    fn generate_sack_ranges(&mut self, ack: TcpSeqNumber) -> [Option<(u32, u32)>; 3] {
+        if self.assembler.is_empty() {
+            self.local_sack_history = [None, None, None];
+            return [None, None, None];
+        }
+
+        let mut blocks = [None, None, None];
+        let mut n = 0;
+
+        let find_block = |seq: TcpSeqNumber| {
+            self.assembler
+                .iter_data()
+                .map(|(l, r)| (ack + l, ack + r))
+                .find(|&(l, r)| l <= seq && seq <= r)
+        };
+
+        // RFC 2018: the first SACK block MUST specify the contiguous block of
+        // data containing the segment which triggered this ACK, unless that
+        // segment advanced the Acknowledgment Number field in the header.
+        if let Some(seq) = self.local_rx_last_seq
+            && let Some(block) = find_block(seq)
+        {
+            blocks[0] = Some(block);
+            n = 1;
+        }
+
+        // RFC 2018: The SACK option SHOULD be filled out by repeating the most
+        // recently reported SACK blocks that are not subsets of a SACK block
+        // already included in the SACK option being constructed.
+        //
+        // We map blocks into their current islands before reporting them.
+        for block in self.local_sack_history.iter().flatten() {
+            if n == blocks.len() {
+                break;
+            }
+
+            // TODO: Could be more efficient
+            if let Some(island) = find_block(block.0)
+                && !blocks[..n].contains(&Some(island))
+            {
+                blocks[n] = Some(island);
+                n += 1;
+            }
+        }
+
+        // Remaining slots are filled using islands within the assembler.
+        for island in self.assembler.iter_data().map(|(l, r)| (ack + l, ack + r)) {
+            if n == blocks.len() {
+                break;
+            }
+
+            // TODO: Could be more efficient
+            if !blocks[..n].contains(&Some(island)) {
+                blocks[n] = Some(island);
+                n += 1;
+            }
+        }
+
+        self.local_sack_history = blocks;
+        blocks.map(|block| block.map(|(l, r)| (l.0 as u32, r.0 as u32)))
     }
 
     pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
@@ -2573,6 +2653,32 @@ impl<'a> Socket<'a> {
             payload: &[],
         };
 
+        // We fill blocks before payload sizing to ensure the options header length
+        // is taken into account.
+        //
+        // RFC 2018:
+        // - The first SACK block MUST specify the contiguous block of data
+        // containing the segment which triggered this ACK, unless that segment
+        // advanced the Acknowledgment Number field in the header.
+        //
+        // - The SACK option SHOULD be filled out by repeating the most
+        // recently reported SACK blocks  that are not subsets of a SACK block
+        // already included in the SACK option being constructed.
+        //
+        // - The data receiver SHOULD include as many distinct SACK blocks as
+        // possible in the SACK option.
+        match self.state {
+            State::Closed | State::Listen | State::SynSent | State::SynReceived => {}
+            _ => {
+                if self.remote_has_sack
+                    && self.sack_enabled
+                    && let Some(ack) = repr.ack_number
+                {
+                    repr.sack_ranges = self.generate_sack_ranges(ack);
+                }
+            }
+        }
+
         let mut is_zero_window_probe = false;
 
         match self.state {
@@ -2595,9 +2701,9 @@ impl<'a> Socket<'a> {
                 if self.state == State::SynSent {
                     repr.ack_number = None;
                     repr.window_scale = Some(self.remote_win_shift);
-                    repr.sack_permitted = true;
+                    repr.sack_permitted = self.sack_enabled;
                 } else {
-                    repr.sack_permitted = self.remote_has_sack;
+                    repr.sack_permitted = self.remote_has_sack && self.sack_enabled;
                     repr.window_scale = self.remote_win_scale.map(|_| self.remote_win_shift);
                 }
             }
@@ -3914,6 +4020,58 @@ mod test {
         );
         assert_eq!(s.state, State::Established);
         assert_eq!(s.remote_mss, DEFAULT_MSS);
+    }
+
+    #[test]
+    fn test_connect_sack_disabled() {
+        let mut s = socket();
+        s.local_seq_no = LOCAL_SEQ;
+        s.socket.set_sack_enabled(false);
+        s.socket
+            .connect(&mut s.cx, REMOTE_END, LOCAL_END.port)
+            .unwrap();
+        // The SYN must not carry the SACK-permitted option.
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: None,
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                sack_permitted: false,
+                ..RECV_TEMPL
+            }]
+        );
+    }
+
+    #[test]
+    fn test_listen_sack_disabled() {
+        // Even when the peer offers SACK, a SACK-disabled socket must not mirror it on SYN|ACK.
+        let mut s = socket_listen();
+        s.socket.set_sack_enabled(false);
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                sack_permitted: true,
+                ..SEND_TEMPL
+            }
+        );
+        assert!(s.remote_has_sack);
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                sack_permitted: false,
+                ..RECV_TEMPL
+            }]
+        );
     }
 
     #[test]
