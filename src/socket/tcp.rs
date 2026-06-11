@@ -763,7 +763,12 @@ impl<'a> Socket<'a> {
         let next_ack = self.remote_seq_no + self.rx_buffer.len();
 
         let last_win = (self.remote_last_win as usize) << self.remote_win_shift;
-        let last_win_adjusted = last_ack + last_win - next_ack;
+        let last_win_end = last_ack + last_win;
+        let last_win_adjusted = if next_ack > last_win_end {
+            0
+        } else {
+            last_win_end - next_ack
+        };
 
         Some(u16::try_from(last_win_adjusted >> self.remote_win_shift).unwrap_or(u16::MAX))
     }
@@ -2544,7 +2549,7 @@ impl<'a> Socket<'a> {
                     .min(self.remote_mss)
                     .min(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
 
-                let offset = self.remote_last_seq - self.local_seq_no;
+                let offset = (self.remote_last_seq.0.wrapping_sub(self.local_seq_no.0)) as u32 as usize;
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
 
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
@@ -2586,7 +2591,7 @@ impl<'a> Socket<'a> {
             tcp_trace!(
                 "tx buffer: sending {} octets at offset {}",
                 repr.payload.len(),
-                self.remote_last_seq - self.local_seq_no
+                (self.remote_last_seq.0.wrapping_sub(self.local_seq_no.0)) as u32
             );
         }
         if repr.control != TcpControl::None || repr.payload.is_empty() {
@@ -8998,5 +9003,21 @@ mod test {
         s.send_slice(b"def").unwrap();
         recv_nothing!(s);
         assert_eq!(s.state, State::Closed);
+    }
+
+    #[test]
+    fn test_last_scaled_window_underflow() {
+        let mut s = socket_established_with_buffer_sizes(64, 128);
+        let last_ack = TcpSeqNumber(1000);
+        s.remote_last_ack = Some(last_ack);
+        s.remote_last_win = 10;
+        s.remote_win_shift = 0;
+        s.remote_seq_no = TcpSeqNumber(2000);
+
+        let data = [0u8; 100];
+        let _ = s.rx_buffer.enqueue_slice(&data);
+
+        let val = s.socket.last_scaled_window();
+        assert_eq!(val, Some(0));
     }
 }
