@@ -2549,7 +2549,8 @@ impl<'a> Socket<'a> {
                     .min(self.remote_mss)
                     .min(cx.ip_mtu() - ip_repr.header_len() - TCP_HEADER_LEN);
 
-                let offset = (self.remote_last_seq.0.wrapping_sub(self.local_seq_no.0)) as u32 as usize;
+                let offset =
+                    (self.remote_last_seq.0.wrapping_sub(self.local_seq_no.0)) as u32 as usize;
                 repr.payload = self.tx_buffer.get_allocated(offset, size);
 
                 // If we've sent everything we had in the buffer, follow it with the PSH or FIN
