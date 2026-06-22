@@ -7570,6 +7570,94 @@ mod test {
         );
     }
 
+    #[cfg(feature = "segmentation-offload")]
+    #[test]
+    fn test_segmentation_offload() {
+        use crate::tests::segmentation_offload::MAX_SEGMENTABLE_SIZE;
+        use crate::wire;
+
+        let (interface, _, _) =
+            crate::tests::segmentation_offload::setup_segmenting(crate::phy::Medium::Ip);
+        let mut s = TestSocket {
+            cx: interface.inner,
+            ..socket_listen()
+        };
+        s.tx_buffer = SocketBuffer::new(vec![0; 2 * MAX_SEGMENTABLE_SIZE]);
+
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                window_scale: Some(2),
+                ..SEND_TEMPL
+            }
+        );
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                window_len: u16::MAX,
+                ..SEND_TEMPL
+            }
+        );
+
+        s.send_slice(&[0; 2 * MAX_SEGMENTABLE_SIZE][..]).unwrap();
+
+        // We want to ensure that the size of the unsegmented packets exceed the
+        // maximum allowed by the length field in the IP headers to check if the
+        // relevant code incorrectly assumes that the length fits into the
+        // field.
+        let ip_header_len = match s.local_endpoint().unwrap().addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(_) => {
+                assert!(MAX_SEGMENTABLE_SIZE > usize::from(u16::MAX));
+                wire::IPV4_HEADER_LEN
+            }
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(_) => {
+                assert!(MAX_SEGMENTABLE_SIZE - wire::IPV6_HEADER_LEN > usize::from(u16::MAX));
+                wire::IPV6_HEADER_LEN
+            }
+        };
+        let payload = vec![0; MAX_SEGMENTABLE_SIZE - ip_header_len - TCP_HEADER_LEN];
+        assert!(
+            payload.len() > usize::from(BASE_MSS),
+            "the payload is not large enough to require segmentation!"
+        );
+
+        recv!(
+            s,
+            [
+                TcpRepr {
+                    seq_number: LOCAL_SEQ + 1,
+                    ack_number: Some(REMOTE_SEQ + 1),
+                    payload: payload.as_slice(),
+                    ..RECV_TEMPL
+                },
+                TcpRepr {
+                    seq_number: LOCAL_SEQ + payload.len() + 1,
+                    ack_number: Some(REMOTE_SEQ + 1),
+                    payload: payload.as_slice(),
+                    ..RECV_TEMPL
+                }
+            ]
+        );
+    }
+
     #[test]
     fn test_recv_out_of_recv_win() {
         let mut s = socket_established();
