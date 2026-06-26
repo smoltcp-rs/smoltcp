@@ -6,7 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-No unreleased changes yet. Please send PRs!
+### Added
+
+- iface: Add an inbound packet drop callback. Use `Interface::set_packet_drop_callback` to be notified whenever the interface does not deliver an inbound packet to a socket — both silent drops (malformed, not-for-us, no route, unhandled ICMP, etc.) and well-formed packets that are rejected with a reply (TCP RST, ICMP unreachable). The callback receives a `PacketDropInfo` describing the `PacketDropReason`, the `PacketDropDisposition`, and, where they were parsed for free, the offending packet's IP header, transport ports and/or raw bytes (see `PacketDropInfo::five_tuple`). An opaque `usize` cookie supplied alongside the callback is passed back on every invocation, so the (capture-less) `fn` callback can reach application state without an allocator.
+
+
 
 ## [0.13.1] - 2026-05-01
 

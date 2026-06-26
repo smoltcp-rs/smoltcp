@@ -16,13 +16,21 @@ impl InterfaceInner {
         sixlowpan_payload: &'payload [u8],
         _fragments: &'output mut FragmentsBuffer,
     ) -> Option<Packet<'output>> {
-        let ieee802154_frame = check!(Ieee802154Frame::new_checked(sixlowpan_payload));
+        let ieee802154_frame = check_report!(
+            self,
+            Some(sixlowpan_payload),
+            Ieee802154Frame::new_checked(sixlowpan_payload)
+        );
 
         if ieee802154_frame.frame_type() != Ieee802154FrameType::Data {
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::NotADataFrame).with_frame(sixlowpan_payload),
+            );
             return None;
         }
 
-        let ieee802154_repr = check!(Ieee802154Repr::parse(&ieee802154_frame));
+        let ieee802154_repr =
+            check_report!(self, Some(sixlowpan_payload), Ieee802154Repr::parse(&ieee802154_frame));
 
         // Drop frames when the user has set a PAN id and the PAN id from frame is not equal to this
         // When the user didn't set a PAN id (so it is None), then we accept all PAN id's.
@@ -34,6 +42,9 @@ impl InterfaceInner {
             net_debug!(
                 "IEEE802.15.4: dropping {:?} because not our PAN id (or not broadcast)",
                 ieee802154_repr
+            );
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::WrongPanId).with_frame(sixlowpan_payload),
             );
             return None;
         }

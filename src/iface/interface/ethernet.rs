@@ -8,13 +8,16 @@ impl InterfaceInner {
         frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,
     ) -> Option<EthernetPacket<'frame>> {
-        let eth_frame = check!(EthernetFrame::new_checked(frame));
+        let eth_frame = check_report!(self, Some(frame), EthernetFrame::new_checked(frame));
 
         // Ignore any packets not directed to our hardware address or any of the multicast groups.
         if !eth_frame.dst_addr().is_broadcast()
             && !eth_frame.dst_addr().is_multicast()
             && HardwareAddress::Ethernet(eth_frame.dst_addr()) != self.hardware_addr
         {
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::NotForUs).with_frame(frame),
+            );
             return None;
         }
 
@@ -23,7 +26,11 @@ impl InterfaceInner {
             EthernetProtocol::Arp => self.process_arp(self.now, &eth_frame),
             #[cfg(feature = "proto-ipv4")]
             EthernetProtocol::Ipv4 => {
-                let ipv4_packet = check!(Ipv4Packet::new_checked(eth_frame.payload()));
+                let ipv4_packet = check_report!(
+                    self,
+                    Some(eth_frame.payload()),
+                    Ipv4Packet::new_checked(eth_frame.payload())
+                );
 
                 self.process_ipv4(
                     sockets,
@@ -36,12 +43,21 @@ impl InterfaceInner {
             }
             #[cfg(feature = "proto-ipv6")]
             EthernetProtocol::Ipv6 => {
-                let ipv6_packet = check!(Ipv6Packet::new_checked(eth_frame.payload()));
+                let ipv6_packet = check_report!(
+                    self,
+                    Some(eth_frame.payload()),
+                    Ipv6Packet::new_checked(eth_frame.payload())
+                );
                 self.process_ipv6(sockets, meta, eth_frame.src_addr().into(), &ipv6_packet)
                     .map(EthernetPacket::Ip)
             }
             // Drop all other traffic.
-            _ => None,
+            _ => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::UnknownProtocol).with_frame(frame),
+                );
+                None
+            }
         }
     }
 

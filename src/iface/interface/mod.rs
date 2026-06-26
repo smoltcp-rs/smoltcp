@@ -5,6 +5,8 @@
 #[cfg(test)]
 mod tests;
 
+mod drop;
+
 #[cfg(feature = "medium-ethernet")]
 mod ethernet;
 #[cfg(feature = "medium-ieee802154")]
@@ -25,6 +27,10 @@ mod tcp;
 mod udp;
 
 use super::packet::*;
+
+pub use self::drop::{
+    FiveTuple, PacketDropCallback, PacketDropDisposition, PacketDropInfo, PacketDropReason,
+};
 
 use core::result::Result;
 use heapless::Vec;
@@ -68,6 +74,34 @@ macro_rules! check {
     };
 }
 use check;
+
+/// Like [`check!`], but additionally reports a [`PacketDropReason::Malformed`]
+/// drop to the interface's packet drop callback.
+///
+/// A `macro_rules!` macro cannot refer to the caller's `self`, so the
+/// [`InterfaceInner`] must be passed in explicitly as the first argument. The
+/// second argument is an `Option<&[u8]>` of the raw bytes that failed to parse
+/// (pass `None` when unavailable), forwarded to the callback as
+/// [`PacketDropInfo::frame`].
+macro_rules! check_report {
+    ($iface:expr, $frame:expr, $e:expr) => {
+        match $e {
+            Ok(x) => x,
+            Err(_) => {
+                // concat!/stringify! doesn't work with defmt macros
+                #[cfg(not(feature = "defmt"))]
+                net_trace!(concat!("iface: malformed ", stringify!($e)));
+                #[cfg(feature = "defmt")]
+                net_trace!("iface: malformed");
+                $iface.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::Malformed).with_optional_frame($frame),
+                );
+                return Default::default();
+            }
+        }
+    };
+}
+use check_report;
 
 /// Result returned by [`Interface::poll`].
 ///
@@ -155,6 +189,9 @@ pub struct InterfaceInner {
     routes: Routes,
     #[cfg(feature = "multicast")]
     multicast: multicast::State,
+    /// Callback invoked whenever an inbound packet is dropped, together with the
+    /// opaque cookie to pass it. See [`Interface::set_packet_drop_callback`].
+    packet_drop_callback: Option<(PacketDropCallback, usize)>,
 }
 
 /// Configuration structure used for creating a network interface.
@@ -285,6 +322,7 @@ impl Interface {
                 #[cfg(feature = "proto-ipv6-slaac")]
                 slaac_updated: Instant::from_millis(0),
                 rand,
+                packet_drop_callback: None,
             },
         }
     }
@@ -427,6 +465,71 @@ impl Interface {
     /// See [`set_any_ip`](Self::set_any_ip) for details on AnyIP
     pub fn any_ip(&self) -> bool {
         self.inner.any_ip
+    }
+
+    /// Set a callback to be invoked whenever the interface does not deliver an
+    /// inbound packet to a socket.
+    ///
+    /// The interface declines to deliver an inbound packet to a socket in many
+    /// situations: when it is malformed, when it is not addressed to this
+    /// interface, when no route or local address is available to handle it, when
+    /// no socket is listening for it, and so on. Some of these are silent drops;
+    /// others the stack rejects by sending a reply (a TCP RST, or an ICMP
+    /// "unreachable"). In all of these cases the callback is invoked with a
+    /// [`PacketDropInfo`] describing the [reason](PacketDropReason), the
+    /// [disposition](PacketDropDisposition) (silently dropped, or rejected with a
+    /// reply), and — where they are available for free — parsed and/or raw
+    /// details of the offending packet.
+    ///
+    /// This is intended for diagnostics, logging or metrics, and in particular
+    /// for VPN-style use cases that want to observe which inbound flows are not
+    /// being handled (see [`PacketDropInfo::five_tuple`]). It is *not* invoked
+    /// for packets that are successfully delivered to a socket.
+    ///
+    /// The callback is a plain `fn` pointer so that it works without an allocator
+    /// and therefore cannot capture state. To let it reach your application
+    /// state, you supply an opaque `usize` *cookie* alongside it; the interface
+    /// stores the cookie and passes it back as the callback's second argument on
+    /// every invocation, without ever interpreting it. Use it as an index into
+    /// your own table, a tag, or (with your own `unsafe`) a pointer back to your
+    /// state. (If you don't need it, pass `0`.)
+    ///
+    /// Pass `None` to remove a previously-installed callback.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use core::sync::atomic::{AtomicUsize, Ordering};
+    /// use smoltcp::iface::PacketDropInfo;
+    ///
+    /// static DROPPED: AtomicUsize = AtomicUsize::new(0);
+    ///
+    /// // `cookie` is the opaque value you passed to `set_packet_drop_callback`.
+    /// fn on_drop(info: PacketDropInfo, cookie: usize) {
+    ///     DROPPED.fetch_add(1, Ordering::Relaxed);
+    ///     # let _ = (info.reason, cookie);
+    /// }
+    ///
+    /// # #[cfg(all(feature = "medium-ethernet", feature = "alloc"))] {
+    /// # use smoltcp::iface::{Config, Interface};
+    /// # use smoltcp::phy::{Loopback, Medium};
+    /// # use smoltcp::time::Instant;
+    /// # let mut device = Loopback::new(Medium::Ethernet);
+    /// # let config = Config::new(smoltcp::wire::EthernetAddress([2, 0, 0, 0, 0, 1]).into());
+    /// # let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    /// iface.set_packet_drop_callback(Some((on_drop, 0)));
+    /// # }
+    /// ```
+    pub fn set_packet_drop_callback(&mut self, callback: Option<(PacketDropCallback, usize)>) {
+        self.inner.packet_drop_callback = callback;
+    }
+
+    /// Get the currently installed inbound packet drop callback and its cookie,
+    /// if any.
+    ///
+    /// See [`set_packet_drop_callback`](Self::set_packet_drop_callback).
+    pub fn packet_drop_callback(&self) -> Option<(PacketDropCallback, usize)> {
+        self.inner.packet_drop_callback
     }
 
     /// Get the packet reassembly timeout.
@@ -927,16 +1030,23 @@ impl InterfaceInner {
         match IpVersion::of_packet(ip_payload) {
             #[cfg(feature = "proto-ipv4")]
             Ok(IpVersion::Ipv4) => {
-                let ipv4_packet = check!(Ipv4Packet::new_checked(ip_payload));
+                let ipv4_packet =
+                    check_report!(self, Some(ip_payload), Ipv4Packet::new_checked(ip_payload));
                 self.process_ipv4(sockets, meta, HardwareAddress::Ip, &ipv4_packet, frag)
             }
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
-                let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
+                let ipv6_packet =
+                    check_report!(self, Some(ip_payload), Ipv6Packet::new_checked(ip_payload));
                 self.process_ipv6(sockets, meta, HardwareAddress::Ip, &ipv6_packet)
             }
             // Drop all other traffic.
-            _ => None,
+            _ => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::UnknownProtocol).with_frame(ip_payload),
+                );
+                None
+            }
         }
     }
 

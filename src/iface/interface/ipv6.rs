@@ -193,11 +193,15 @@ impl InterfaceInner {
         source_hardware_addr: HardwareAddress,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
     ) -> Option<Packet<'frame>> {
-        let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
+        let ipv6_repr = check_report!(self, None, Ipv6Repr::parse(ipv6_packet));
 
         if !ipv6_repr.src_addr.x_is_unicast() {
             // Discard packets with non-unicast source addresses.
             net_debug!("non-unicast source address");
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::NonUnicastSource)
+                    .with_ip_repr(IpRepr::Ipv6(ipv6_repr)),
+            );
             return None;
         }
 
@@ -219,6 +223,10 @@ impl InterfaceInner {
                     "Rejecting IPv6 packet; {} is not a unicast address",
                     ipv6_repr.dst_addr
                 );
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::NotForUsNonUnicast)
+                        .with_ip_repr(IpRepr::Ipv6(ipv6_repr)),
+                );
                 return None;
             }
 
@@ -229,10 +237,18 @@ impl InterfaceInner {
             {
                 net_trace!("Rejecting IPv6 packet; no matching routes");
 
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::NoRoute)
+                        .with_ip_repr(IpRepr::Ipv6(ipv6_repr)),
+                );
                 return None;
             }
 
             net_trace!("Rejecting IPv6 packet; no assigned address");
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::NoSourceAddress)
+                    .with_ip_repr(IpRepr::Ipv6(ipv6_repr)),
+            );
             return None;
         }
 
@@ -350,6 +366,11 @@ impl InterfaceInner {
             _ if handled_by_raw_socket => None,
 
             _ => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::UnknownTransportProtocol)
+                        .with_disposition(PacketDropDisposition::RepliedIcmpUnreachable)
+                        .with_ip_repr(IpRepr::Ipv6(ipv6_repr)),
+                );
                 // Send back as much of the original payload as we can.
                 let payload_len =
                     icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
@@ -396,6 +417,14 @@ impl InterfaceInner {
             }
         }
 
+        // Whether an ICMP socket already consumed this message (always defined,
+        // regardless of the `socket-icmp` feature), so we don't report it as
+        // unhandled below.
+        #[cfg(feature = "socket-icmp")]
+        let icmp_handled = handled_by_icmp_socket;
+        #[cfg(not(feature = "socket-icmp"))]
+        let icmp_handled = false;
+
         match icmp_repr {
             // Respond to echo requests.
             #[cfg(feature = "auto-icmp-echo-reply")]
@@ -413,7 +442,15 @@ impl InterfaceInner {
             }
 
             // Ignore any echo replies.
-            Icmpv6Repr::EchoReply { .. } => None,
+            Icmpv6Repr::EchoReply { .. } => {
+                if !icmp_handled {
+                    self.report_packet_drop(
+                        PacketDropInfo::new(PacketDropReason::IcmpUnhandled)
+                            .with_ip_repr(IpRepr::Ipv6(ip_repr)),
+                    );
+                }
+                None
+            }
 
             // Forward any NDISC packets to the ndisc packet handler
             #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -433,7 +470,15 @@ impl InterfaceInner {
                 {
                     self.process_mldv2(ip_repr, repr)
                 }
-                _ => None,
+                _ => {
+                    if !icmp_handled {
+                        self.report_packet_drop(
+                            PacketDropInfo::new(PacketDropReason::IcmpUnhandled)
+                                .with_ip_repr(IpRepr::Ipv6(ip_repr)),
+                        );
+                    }
+                    None
+                }
             },
 
             // Don't report an error if a packet with unknown type
@@ -443,7 +488,13 @@ impl InterfaceInner {
 
             // FIXME: do something correct here?
             // By doing nothing, this arm handles the case when auto echo replies are disabled.
-            _ => None,
+            _ => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::IcmpUnhandled)
+                        .with_ip_repr(IpRepr::Ipv6(ip_repr)),
+                );
+                None
+            }
         }
     }
 

@@ -5,6 +5,9 @@ mod ipv6;
 #[cfg(feature = "proto-sixlowpan")]
 mod sixlowpan;
 
+#[cfg(all(feature = "medium-ip", feature = "proto-ipv4"))]
+mod drop;
+
 #[allow(unused)]
 use std::vec::Vec;
 

@@ -16,13 +16,12 @@ impl InterfaceInner {
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
         let (src_addr, dst_addr) = (ip_repr.src_addr(), ip_repr.dst_addr());
-        let udp_packet = check!(UdpPacket::new_checked(ip_payload));
-        let udp_repr = check!(UdpRepr::parse(
-            &udp_packet,
-            &src_addr,
-            &dst_addr,
-            &self.caps.checksum
-        ));
+        let udp_packet = check_report!(self, None, UdpPacket::new_checked(ip_payload));
+        let udp_repr = check_report!(
+            self,
+            None,
+            UdpRepr::parse(&udp_packet, &src_addr, &dst_addr, &self.caps.checksum)
+        );
 
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
@@ -54,6 +53,12 @@ impl InterfaceInner {
             IpRepr::Ipv6(_) if handled_by_raw_socket => None,
             #[cfg(feature = "proto-ipv4")]
             IpRepr::Ipv4(ipv4_repr) => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::UdpNoSocket)
+                        .with_disposition(PacketDropDisposition::RepliedIcmpUnreachable)
+                        .with_ip_repr(IpRepr::Ipv4(ipv4_repr))
+                        .with_ports(udp_repr.src_port, udp_repr.dst_port),
+                );
                 let payload_len =
                     icmp_reply_payload_len(ip_payload.len(), IPV4_MIN_MTU, ipv4_repr.buffer_len());
                 let icmpv4_reply_repr = Icmpv4Repr::DstUnreachable {
@@ -65,6 +70,12 @@ impl InterfaceInner {
             }
             #[cfg(feature = "proto-ipv6")]
             IpRepr::Ipv6(ipv6_repr) => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::UdpNoSocket)
+                        .with_disposition(PacketDropDisposition::RepliedIcmpUnreachable)
+                        .with_ip_repr(IpRepr::Ipv6(ipv6_repr))
+                        .with_ports(udp_repr.src_port, udp_repr.dst_port),
+                );
                 let payload_len =
                     icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
                 let icmpv6_reply_repr = Icmpv6Repr::DstUnreachable {

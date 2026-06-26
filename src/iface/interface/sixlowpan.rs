@@ -57,12 +57,20 @@ impl InterfaceInner {
         payload: &'payload [u8],
         f: &'output mut FragmentsBuffer,
     ) -> Option<Packet<'output>> {
-        let payload = match check!(SixlowpanPacket::dispatch(payload)) {
+        let original_payload = payload;
+        let payload = match check_report!(
+            self,
+            Some(original_payload),
+            SixlowpanPacket::dispatch(payload)
+        ) {
             #[cfg(not(feature = "proto-sixlowpan-fragmentation"))]
             SixlowpanPacket::FragmentHeader => {
                 net_debug!(
                     "Fragmentation is not supported, \
                     use the `proto-sixlowpan-fragmentation` feature to add support."
+                );
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::Sixlowpan).with_frame(original_payload),
                 );
                 return None;
             }
@@ -81,6 +89,10 @@ impl InterfaceInner {
                     Ok(len) => &f.decompress_buf[..len],
                     Err(e) => {
                         net_debug!("sixlowpan decompress failed: {:?}", e);
+                        self.report_packet_drop(
+                            PacketDropInfo::new(PacketDropReason::Sixlowpan)
+                                .with_frame(original_payload),
+                        );
                         return None;
                     }
                 }
@@ -94,7 +106,7 @@ impl InterfaceInner {
                 Some(s) => HardwareAddress::Ieee802154(s),
                 None => HardwareAddress::Ieee802154(Ieee802154Address::Absent),
             },
-            &check!(Ipv6Packet::new_checked(payload)),
+            &check_report!(self, None, Ipv6Packet::new_checked(payload)),
         )
     }
 

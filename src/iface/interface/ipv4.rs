@@ -100,10 +100,15 @@ impl InterfaceInner {
         ipv4_packet: &Ipv4Packet<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
     ) -> Option<Packet<'a>> {
-        let mut ipv4_repr = check!(Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
+        let mut ipv4_repr =
+            check_report!(self, None, Ipv4Repr::parse(ipv4_packet, &self.caps.checksum));
         if !self.is_unicast_v4(ipv4_repr.src_addr) && !ipv4_repr.src_addr.is_unspecified() {
             // Discard packets with non-unicast source addresses but allow unspecified
             net_debug!("non-unicast or unspecified source address");
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::NonUnicastSource)
+                    .with_ip_repr(IpRepr::Ipv4(ipv4_repr)),
+            );
             return None;
         }
 
@@ -116,6 +121,10 @@ impl InterfaceInner {
                     Ok(f) => f,
                     Err(_) => {
                         net_debug!("No available packet assembler for fragmented packet");
+                        self.report_packet_drop(
+                            PacketDropInfo::new(PacketDropReason::FragmentReassembly)
+                                .with_ip_repr(IpRepr::Ipv4(ipv4_repr)),
+                        );
                         return None;
                     }
                 };
@@ -130,6 +139,10 @@ impl InterfaceInner {
 
                 if let Err(e) = f.add(ipv4_packet.payload(), ipv4_packet.frag_offset() as usize) {
                     net_debug!("fragmentation error: {:?}", e);
+                    self.report_packet_drop(
+                        PacketDropInfo::new(PacketDropReason::FragmentReassembly)
+                            .with_ip_repr(IpRepr::Ipv4(ipv4_repr)),
+                    );
                     return None;
                 }
 
@@ -193,6 +206,10 @@ impl InterfaceInner {
                     "Rejecting IPv4 packet; {} is not a unicast address",
                     ipv4_repr.dst_addr
                 );
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::NotForUsNonUnicast)
+                        .with_ip_repr(IpRepr::Ipv4(ipv4_repr)),
+                );
                 return None;
             }
 
@@ -203,10 +220,18 @@ impl InterfaceInner {
             {
                 net_trace!("Rejecting IPv4 packet; no matching routes");
 
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::NoRoute)
+                        .with_ip_repr(IpRepr::Ipv4(ipv4_repr)),
+                );
                 return None;
             }
 
             net_trace!("Rejecting IPv4 packet; no assigned address");
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::NoSourceAddress)
+                    .with_ip_repr(IpRepr::Ipv4(ipv4_repr)),
+            );
             return None;
         }
 
@@ -238,6 +263,11 @@ impl InterfaceInner {
             _ if handled_by_raw_socket => None,
 
             _ => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::UnknownTransportProtocol)
+                        .with_disposition(PacketDropDisposition::RepliedIcmpUnreachable)
+                        .with_ip_repr(IpRepr::Ipv4(ipv4_repr)),
+                );
                 // Send back as much of the original payload as we can.
                 let payload_len =
                     icmp_reply_payload_len(ip_payload.len(), IPV4_MIN_MTU, ipv4_repr.buffer_len());
@@ -257,8 +287,12 @@ impl InterfaceInner {
         timestamp: Instant,
         eth_frame: &EthernetFrame<&'frame [u8]>,
     ) -> Option<EthernetPacket<'frame>> {
-        let arp_packet = check!(ArpPacket::new_checked(eth_frame.payload()));
-        let arp_repr = check!(ArpRepr::parse(&arp_packet));
+        let arp_packet = check_report!(
+            self,
+            Some(eth_frame.payload()),
+            ArpPacket::new_checked(eth_frame.payload())
+        );
+        let arp_repr = check_report!(self, Some(eth_frame.payload()), ArpRepr::parse(&arp_packet));
 
         match arp_repr {
             ArpRepr::EthernetIpv4 {
@@ -270,23 +304,39 @@ impl InterfaceInner {
             } => {
                 // Only process ARP packets for us.
                 if !self.has_ip_addr(target_protocol_addr) {
+                    self.report_packet_drop(
+                        PacketDropInfo::new(PacketDropReason::ArpNotForUs)
+                            .with_frame(eth_frame.payload()),
+                    );
                     return None;
                 }
 
                 // Only process REQUEST and RESPONSE.
                 if let ArpOperation::Unknown(_) = operation {
                     net_debug!("arp: unknown operation code");
+                    self.report_packet_drop(
+                        PacketDropInfo::new(PacketDropReason::ArpInvalid)
+                            .with_frame(eth_frame.payload()),
+                    );
                     return None;
                 }
 
                 // Discard packets with non-unicast source addresses.
                 if !source_protocol_addr.x_is_unicast() || !source_hardware_addr.is_unicast() {
                     net_debug!("arp: non-unicast source address");
+                    self.report_packet_drop(
+                        PacketDropInfo::new(PacketDropReason::ArpInvalid)
+                            .with_frame(eth_frame.payload()),
+                    );
                     return None;
                 }
 
                 if !self.in_same_network(&IpAddress::Ipv4(source_protocol_addr)) {
                     net_debug!("arp: source IP address not in same network as us");
+                    self.report_packet_drop(
+                        PacketDropInfo::new(PacketDropReason::ArpInvalid)
+                            .with_frame(eth_frame.payload()),
+                    );
                     return None;
                 }
 
@@ -340,6 +390,14 @@ impl InterfaceInner {
             }
         }
 
+        // Whether an ICMP socket already consumed this message (always defined,
+        // regardless of the `socket-icmp` feature), so we don't report it as
+        // unhandled below.
+        #[cfg(feature = "socket-icmp")]
+        let icmp_handled = handled_by_icmp_socket;
+        #[cfg(not(feature = "socket-icmp"))]
+        let icmp_handled = false;
+
         match icmp_repr {
             // Respond to echo requests.
             #[cfg(all(feature = "proto-ipv4", feature = "auto-icmp-echo-reply"))]
@@ -357,7 +415,15 @@ impl InterfaceInner {
             }
 
             // Ignore any echo replies.
-            Icmpv4Repr::EchoReply { .. } => None,
+            Icmpv4Repr::EchoReply { .. } => {
+                if !icmp_handled {
+                    self.report_packet_drop(
+                        PacketDropInfo::new(PacketDropReason::IcmpUnhandled)
+                            .with_ip_repr(IpRepr::Ipv4(ip_repr)),
+                    );
+                }
+                None
+            }
 
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
@@ -366,7 +432,13 @@ impl InterfaceInner {
 
             // FIXME: do something correct here?
             // By doing nothing, this arm handles the case when auto echo replies are disabled.
-            _ => None,
+            _ => {
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::IcmpUnhandled)
+                        .with_ip_repr(IpRepr::Ipv4(ip_repr)),
+                );
+                None
+            }
         }
     }
 

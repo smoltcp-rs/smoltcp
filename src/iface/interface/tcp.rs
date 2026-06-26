@@ -18,16 +18,19 @@ impl InterfaceInner {
         // This is not done at the iface level because it might be useful with
         // UDP or raw sockets, but it's definitely not useful for TCP.
         if src_addr.is_unspecified() || dst_addr.is_unspecified() {
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::TcpUnspecifiedEndpoint)
+                    .with_ip_repr(ip_repr.clone()),
+            );
             return None;
         }
 
-        let tcp_packet = check!(TcpPacket::new_checked(ip_payload));
-        let tcp_repr = check!(TcpRepr::parse(
-            &tcp_packet,
-            &src_addr,
-            &dst_addr,
-            &self.caps.checksum
-        ));
+        let tcp_packet = check_report!(self, None, TcpPacket::new_checked(ip_payload));
+        let tcp_repr = check_report!(
+            self,
+            None,
+            TcpRepr::parse(&tcp_packet, &src_addr, &dst_addr, &self.caps.checksum)
+        );
 
         for tcp_socket in sockets
             .items_mut()
@@ -48,9 +51,24 @@ impl InterfaceInner {
             // Never reply to a TCP RST packet with another TCP RST packet.
             // Never send a TCP RST packet with unspecified addresses.
             // Never send a TCP RST when packet has been handled by raw socket.
+            if !handled_by_raw_socket {
+                // The segment found no socket and we won't reply; report it as a
+                // silent drop. (When handled by a raw socket it isn't a drop.)
+                self.report_packet_drop(
+                    PacketDropInfo::new(PacketDropReason::TcpNoSocket)
+                        .with_ip_repr(ip_repr.clone())
+                        .with_ports(tcp_repr.src_port, tcp_repr.dst_port),
+                );
+            }
             None
         } else {
             // The packet wasn't handled by a socket, send a TCP RST packet.
+            self.report_packet_drop(
+                PacketDropInfo::new(PacketDropReason::TcpNoSocket)
+                    .with_disposition(PacketDropDisposition::RepliedTcpReset)
+                    .with_ip_repr(ip_repr.clone())
+                    .with_ports(tcp_repr.src_port, tcp_repr.dst_port),
+            );
             let (ip, tcp) = tcp::Socket::rst_reply(&ip_repr, &tcp_repr);
             Some(Packet::new(ip, IpPayload::Tcp(tcp)))
         }

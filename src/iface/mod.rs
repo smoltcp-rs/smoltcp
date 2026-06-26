@@ -21,7 +21,8 @@ mod packet;
 #[cfg(feature = "multicast")]
 pub use self::interface::multicast::MulticastError;
 pub use self::interface::{
-    Config, Interface, InterfaceInner as Context, PollIngressSingleResult, PollResult,
+    Config, FiveTuple, Interface, InterfaceInner as Context, PacketDropCallback,
+    PacketDropDisposition, PacketDropInfo, PacketDropReason, PollIngressSingleResult, PollResult,
 };
 
 pub use self::route::{Route, RouteTableFull, Routes};
