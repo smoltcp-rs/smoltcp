@@ -411,6 +411,15 @@ impl Interface {
         &mut self.inner.routes
     }
 
+    /// Returns an iterator over all IPv6 default routers known to this interface.
+    ///
+    /// These are the routers learned from Router Advertisements (`::/0` routes). RFC 6775 ARO
+    /// registration must be sent to each of these routers.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn default_ipv6_routers(&self) -> impl Iterator<Item = Ipv6Address> + '_ {
+        self.inner.routes.default_ipv6_routers()
+    }
+
     /// Enable or disable the AnyIP capability.
     ///
     /// AnyIP allowins packets to be received

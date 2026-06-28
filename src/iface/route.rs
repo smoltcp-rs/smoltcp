@@ -111,17 +111,53 @@ impl Routes {
 
     /// Add a default ipv6 gateway (ie. "ip -6 route add ::/0 via `gateway`").
     ///
-    /// On success, returns the previous default route, if any.
+    /// Uses upsert semantics: if a `::/0` route via this exact `gateway` already exists it is
+    /// replaced; routes via other gateways are left intact, supporting multiple default routers.
+    ///
+    /// On success, returns the previous route for this gateway, if any.
     #[cfg(feature = "proto-ipv6")]
     pub fn add_default_ipv6_route(
         &mut self,
         gateway: Ipv6Address,
     ) -> Result<Option<Route>, RouteTableFull> {
-        let old = self.remove_default_ipv6_route();
+        let old = self.remove_default_ipv6_route_via(gateway);
         self.storage
             .push(Route::new_ipv6_gateway(gateway))
             .map_err(|_| RouteTableFull)?;
         Ok(old)
+    }
+
+    /// Remove the `::/0` route via a specific gateway.
+    ///
+    /// On success, returns the removed route, if any.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn remove_default_ipv6_route_via(&mut self, gateway: Ipv6Address) -> Option<Route> {
+        if let Some((i, _)) = self
+            .storage
+            .iter()
+            .enumerate()
+            .find(|(_, r)| r.is_ipv6_gateway() && r.via_router == IpAddress::Ipv6(gateway))
+        {
+            Some(self.storage.remove(i))
+        } else {
+            None
+        }
+    }
+
+    /// Returns an iterator over all IPv6 default routers (`::/0` routes).
+    #[cfg(feature = "proto-ipv6")]
+    pub fn default_ipv6_routers(&self) -> impl Iterator<Item = Ipv6Address> + '_ {
+        self.storage.iter().filter_map(|r| {
+            if r.is_ipv6_gateway() {
+                if let IpAddress::Ipv6(addr) = r.via_router {
+                    Some(addr)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
     }
 
     /// Returns the ipv4 default route if there is one in the route table.
