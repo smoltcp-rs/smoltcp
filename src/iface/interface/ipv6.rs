@@ -513,7 +513,7 @@ impl InterfaceInner {
                 router_lifetime,
                 reachable_time: _,
                 retrans_time: _,
-                lladdr: _,
+                lladdr,
                 mtu: _,
                 prefix_info,
             } if self.slaac_enabled => {
@@ -522,6 +522,17 @@ impl InterfaceInner {
                         || ip_repr.dst_addr.is_link_local())
                     && ip_repr.hop_limit == 255
                 {
+                    // Capture the router's link-layer address so unicast NS (e.g. for RFC 6775
+                    // ARO) can be sent without a prior broadcast solicitation.
+                    #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+                    if let Some(lladdr) = lladdr {
+                        if let Ok(hw_addr) = lladdr.parse(self.caps.medium) {
+                            if hw_addr.is_unicast() && ip_repr.src_addr.x_is_unicast() {
+                                self.neighbor_cache
+                                    .fill(ip_repr.src_addr.into(), hw_addr, self.now);
+                            }
+                        }
+                    }
                     self.slaac.process_advertisement(
                         &ip_repr.src_addr,
                         router_lifetime,
