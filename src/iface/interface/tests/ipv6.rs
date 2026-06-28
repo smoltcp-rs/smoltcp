@@ -2051,8 +2051,9 @@ fn test_multiple_default_routers() {
     );
 
     // Both must be in the neighbor cache immediately after the RAs (before poll).
-    // Note: poll flushes the neighbor cache via update_ip_addrs during SLAAC sync,
-    // so this must be verified before calling poll.
+    // Note: poll calls sync_slaac_state which calls update_ip_addrs; if the address list
+    // changes (e.g. a SLAAC prefix address is added) the neighbor cache will be flushed.
+    // Checking here before poll avoids that race in this test which sends no prefix.
     assert!(iface
         .inner
         .neighbor_cache_has(IpAddress::Ipv6(router1_ip_addr.address())));

@@ -384,8 +384,11 @@ impl Interface {
     /// # Panics
     /// This function panics if any of the addresses are not unicast.
     pub fn update_ip_addrs<F: FnOnce(&mut Vec<IpCidr, IFACE_MAX_ADDR_COUNT>)>(&mut self, f: F) {
+        let old = self.inner.ip_addrs.clone();
         f(&mut self.inner.ip_addrs);
-        InterfaceInner::flush_neighbor_cache(&mut self.inner);
+        if old != self.inner.ip_addrs {
+            InterfaceInner::flush_neighbor_cache(&mut self.inner);
+        }
         InterfaceInner::check_ip_addrs(&self.inner.ip_addrs);
 
         #[cfg(all(
@@ -1205,6 +1208,7 @@ impl InterfaceInner {
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         self.neighbor_cache.flush()
     }
+
 
     fn dispatch_ip<Tx: TxToken>(
         &mut self,
