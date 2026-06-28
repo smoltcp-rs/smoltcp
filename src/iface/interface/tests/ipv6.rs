@@ -1866,3 +1866,224 @@ fn test_solicited_node_multicast_autojoin(#[case] medium: Medium) {
     assert!(!iface.has_multicast_group(addr1.solicited_node()));
     assert!(!iface.has_multicast_group(addr2.solicited_node()));
 }
+
+/// Helper: build and inject an Ethernet-framed RouterAdvert into the interface.
+#[cfg(all(feature = "proto-ipv6-slaac", feature = "medium-ethernet"))]
+fn inject_router_advert(
+    iface: &mut Interface,
+    sockets: &mut SocketSet,
+    local_hw_addr: EthernetAddress,
+    local_ip_addr: Ipv6Cidr,
+    remote_hw_addr: EthernetAddress,
+    remote_ip_addr: Ipv6Cidr,
+    router_lifetime: Duration,
+    lladdr: Option<EthernetAddress>,
+) {
+    let advertisement = NdiscRepr::RouterAdvert {
+        hop_limit: 255,
+        flags: NdiscRouterFlags::empty(),
+        router_lifetime,
+        reachable_time: Duration::from_secs(0),
+        retrans_time: Duration::from_secs(0),
+        lladdr: lladdr.map(|a| a.into()),
+        mtu: None,
+        prefix_info: None,
+    };
+    let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+        src_addr: remote_ip_addr.address(),
+        dst_addr: local_ip_addr.address(),
+        next_header: IpProtocol::Icmpv6,
+        hop_limit: 255,
+        payload_len: advertisement.buffer_len(),
+    });
+    let frame_len = EthernetFrame::<&[u8]>::header_len() + ip_repr.header_len() + advertisement.buffer_len();
+    let mut eth_bytes = vec![0u8; frame_len];
+    let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+    frame.set_dst_addr(local_hw_addr);
+    frame.set_src_addr(remote_hw_addr);
+    frame.set_ethertype(EthernetProtocol::Ipv6);
+    ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+    Icmpv6Repr::Ndisc(advertisement).emit(
+        &remote_ip_addr.address(),
+        &local_ip_addr.address(),
+        &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
+        &ChecksumCapabilities::default(),
+    );
+    iface.inner.process_ethernet(
+        sockets,
+        PacketMeta::default(),
+        frame.into_inner(),
+        &mut iface.fragments,
+    );
+}
+
+/// A RouterAdvert with an SLLAO must fill the neighbor cache with the router's
+/// link-layer address so that subsequent unicast NS (e.g. RFC 6775 ARO) can be
+/// sent without a prior broadcast solicitation.
+#[test]
+#[cfg(all(feature = "proto-ipv6-slaac", feature = "medium-ethernet"))]
+fn test_router_advert_sllao_fills_neighbor_cache() {
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
+    let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x01]);
+    let ll_prefix = Ipv6Cidr::new(Ipv6Cidr::LINK_LOCAL_PREFIX.address(), 64);
+    let local_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(local_hw_addr)).unwrap();
+    let remote_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(remote_hw_addr)).unwrap();
+
+    let mut config = Config::new(HardwareAddress::Ethernet(local_hw_addr));
+    config.slaac = true;
+    let mut device = crate::tests::TestingDevice::new(Medium::Ethernet);
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.push(IpCidr::Ipv6(local_ip_addr)).unwrap();
+    });
+    let mut sockets = SocketSet::new(vec![]);
+
+    // Before the RA, the router's link-layer address should not be cached.
+    assert!(!iface
+        .inner
+        .neighbor_cache_has(IpAddress::Ipv6(remote_ip_addr.address())));
+
+    // Inject an RA with SLLAO.
+    inject_router_advert(
+        &mut iface,
+        &mut sockets,
+        local_hw_addr,
+        local_ip_addr,
+        remote_hw_addr,
+        remote_ip_addr,
+        Duration::from_secs(600),
+        Some(remote_hw_addr),
+    );
+
+    // The router's link-layer address must now be in the neighbor cache.
+    assert!(iface
+        .inner
+        .neighbor_cache_has(IpAddress::Ipv6(remote_ip_addr.address())));
+}
+
+/// An RA without an SLLAO must not cache anything (no regression).
+#[test]
+#[cfg(all(feature = "proto-ipv6-slaac", feature = "medium-ethernet"))]
+fn test_router_advert_no_sllao_does_not_fill_neighbor_cache() {
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
+    let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x01]);
+    let ll_prefix = Ipv6Cidr::new(Ipv6Cidr::LINK_LOCAL_PREFIX.address(), 64);
+    let local_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(local_hw_addr)).unwrap();
+    let remote_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(remote_hw_addr)).unwrap();
+
+    let mut config = Config::new(HardwareAddress::Ethernet(local_hw_addr));
+    config.slaac = true;
+    let mut device = crate::tests::TestingDevice::new(Medium::Ethernet);
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.push(IpCidr::Ipv6(local_ip_addr)).unwrap();
+    });
+    let mut sockets = SocketSet::new(vec![]);
+
+    inject_router_advert(
+        &mut iface,
+        &mut sockets,
+        local_hw_addr,
+        local_ip_addr,
+        remote_hw_addr,
+        remote_ip_addr,
+        Duration::from_secs(600),
+        None, // no SLLAO
+    );
+
+    assert!(!iface
+        .inner
+        .neighbor_cache_has(IpAddress::Ipv6(remote_ip_addr.address())));
+}
+
+/// Two RAs from different routers must both appear in default_ipv6_routers()
+/// and both must be resolvable in the neighbor cache when they carry SLLAOs.
+/// Expiring one router must remove it from the iterator but leave the other.
+#[test]
+#[cfg(all(feature = "proto-ipv6-slaac", feature = "medium-ethernet"))]
+fn test_multiple_default_routers() {
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
+    let router1_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x01]);
+    let router2_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x02]);
+    let ll_prefix = Ipv6Cidr::new(Ipv6Cidr::LINK_LOCAL_PREFIX.address(), 64);
+    let local_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(local_hw_addr)).unwrap();
+    let router1_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(router1_hw_addr))
+            .unwrap();
+    let router2_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(router2_hw_addr))
+            .unwrap();
+
+    let mut config = Config::new(HardwareAddress::Ethernet(local_hw_addr));
+    config.slaac = true;
+    let mut device = crate::tests::TestingDevice::new(Medium::Ethernet);
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.push(IpCidr::Ipv6(local_ip_addr)).unwrap();
+    });
+    let mut sockets = SocketSet::new(vec![]);
+
+    // Inject RAs from two different routers.
+    inject_router_advert(
+        &mut iface,
+        &mut sockets,
+        local_hw_addr,
+        local_ip_addr,
+        router1_hw_addr,
+        router1_ip_addr,
+        Duration::from_secs(600),
+        Some(router1_hw_addr),
+    );
+    inject_router_advert(
+        &mut iface,
+        &mut sockets,
+        local_hw_addr,
+        local_ip_addr,
+        router2_hw_addr,
+        router2_ip_addr,
+        Duration::from_secs(600),
+        Some(router2_hw_addr),
+    );
+
+    // Both must be in the neighbor cache immediately after the RAs (before poll).
+    // Note: poll flushes the neighbor cache via update_ip_addrs during SLAAC sync,
+    // so this must be verified before calling poll.
+    assert!(iface
+        .inner
+        .neighbor_cache_has(IpAddress::Ipv6(router1_ip_addr.address())));
+    assert!(iface
+        .inner
+        .neighbor_cache_has(IpAddress::Ipv6(router2_ip_addr.address())));
+
+    // Sync SLAAC state so routes are pushed to the interface route table.
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // Both routers must appear in the default router list after poll.
+    let routers: std::vec::Vec<_> = iface.default_ipv6_routers().collect();
+    assert_eq!(routers.len(), 2);
+    assert!(routers.contains(&router1_ip_addr.address()));
+    assert!(routers.contains(&router2_ip_addr.address()));
+
+    // Expire router1 by sending an RA with router_lifetime = 0.
+    inject_router_advert(
+        &mut iface,
+        &mut sockets,
+        local_hw_addr,
+        local_ip_addr,
+        router1_hw_addr,
+        router1_ip_addr,
+        Duration::ZERO,
+        None,
+    );
+    iface.poll(Instant::from_secs(1), &mut device, &mut sockets);
+
+    let routers: std::vec::Vec<_> = iface.default_ipv6_routers().collect();
+    assert_eq!(routers.len(), 1);
+    assert!(!routers.contains(&router1_ip_addr.address()));
+    assert!(routers.contains(&router2_ip_addr.address()));
+}

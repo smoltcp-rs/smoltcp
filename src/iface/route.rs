@@ -373,4 +373,36 @@ mod test {
             Some(ADDR_2A.into())
         );
     }
+
+    #[test]
+    #[cfg(feature = "proto-ipv6")]
+    fn test_add_default_ipv6_route_upsert() {
+        let gw_a = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let gw_b = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 2);
+
+        let mut routes = Routes::new();
+
+        // Adding two different gateways must not evict each other.
+        routes.add_default_ipv6_route(gw_a).unwrap();
+        routes.add_default_ipv6_route(gw_b).unwrap();
+        let routers: std::vec::Vec<_> = routes.default_ipv6_routers().collect();
+        assert_eq!(routers.len(), 2);
+        assert!(routers.contains(&gw_a));
+        assert!(routers.contains(&gw_b));
+
+        // Re-adding an existing gateway (upsert) must not create a duplicate.
+        routes.add_default_ipv6_route(gw_a).unwrap();
+        let routers: std::vec::Vec<_> = routes.default_ipv6_routers().collect();
+        assert_eq!(routers.len(), 2);
+
+        // remove_default_ipv6_route_via removes only the targeted gateway.
+        routes.remove_default_ipv6_route_via(gw_a);
+        let routers: std::vec::Vec<_> = routes.default_ipv6_routers().collect();
+        assert_eq!(routers.len(), 1);
+        assert_eq!(routers[0], gw_b);
+
+        // remove_default_ipv6_route still removes the first ::/0 entry.
+        routes.remove_default_ipv6_route();
+        assert_eq!(routes.default_ipv6_routers().count(), 0);
+    }
 }
