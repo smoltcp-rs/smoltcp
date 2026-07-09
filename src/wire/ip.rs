@@ -770,32 +770,31 @@ pub mod checksum {
     }
 
     /// Compute an RFC 1071 compliant checksum (without the final complement).
-    pub fn data(mut data: &[u8]) -> u16 {
+    pub fn data(data: &[u8]) -> u16 {
         let mut accum = 0;
 
         // For each 32-byte chunk...
         const CHUNK_SIZE: usize = 32;
-        while data.len() >= CHUNK_SIZE {
-            let mut d = &data[..CHUNK_SIZE];
+        const WORD_SIZE: usize = 2;
+        let mut chunks = data.chunks_exact(CHUNK_SIZE);
+        for chunk in &mut chunks {
             // ... take by 2 bytes and sum them.
-            while d.len() >= 2 {
-                accum += NetworkEndian::read_u16(d) as u32;
-                d = &d[2..];
+            for pair in chunk.chunks_exact(WORD_SIZE) {
+                accum += u16::from_be_bytes([pair[0], pair[1]]) as u32;
             }
-
-            data = &data[CHUNK_SIZE..];
         }
 
         // Sum the rest that does not fit the last 32-byte chunk,
         // taking by 2 bytes.
-        while data.len() >= 2 {
-            accum += NetworkEndian::read_u16(data) as u32;
-            data = &data[2..];
+        let remainder = chunks.remainder();
+        let mut word_pairs = remainder.chunks_exact(WORD_SIZE);
+        for pair in &mut word_pairs {
+            accum += u16::from_be_bytes([pair[0], pair[1]]) as u32;
         }
 
         // Add the last remaining odd byte, if any.
-        if let Some(&value) = data.first() {
-            accum += (value as u32) << 8;
+        if let Some(&byte) = word_pairs.remainder().first() {
+            accum += (byte as u32) << 8;
         }
 
         propagate_carries(accum)
