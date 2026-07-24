@@ -949,6 +949,8 @@ fn test_router_advertisement(#[case] medium: Medium) {
         valid_lifetime: Duration::from_secs(600),
         preferred_lifetime: Duration::from_secs(300),
     };
+    let mut prefix_infos = heapless::Vec::new();
+    prefix_infos.push(prefix_information).unwrap();
     let mut advertisement = NdiscRepr::RouterAdvert {
         hop_limit: 255,
         flags: NdiscRouterFlags::empty(),
@@ -957,7 +959,7 @@ fn test_router_advertisement(#[case] medium: Medium) {
         retrans_time: Duration::from_secs(0),
         lladdr: None,
         mtu: None,
-        prefix_info: Some(prefix_information),
+        prefix_infos,
     };
     let ip_repr = IpRepr::Ipv6(Ipv6Repr {
         src_addr: remote_ip_addr.address(),
@@ -971,7 +973,7 @@ fn test_router_advertisement(#[case] medium: Medium) {
     frame.set_src_addr(remote_hw_addr);
     frame.set_ethertype(EthernetProtocol::Ipv6);
     ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
-    Icmpv6Repr::Ndisc(advertisement).emit(
+    Icmpv6Repr::Ndisc(advertisement.clone()).emit(
         &remote_ip_addr.address(),
         &local_ip_addr.address(),
         &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
@@ -1018,11 +1020,11 @@ fn test_router_advertisement(#[case] medium: Medium) {
     prefix_information.valid_lifetime = Duration::ZERO;
     prefix_information.preferred_lifetime = Duration::ZERO;
     if let NdiscRepr::RouterAdvert {
-        ref mut prefix_info,
+        ref mut prefix_infos,
         ..
     } = advertisement
     {
-        *prefix_info = Some(prefix_information);
+        prefix_infos[0] = prefix_information;
     }
 
     let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
@@ -1030,7 +1032,7 @@ fn test_router_advertisement(#[case] medium: Medium) {
     frame.set_src_addr(remote_hw_addr);
     frame.set_ethertype(EthernetProtocol::Ipv6);
     ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
-    Icmpv6Repr::Ndisc(advertisement).emit(
+    Icmpv6Repr::Ndisc(advertisement.clone()).emit(
         &remote_ip_addr.address(),
         &local_ip_addr.address(),
         &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
@@ -1055,12 +1057,12 @@ fn test_router_advertisement(#[case] medium: Medium) {
     // Craft router advertisement with zero router lifetime
     // to remove the route
     if let NdiscRepr::RouterAdvert {
-        ref mut prefix_info,
+        ref mut prefix_infos,
         ref mut router_lifetime,
         ..
     } = advertisement
     {
-        *prefix_info = None;
+        prefix_infos.clear();
         *router_lifetime = Duration::ZERO;
     }
 
@@ -1069,7 +1071,7 @@ fn test_router_advertisement(#[case] medium: Medium) {
     frame.set_src_addr(remote_hw_addr);
     frame.set_ethertype(EthernetProtocol::Ipv6);
     ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
-    Icmpv6Repr::Ndisc(advertisement).emit(
+    Icmpv6Repr::Ndisc(advertisement.clone()).emit(
         &remote_ip_addr.address(),
         &local_ip_addr.address(),
         &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),

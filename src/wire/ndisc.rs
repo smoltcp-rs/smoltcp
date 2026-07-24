@@ -1,7 +1,9 @@
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
+use heapless::Vec;
 
 use super::{Error, Result};
+use crate::config::IFACE_MAX_PREFIX_COUNT;
 use crate::time::Duration;
 use crate::wire::Ipv6Address;
 use crate::wire::RawHardwareAddress;
@@ -189,7 +191,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> Packet<T> {
 }
 
 /// A high-level representation of an Neighbor Discovery packet header.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Repr<'a> {
     RouterSolicit {
@@ -203,7 +205,7 @@ pub enum Repr<'a> {
         retrans_time: Duration,
         lladdr: Option<RawHardwareAddress>,
         mtu: Option<u32>,
-        prefix_info: Option<NdiscPrefixInformation>,
+        prefix_infos: Vec<NdiscPrefixInformation, IFACE_MAX_PREFIX_COUNT>,
     },
     NeighborSolicit {
         target_addr: Ipv6Address,
@@ -232,8 +234,9 @@ impl<'a> Repr<'a> {
     {
         packet.check_len()?;
 
-        let (mut src_ll_addr, mut mtu, mut prefix_info, mut target_ll_addr, mut redirected_hdr) =
-            (None, None, None, None, None);
+        let (mut src_ll_addr, mut mtu, mut target_ll_addr, mut redirected_hdr) =
+            (None, None, None, None);
+        let mut prefix_infos = Vec::new();
 
         let mut offset = 0;
         while packet.payload().len() > offset {
@@ -244,7 +247,9 @@ impl<'a> Repr<'a> {
                 match opt {
                     NdiscOptionRepr::SourceLinkLayerAddr(addr) => src_ll_addr = Some(addr),
                     NdiscOptionRepr::TargetLinkLayerAddr(addr) => target_ll_addr = Some(addr),
-                    NdiscOptionRepr::PrefixInformation(prefix) => prefix_info = Some(prefix),
+                    NdiscOptionRepr::PrefixInformation(prefix) => {
+                        let _ = prefix_infos.push(prefix);
+                    }
                     NdiscOptionRepr::RedirectedHeader(redirect) => redirected_hdr = Some(redirect),
                     NdiscOptionRepr::Mtu(m) => mtu = Some(m),
                     _ => {}
@@ -270,7 +275,7 @@ impl<'a> Repr<'a> {
                 retrans_time: packet.retrans_time(),
                 lladdr: src_ll_addr,
                 mtu,
-                prefix_info,
+                prefix_infos,
             }),
             Message::NeighborSolicit => Ok(Repr::NeighborSolicit {
                 target_addr: packet.target_addr(),
@@ -291,18 +296,18 @@ impl<'a> Repr<'a> {
         }
     }
 
-    pub const fn buffer_len(&self) -> usize {
-        match self {
-            &Repr::RouterSolicit { lladdr } => match lladdr {
+    pub fn buffer_len(&self) -> usize {
+        match *self {
+            Repr::RouterSolicit { lladdr } => match lladdr {
                 Some(addr) => {
                     field::UNUSED.end + { NdiscOptionRepr::SourceLinkLayerAddr(addr).buffer_len() }
                 }
                 None => field::UNUSED.end,
             },
-            &Repr::RouterAdvert {
+            Repr::RouterAdvert {
                 lladdr,
                 mtu,
-                prefix_info,
+                ref prefix_infos,
                 ..
             } => {
                 let mut offset = 0;
@@ -312,19 +317,19 @@ impl<'a> Repr<'a> {
                 if let Some(mtu) = mtu {
                     offset += NdiscOptionRepr::Mtu(mtu).buffer_len();
                 }
-                if let Some(prefix_info) = prefix_info {
-                    offset += NdiscOptionRepr::PrefixInformation(prefix_info).buffer_len();
+                for prefix_info in prefix_infos {
+                    offset += NdiscOptionRepr::PrefixInformation(*prefix_info).buffer_len();
                 }
                 field::RETRANS_TM.end + offset
             }
-            &Repr::NeighborSolicit { lladdr, .. } | &Repr::NeighborAdvert { lladdr, .. } => {
+            Repr::NeighborSolicit { lladdr, .. } | Repr::NeighborAdvert { lladdr, .. } => {
                 let mut offset = field::TARGET_ADDR.end;
                 if let Some(lladdr) = lladdr {
                     offset += NdiscOptionRepr::SourceLinkLayerAddr(lladdr).buffer_len();
                 }
                 offset
             }
-            &Repr::Redirect {
+            Repr::Redirect {
                 lladdr,
                 redirected_hdr,
                 ..
@@ -366,7 +371,7 @@ impl<'a> Repr<'a> {
                 retrans_time,
                 lladdr,
                 mtu,
-                prefix_info,
+                ref prefix_infos,
             } => {
                 packet.set_msg_type(Message::RouterAdvert);
                 packet.set_msg_code(0);
@@ -388,10 +393,12 @@ impl<'a> Repr<'a> {
                     NdiscOptionRepr::Mtu(mtu).emit(&mut opt_pkt);
                     offset += NdiscOptionRepr::Mtu(mtu).buffer_len();
                 }
-                if let Some(prefix_info) = prefix_info {
+                for prefix_info in prefix_infos {
                     let mut opt_pkt =
                         NdiscOption::new_unchecked(&mut packet.payload_mut()[offset..]);
-                    NdiscOptionRepr::PrefixInformation(prefix_info).emit(&mut opt_pkt)
+                    let opt = NdiscOptionRepr::PrefixInformation(*prefix_info);
+                    opt.emit(&mut opt_pkt);
+                    offset += opt.buffer_len();
                 }
             }
 
@@ -480,7 +487,7 @@ mod test {
             retrans_time: Duration::from_millis(900),
             lladdr: Some(EthernetAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]).into()),
             mtu: None,
-            prefix_info: None,
+            prefix_infos: Vec::new(),
         })
     }
 
@@ -541,5 +548,63 @@ mod test {
             &ChecksumCapabilities::default(),
         );
         assert_eq!(&*packet.into_inner(), &ROUTER_ADVERT_BYTES[..]);
+    }
+
+    // A Router Advertisement may carry several Prefix Information options
+    // (e.g. a global prefix alongside a ULA). They must all survive parsing,
+    // up to IFACE_MAX_PREFIX_COUNT, rather than the last one overwriting the
+    // rest. Meaningful when IFACE_MAX_PREFIX_COUNT >= 2.
+    #[test]
+    fn test_router_advert_retains_multiple_prefixes() {
+        let wanted = if IFACE_MAX_PREFIX_COUNT < 2 {
+            IFACE_MAX_PREFIX_COUNT
+        } else {
+            2
+        };
+        let mk = |h: u16| NdiscPrefixInformation {
+            prefix_len: 64,
+            flags: crate::wire::NdiscPrefixInfoFlags::empty(),
+            valid_lifetime: Duration::from_secs(600),
+            preferred_lifetime: Duration::from_secs(300),
+            prefix: Ipv6Address::new(h, 0, 0, 0, 0, 0, 0, 0),
+        };
+        let mut prefix_infos = Vec::new();
+        for i in 0..wanted {
+            let _ = prefix_infos.push(mk(0x2001 + i as u16));
+        }
+        let repr = Icmpv6Repr::Ndisc(Repr::RouterAdvert {
+            hop_limit: 64,
+            flags: RouterFlags::empty(),
+            router_lifetime: Duration::from_secs(900),
+            reachable_time: Duration::from_millis(0),
+            retrans_time: Duration::from_millis(0),
+            lladdr: None,
+            mtu: None,
+            prefix_infos,
+        });
+
+        let mut bytes = vec![0u8; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
+        repr.emit(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &mut packet,
+            &ChecksumCapabilities::default(),
+        );
+
+        let packet = Packet::new_unchecked(&bytes[..]);
+        let parsed = Icmpv6Repr::parse(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &packet,
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
+        match parsed {
+            Icmpv6Repr::Ndisc(Repr::RouterAdvert { prefix_infos, .. }) => {
+                assert_eq!(prefix_infos.len(), wanted);
+            }
+            other => panic!("expected RouterAdvert, got {other:?}"),
+        }
     }
 }

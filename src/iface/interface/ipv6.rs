@@ -515,7 +515,7 @@ impl InterfaceInner {
                 retrans_time: _,
                 lladdr: _,
                 mtu: _,
-                prefix_info,
+                prefix_infos,
             } if self.slaac_enabled => {
                 if ip_repr.src_addr.is_link_local()
                     && (ip_repr.dst_addr == IPV6_LINK_LOCAL_ALL_NODES
@@ -525,7 +525,7 @@ impl InterfaceInner {
                     self.slaac.process_advertisement(
                         &ip_repr.src_addr,
                         router_lifetime,
-                        prefix_info,
+                        &prefix_infos,
                         self.now,
                     )
                 }

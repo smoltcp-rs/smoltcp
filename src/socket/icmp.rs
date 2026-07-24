@@ -1064,7 +1064,7 @@ mod test_ipv6 {
         assert_eq!(
             socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR.into());
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                assert_eq!(icmp_repr, ECHOV6_REPR.clone().into());
                 Err(())
             }),
             Err(())
@@ -1075,7 +1075,7 @@ mod test_ipv6 {
         assert_eq!(
             socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
                 assert_eq!(ip_repr, LOCAL_IPV6_REPR.into());
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
+                assert_eq!(icmp_repr, ECHOV6_REPR.clone().into());
                 Ok::<_, ()>(())
             }),
             Ok(())
