@@ -284,7 +284,8 @@ impl<'a> Repr<'a> {
             Message::Redirect => Ok(Repr::Redirect {
                 target_addr: packet.target_addr(),
                 dest_addr: packet.dest_addr(),
-                lladdr: src_ll_addr,
+                // RFC 4861 §4.5: a Redirect carries a Target LL address (type 2).
+                lladdr: target_ll_addr,
                 redirected_hdr,
             }),
             _ => Err(Error),
@@ -541,5 +542,37 @@ mod test {
             &ChecksumCapabilities::default(),
         );
         assert_eq!(&*packet.into_inner(), &ROUTER_ADVERT_BYTES[..]);
+    }
+
+    #[test]
+    fn test_redirect_lladdr_roundtrip() {
+        // A Redirect's link-layer address is a Target LL option (type 2);
+        // emit then parse must preserve it, not drop it to None.
+        let lladdr = EthernetAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]).into();
+        let repr = Icmpv6Repr::Ndisc(Repr::Redirect {
+            target_addr: MOCK_IP_ADDR_1,
+            dest_addr: MOCK_IP_ADDR_2,
+            lladdr: Some(lladdr),
+            redirected_hdr: None,
+        });
+
+        let mut bytes = vec![0u8; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes[..]);
+        repr.emit(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &mut packet,
+            &ChecksumCapabilities::default(),
+        );
+
+        let packet = Packet::new_unchecked(&bytes[..]);
+        let parsed = Icmpv6Repr::parse(
+            &MOCK_IP_ADDR_1,
+            &MOCK_IP_ADDR_2,
+            &packet,
+            &ChecksumCapabilities::default(),
+        )
+        .unwrap();
+        assert_eq!(parsed, repr);
     }
 }
