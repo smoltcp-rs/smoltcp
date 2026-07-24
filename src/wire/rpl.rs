@@ -983,11 +983,69 @@ pub mod options {
 
         #[inline]
         pub fn new_checked(buffer: T) -> Result<Self> {
-            if buffer.as_ref().is_empty() {
+            let packet = Packet { buffer };
+            packet.check_len()?;
+            Ok(packet)
+        }
+
+        /// Ensure the buffer is long enough for the fields the accessors of this
+        /// option type read, so parsing rejects a truncated option rather than
+        /// panicking with an out-of-bounds index.
+        pub fn check_len(&self) -> Result<()> {
+            let len = self.buffer.as_ref().len();
+            // Every option needs at least a Type byte.
+            if len < 1 {
+                return Err(Error);
+            }
+            // Pad1 is a single byte: no Length field, no body.
+            if self.option_type() == OptionType::Pad1 {
+                return Ok(());
+            }
+            // All other options have a Length byte.
+            if len < 2 {
                 return Err(Error);
             }
 
-            Ok(Packet { buffer })
+            let body = self.option_length() as usize;
+            let required = match self.option_type() {
+                // Only Type/Length are read; the body is not indexed.
+                OptionType::Pad1
+                | OptionType::PadN
+                | OptionType::DagMetricContainer
+                | OptionType::Unknown(_) => 2,
+                // prefix() reads buffer[9..body].
+                OptionType::RouteInformation => {
+                    if body < field::ROUTE_INFO_LIFETIME.end {
+                        return Err(Error);
+                    }
+                    body
+                }
+                OptionType::DodagConfiguration => field::DODAG_CONF_LIFETIME_UNIT.end,
+                // target_prefix() yields buffer[4..body+2]; parse needs a 16-byte prefix.
+                OptionType::RplTarget => {
+                    if body != field::RPL_TARGET_PREFIX_LENGTH + 15 {
+                        return Err(Error);
+                    }
+                    body + 2
+                }
+                // parent_address() reads buffer[6..22] when the body exceeds 5.
+                OptionType::TransitInformation => {
+                    if body > 5 {
+                        field::TRANSIT_INFO_PARENT_ADDRESS.end
+                    } else {
+                        field::TRANSIT_INFO_PATH_LIFETIME + 1
+                    }
+                }
+                OptionType::SolicitedInformation => field::SOLICITED_INFO_VERSION_NUMBER + 1,
+                OptionType::PrefixInformation => field::PREFIX_INFO_PREFIX.end,
+                OptionType::RplTargetDescriptor => field::TARGET_DESCRIPTOR.end,
+            };
+
+            if len < required {
+                return Err(Error);
+            }
+
+            Ok(())
         }
 
         /// Return the type field.
@@ -2035,6 +2093,7 @@ pub mod options {
 
     impl<'p> Repr<'p> {
         pub fn parse<T: AsRef<[u8]> + ?Sized>(packet: &Packet<&'p T>) -> Result<Self> {
+            packet.check_len()?;
             match packet.option_type() {
                 OptionType::Pad1 => Ok(Repr::Pad1),
                 OptionType::PadN => Ok(Repr::PadN(packet.option_length())),
@@ -2409,6 +2468,17 @@ mod tests {
         // Option type 0x02 (DAG Metric Container) must parse to an error, not panic.
         let option = OptionPacket::new_unchecked(&[0x02, 0x00][..]);
         assert_eq!(OptionRepr::parse(&option), Err(Error));
+    }
+
+    #[test]
+    fn short_option_is_rejected() {
+        // A 2-byte RPL Target option (type 0x05) must be rejected, not read
+        // byte 3 out of bounds.
+        assert_eq!(
+            OptionRepr::parse(&OptionPacket::new_unchecked(&[0x05, 0x00][..])),
+            Err(Error)
+        );
+        assert!(OptionPacket::new_checked(&[0x05, 0x00][..]).is_err());
     }
 
     #[test]
