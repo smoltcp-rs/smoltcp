@@ -2172,13 +2172,14 @@ pub mod options {
         }
 
         pub fn emit<T: AsRef<[u8]> + AsMut<[u8]> + ?Sized>(&self, packet: &mut Packet<&'p mut T>) {
-            let mut option_length = self.buffer_len() as u8;
+            // Subtract the header in usize before the cast to avoid PadN(254/255) underflow.
+            let mut option_length = self.buffer_len();
 
             packet.set_option_type(self.into());
 
             if !matches!(self, Repr::Pad1) {
                 option_length -= 2;
-                packet.set_option_length(option_length);
+                packet.set_option_length(option_length as u8);
             }
 
             match self {
@@ -2479,6 +2480,15 @@ mod tests {
             Err(Error)
         );
         assert!(OptionPacket::new_checked(&[0x05, 0x00][..]).is_err());
+    }
+
+    #[test]
+    fn padn_emit_does_not_underflow() {
+        // PadN length byte 254 must re-emit without option_length underflow.
+        let repr = OptionRepr::parse(&OptionPacket::new_unchecked(&[0x01, 0xFE][..])).unwrap();
+        let mut buffer = vec![0u8; repr.buffer_len()];
+        repr.emit(&mut OptionPacket::new_unchecked(&mut buffer[..]));
+        assert_eq!(buffer[1], 254);
     }
 
     #[test]
