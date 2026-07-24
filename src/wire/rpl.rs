@@ -2038,7 +2038,8 @@ pub mod options {
             match packet.option_type() {
                 OptionType::Pad1 => Ok(Repr::Pad1),
                 OptionType::PadN => Ok(Repr::PadN(packet.option_length())),
-                OptionType::DagMetricContainer => todo!(),
+                // DAG Metric Container (RFC 6551) is unimplemented; reject it instead of todo!().
+                OptionType::DagMetricContainer => Err(Error),
                 OptionType::RouteInformation => Ok(Repr::RouteInformation {
                     prefix_length: packet.prefix_length(),
                     preference: packet.route_preference(),
@@ -2402,6 +2403,13 @@ mod tests {
     use super::*;
     use crate::phy::ChecksumCapabilities;
     use crate::wire::{icmpv6::*, *};
+
+    #[test]
+    fn dag_metric_container_option_is_rejected() {
+        // Option type 0x02 (DAG Metric Container) must parse to an error, not panic.
+        let option = OptionPacket::new_unchecked(&[0x02, 0x00][..]);
+        assert_eq!(OptionRepr::parse(&option), Err(Error));
+    }
 
     #[test]
     fn dis_packet() {
