@@ -68,8 +68,12 @@ impl<T: AsRef<[u8]>> Packet<T> {
         let data = self.buffer.as_ref();
         let len = data.len();
         if len < field::SEQUENCE_NUMBER.end {
-            Err(Error)
-        } else if len < field::ICV(data[field::PAYLOAD_LEN]).end {
+            return Err(Error);
+        }
+
+        // payload_len == 0 makes ICV a reversed range (12..8); reject it.
+        let icv = field::ICV(data[field::PAYLOAD_LEN]);
+        if icv.end < icv.start || len < icv.end {
             Err(Error)
         } else {
             Ok(())
@@ -253,6 +257,16 @@ mod test {
         assert!(matches!(Packet::new_checked(&PACKET_BYTES1[..10]), Err(_)));
         assert!(matches!(Packet::new_checked(&PACKET_BYTES1[..22]), Err(_)));
         assert!(matches!(Packet::new_checked(&PACKET_BYTES1[..]), Ok(_)));
+
+        // payload_len == 0: reversed ICV range must be rejected, not panic.
+        let reversed = [
+            0x3b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        ];
+        assert!(matches!(Packet::new_checked(&reversed[..]), Err(_)));
+        assert!(matches!(
+            Repr::parse(&Packet::new_unchecked(&reversed[..])),
+            Err(_)
+        ));
     }
 
     fn packet_repr<'a>() -> Repr<'a> {
