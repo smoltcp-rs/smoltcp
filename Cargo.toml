@@ -95,6 +95,7 @@ defmt = ["dep:defmt", "heapless/defmt"]
 "socket-tcp-reno" = []
 
 "packetmeta-id" = []
+"packetmeta-extra" = []
 
 "async" = []
 

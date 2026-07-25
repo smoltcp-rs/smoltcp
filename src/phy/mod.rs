@@ -168,6 +168,8 @@ pub const IPV4_FRAGMENT_PAYLOAD_ALIGNMENT: usize = 8;
 pub struct PacketMeta {
     #[cfg(feature = "packetmeta-id")]
     pub id: u32,
+    #[cfg(feature = "packetmeta-extra")]
+    pub extra: u32,
 }
 
 /// A description of checksum behavior for a particular protocol.
