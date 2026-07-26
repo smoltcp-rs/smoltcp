@@ -1,5 +1,8 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![deny(unsafe_code)]
+// Since we have many different flags that can come on and off, we expect some variables to
+// be unused sometimes, and we allow that.
+#![cfg_attr(not(ci_forbid_unused), allow(unused, irrefutable_let_patterns))]
 
 //! The _smoltcp_ library is built in a layered structure, with the layers corresponding
 //! to the levels of API abstraction. Only the highest layers would be used by a typical

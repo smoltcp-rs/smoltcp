@@ -17,7 +17,7 @@ license = "0BSD"
 autoexamples = false
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)', 'cfg(ci_forbid_unused)'] }
 
 [dependencies]
 managed = { version = "0.8", default-features = false, features = ["map"] }

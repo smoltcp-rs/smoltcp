@@ -81,6 +81,11 @@ clippy() {
     cargo +$MSRV clippy --tests --examples -- -D warnings
 }
 
+check_unused() {
+    export RUSTFLAGS="--cfg ci_forbid_unused --deny unused --deny irrefutable_let_patterns"
+    cargo check --tests --examples
+}
+
 build_16bit() {
     rustup toolchain install nightly
     rustup +nightly component add rust-src
@@ -128,6 +133,10 @@ fi
 
 if [[ $1 == "clippy" || $1 == "all" ]]; then
     clippy
+fi
+
+if [[ $1 == "check_unused" || $1 == "all" ]]; then
+    check_unused
 fi
 
 if [[ $1 == "build_16bit" || $1 == "all" ]]; then
