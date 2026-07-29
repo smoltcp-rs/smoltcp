@@ -1,5 +1,5 @@
 #![deny(missing_docs)]
-use heapless::{LinearMap, Vec};
+use crate::data_structure::{LinearMap, Vec};
 
 use crate::config::{IFACE_MAX_PREFIX_COUNT, IFACE_MAX_ROUTE_COUNT};
 use crate::time::{Duration, Instant};

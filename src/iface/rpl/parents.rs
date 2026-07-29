@@ -35,7 +35,7 @@ impl Parent {
 
 #[derive(Debug, Default)]
 pub(crate) struct ParentSet {
-    parents: heapless::LinearMap<Ipv6Address, Parent, { RPL_PARENTS_BUFFER_COUNT }>,
+    parents: crate::data_structure::LinearMap<Ipv6Address, Parent, { RPL_PARENTS_BUFFER_COUNT }>,
 }
 
 impl ParentSet {
