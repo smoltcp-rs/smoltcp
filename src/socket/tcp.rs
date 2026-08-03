@@ -140,7 +140,11 @@ impl fmt::Display for State {
 /// RFC 6298: (2.1) Until a round-trip time (RTT) measurement has been made for a
 /// segment sent between the sender and receiver, the sender SHOULD
 /// set RTO <- 1 second,
-const RTTE_INITIAL_RTO: u32 = 1000;
+///
+/// The default is RFC-conformant, but can be lowered at build time via the
+/// `SMOLTCP_RTTE_INITIAL_RTO` environment variable or the `rtte-initial-rto-*`
+/// Cargo features, which is useful on low-latency links where 1s is excessive.
+const RTTE_INITIAL_RTO: u32 = crate::config::RTTE_INITIAL_RTO as u32;
 
 // Minimum "safety margin" for the RTO that kicks in when the
 // variance gets very low.
@@ -151,7 +155,13 @@ const RTTE_K: u32 = 4;
 
 // RFC 6298 (2.4): Whenever RTO is computed, if it is less than 1 second, then the
 // RTO SHOULD be rounded up to 1 second.
-const RTTE_MIN_RTO: u32 = 1000;
+//
+// The default is RFC-conformant, but can be lowered at build time via the
+// `SMOLTCP_RTTE_MIN_RTO` environment variable or the `rtte-min-rto-*` Cargo
+// features. On low-RTT links (virtio, TAP, local segments) a 1s floor makes
+// RTO-based loss recovery orders of magnitude slower than necessary; for
+// comparison, Linux uses a 200ms minimum RTO.
+const RTTE_MIN_RTO: u32 = crate::config::RTTE_MIN_RTO as u32;
 
 // RFC 6298 (2.5) A maximum value MAY be placed on RTO provided it is at least 60
 // seconds
