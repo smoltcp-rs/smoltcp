@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - wire: Expose the `checksum` module publicly, so downstream crates can compute RFC 1071 Internet checksums over discontiguous buffers. ([#1172](https://github.com/smoltcp-rs/smoltcp/pull/1172))
+- tcp: Make `RTTE_MIN_RTO` and `RTTE_INITIAL_RTO` configurable at build time (`SMOLTCP_RTTE_MIN_RTO` / `SMOLTCP_RTTE_INITIAL_RTO` env vars or `rtte-min-rto-*` / `rtte-initial-rto-*` features). Defaults remain RFC 6298-conformant at 1s. ([#1190](https://github.com/smoltcp-rs/smoltcp/issues/1190))
 
 ## [0.13.1] - 2026-05-01
 
