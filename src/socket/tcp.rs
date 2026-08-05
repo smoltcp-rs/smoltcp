@@ -566,9 +566,6 @@ const DEFAULT_MSS: usize = 536;
 /// Without it, a peer advertising a tiny MSS could force segments to carry little
 /// or no payload once the TCP options length is subtracted from the effective MSS,
 /// stalling the connection in an endless stream of empty segments.
-///
-/// Must exceed the maximum possible length of the TCP options (currently 12, for
-/// timestamps) so that every segment carries some payload.
 const MIN_REMOTE_MSS: usize = 48;
 
 impl<'a> Socket<'a> {
