@@ -649,6 +649,7 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
 }
 
 /// A summary of all standard options contained in a TCP header.
+#[non_exhaustive]
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TcpOptionSummary {
