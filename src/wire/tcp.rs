@@ -343,6 +343,28 @@ impl<T: AsRef<[u8]>> Packet<T> {
         Ok([None, None, None])
     }
 
+    /// Parse and summarize all TCP options in a single pass.
+    pub fn options_summary(&self) -> Result<TcpOptionSummary> {
+        let data = self.buffer.as_ref();
+        let mut options = &data[field::OPTIONS(self.header_len())];
+        let mut summary = TcpOptionSummary::default();
+        while !options.is_empty() {
+            let (next_options, option) = TcpOption::parse(options)?;
+            match option {
+                TcpOption::EndOfList => break,
+                TcpOption::NoOperation => {}
+                TcpOption::MaxSegmentSize(mss) => summary.max_segment_size = Some(mss),
+                TcpOption::WindowScale(ws) => summary.window_scale = Some(ws),
+                TcpOption::SackPermitted => summary.sack_permitted = true,
+                TcpOption::SackRange(ranges) => summary.sack_ranges = ranges,
+                TcpOption::TimeStamp { tsval, tsecr } => summary.timestamp = Some((tsval, tsecr)),
+                TcpOption::Unknown { .. } => {}
+            }
+            options = next_options;
+        }
+        Ok(summary)
+    }
+
     /// Validate the partial checksum.
     ///
     /// # Panics
@@ -624,6 +646,17 @@ impl<T: AsRef<[u8]>> AsRef<[u8]> for Packet<T> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.as_ref()
     }
+}
+
+/// A summary of all standard options contained in a TCP header.
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TcpOptionSummary {
+    pub max_segment_size: Option<u16>,
+    pub window_scale: Option<u8>,
+    pub sack_permitted: bool,
+    pub sack_ranges: [Option<(u32, u32)>; 3],
+    pub timestamp: Option<(u32, u32)>,
 }
 
 /// A representation of a single TCP option.
@@ -1411,5 +1444,26 @@ mod test {
         assert_eq!(TcpOption::parse(&[0xc, 0x01]), Err(Error));
         assert_eq!(TcpOption::parse(&[0x2, 0x02]), Err(Error));
         assert_eq!(TcpOption::parse(&[0x3, 0x02]), Err(Error));
+    }
+
+    #[test]
+    fn test_tcp_options_summary() {
+        let mut bytes = vec![0; 32];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        packet.set_header_len(32);
+        // MSS=1460 (4b: 02 04 05 b4), WS=7 (3b: 03 03 07), SACK_PERM (2b: 04 02), NOP (1b: 01), END (1b: 00)
+        let options_bytes: [u8; 12] = [
+            0x02, 0x04, 0x05, 0xb4,
+            0x03, 0x03, 0x07,
+            0x04, 0x02,
+            0x01, 0x00, 0x00
+        ];
+        packet.options_mut()[..12].copy_from_slice(&options_bytes);
+
+        let summary = packet.options_summary().unwrap();
+        assert_eq!(summary.max_segment_size, Some(1460));
+        assert_eq!(summary.window_scale, Some(7));
+        assert!(summary.sack_permitted);
+        assert_eq!(summary.sack_ranges, [None, None, None]);
     }
 }
