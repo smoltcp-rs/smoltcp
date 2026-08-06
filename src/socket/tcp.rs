@@ -2464,7 +2464,7 @@ impl<'a> Socket<'a> {
             self.assembler
                 .iter_data()
                 .map(|(l, r)| (ack + l, ack + r))
-                .find(|&(l, r)| l <= seq && seq <= r)
+                .find(|&(l, r)| l <= seq && seq < r)
         };
 
         // RFC 2018: the first SACK block MUST specify the contiguous block of
