@@ -1454,10 +1454,7 @@ mod test {
         packet.set_header_len(32);
         // MSS=1460 (4b: 02 04 05 b4), WS=7 (3b: 03 03 07), SACK_PERM (2b: 04 02), NOP (1b: 01), END (1b: 00)
         let options_bytes: [u8; 12] = [
-            0x02, 0x04, 0x05, 0xb4,
-            0x03, 0x03, 0x07,
-            0x04, 0x02,
-            0x01, 0x00, 0x00
+            0x02, 0x04, 0x05, 0xb4, 0x03, 0x03, 0x07, 0x04, 0x02, 0x01, 0x00, 0x00,
         ];
         packet.options_mut()[..12].copy_from_slice(&options_bytes);
 
