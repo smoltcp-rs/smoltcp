@@ -96,6 +96,9 @@ defmt = ["dep:defmt", "heapless/defmt"]
 
 "packetmeta-id" = []
 
+# Enables segmentation offload support.
+"segmentation-offload" = []
+
 "async" = []
 
 # Automatically reply on an ICMP echo request

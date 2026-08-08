@@ -7,6 +7,7 @@ use core::fmt::Display;
 use core::task::Waker;
 use core::{fmt, mem};
 
+use crate::phy::PacketMeta;
 #[cfg(feature = "async")]
 use crate::socket::WakerRegistration;
 use crate::socket::{Context, PollAt};
@@ -2431,7 +2432,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
     where
-        F: FnOnce(&mut Context, (IpRepr, TcpRepr)) -> Result<(), E>,
+        F: FnOnce(&mut Context, PacketMeta, (IpRepr, TcpRepr)) -> Result<(), E>,
     {
         if self.tuple.is_none() {
             return Ok(());
@@ -2575,6 +2576,15 @@ impl<'a> Socket<'a> {
 
         let mut is_zero_window_probe = false;
 
+        #[cfg_attr(
+            not(feature = "segmentation-offload"),
+            expect(
+                unused_mut,
+                reason = "The default is not mutated if the segmentation offload feature is not enabled."
+            )
+        )]
+        let mut packet_meta = PacketMeta::default();
+
         match self.state {
             // We transmit an RST in the CLOSED state. If we ended up in the CLOSED state
             // with a specified endpoint, it means that the socket was aborted.
@@ -2656,19 +2666,56 @@ impl<'a> Socket<'a> {
                     // 2. congestion window
                     // 3. MSS the remote is willing to accept, probably determined by their MTU
                     // 4. MSS we can send, determined by our MTU.
+                    //
+                    // If the device supports its offload, segmentation that is needed
+                    // to comply with the latter two will be handled by the device based on the
+                    // metadata we provide.
+
+                    #[cfg(not(feature = "segmentation-offload"))]
+                    let device_limit = effective_mss;
+
+                    #[cfg(feature = "segmentation-offload")]
+                    let device_limit = {
+                        let segmentation_caps = cx.segmentation_caps();
+                        match ip_repr.version() {
+                            #[cfg(feature = "proto-ipv4")]
+                            crate::wire::IpVersion::Ipv4 => segmentation_caps.tcpv4,
+                            #[cfg(feature = "proto-ipv6")]
+                            crate::wire::IpVersion::Ipv6 => segmentation_caps.tcpv6,
+                        }
+                        .map(|buf_size| {
+                            let pre_ip_header_len = cx.max_transmission_unit() - cx.ip_mtu();
+                            buf_size.get()
+                                - pre_ip_header_len
+                                - ip_repr.header_len()
+                                - TCP_HEADER_LEN
+                                - options_len
+                        })
+                        .unwrap_or(effective_mss)
+                    };
+
                     let size = if is_zero_window_probe {
                         // Zero-window probes are exempt from the congestion window: they
                         // are sent precisely when normal transmission is impossible, and
                         // an empty segment elicits no reply, so capping the probe to a
                         // zero length would stall the connection if a window update from
                         // the remote got lost.
-                        win_limit.min(effective_mss)
+                        win_limit.min(device_limit)
                     } else {
-                        win_limit.min(effective_mss).min(self.cwnd_remaining())
+                        win_limit.min(device_limit).min(self.cwnd_remaining())
                     };
 
                     let offset = self.flight_size();
                     repr.payload = self.tx_buffer.get_allocated(offset, size);
+
+                    #[cfg(feature = "segmentation-offload")]
+                    if repr.payload.len() > effective_mss {
+                        packet_meta.segmentation_offload_size =
+                            core::num::NonZeroU16::try_from(u16::try_from(effective_mss).unwrap())
+                                .unwrap()
+                                .into();
+                    }
+
                     offset
                 };
 
@@ -2741,7 +2788,7 @@ impl<'a> Socket<'a> {
         // to not waste time waiting for the retransmit timer on packets that we know
         // for sure will not be successfully transmitted.
         ip_repr.set_payload_len(repr.buffer_len());
-        emit(cx, (ip_repr, repr))?;
+        emit(cx, packet_meta, (ip_repr, repr))?;
 
         // We've sent something, whether useful data or a keep-alive packet, so rewind
         // the keep-alive timer.
@@ -3038,7 +3085,7 @@ mod test {
         let mut sent = 0;
         let result = socket
             .socket
-            .dispatch(&mut socket.cx, |_, (ip_repr, tcp_repr)| {
+            .dispatch(&mut socket.cx, |_, _, (ip_repr, tcp_repr)| {
                 assert_eq!(ip_repr.next_header(), IpProtocol::Tcp);
                 assert_eq!(ip_repr.src_addr(), LOCAL_ADDR.into());
                 assert_eq!(ip_repr.dst_addr(), REMOTE_ADDR.into());
@@ -3059,7 +3106,7 @@ mod test {
         socket.cx.set_now(timestamp);
 
         let mut fail = false;
-        let result: Result<(), ()> = socket.socket.dispatch(&mut socket.cx, |_, _| {
+        let result: Result<(), ()> = socket.socket.dispatch(&mut socket.cx, |_, _, _| {
             fail = true;
             Ok(())
         });
@@ -7519,6 +7566,94 @@ mod test {
         );
     }
 
+    #[cfg(feature = "segmentation-offload")]
+    #[test]
+    fn test_segmentation_offload() {
+        use crate::tests::segmentation_offload::MAX_SEGMENTABLE_SIZE;
+        use crate::wire;
+
+        let (interface, _, _) =
+            crate::tests::segmentation_offload::setup_segmenting(crate::phy::Medium::Ip);
+        let mut s = TestSocket {
+            cx: interface.inner,
+            ..socket_listen()
+        };
+        s.tx_buffer = SocketBuffer::new(vec![0; 2 * MAX_SEGMENTABLE_SIZE]);
+
+        send!(
+            s,
+            TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: REMOTE_SEQ,
+                ack_number: None,
+                window_scale: Some(2),
+                ..SEND_TEMPL
+            }
+        );
+        recv!(
+            s,
+            [TcpRepr {
+                control: TcpControl::Syn,
+                seq_number: LOCAL_SEQ,
+                ack_number: Some(REMOTE_SEQ + 1),
+                max_seg_size: Some(BASE_MSS),
+                window_scale: Some(0),
+                ..RECV_TEMPL
+            }]
+        );
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                window_len: u16::MAX,
+                ..SEND_TEMPL
+            }
+        );
+
+        s.send_slice(&[0; 2 * MAX_SEGMENTABLE_SIZE][..]).unwrap();
+
+        // We want to ensure that the size of the unsegmented packets exceed the
+        // maximum allowed by the length field in the IP headers to check if the
+        // relevant code incorrectly assumes that the length fits into the
+        // field.
+        let ip_header_len = match s.local_endpoint().unwrap().addr {
+            #[cfg(feature = "proto-ipv4")]
+            IpAddress::Ipv4(_) => {
+                assert!(MAX_SEGMENTABLE_SIZE > usize::from(u16::MAX));
+                wire::IPV4_HEADER_LEN
+            }
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(_) => {
+                assert!(MAX_SEGMENTABLE_SIZE - wire::IPV6_HEADER_LEN > usize::from(u16::MAX));
+                wire::IPV6_HEADER_LEN
+            }
+        };
+        let payload = vec![0; MAX_SEGMENTABLE_SIZE - ip_header_len - TCP_HEADER_LEN];
+        assert!(
+            payload.len() > usize::from(BASE_MSS),
+            "the payload is not large enough to require segmentation!"
+        );
+
+        recv!(
+            s,
+            [
+                TcpRepr {
+                    seq_number: LOCAL_SEQ + 1,
+                    ack_number: Some(REMOTE_SEQ + 1),
+                    payload: payload.as_slice(),
+                    ..RECV_TEMPL
+                },
+                TcpRepr {
+                    seq_number: LOCAL_SEQ + payload.len() + 1,
+                    ack_number: Some(REMOTE_SEQ + 1),
+                    payload: payload.as_slice(),
+                    ..RECV_TEMPL
+                }
+            ]
+        );
+    }
+
     #[test]
     fn test_recv_out_of_recv_win() {
         let mut s = socket_established();
@@ -8695,7 +8830,7 @@ mod test {
 
         s.set_hop_limit(Some(0x2a));
         assert_eq!(
-            s.socket.dispatch(&mut s.cx, |_, (ip_repr, _)| {
+            s.socket.dispatch(&mut s.cx, |_, _, (ip_repr, _)| {
                 assert_eq!(ip_repr.hop_limit(), 0x2a);
                 Ok::<_, ()>(())
             }),

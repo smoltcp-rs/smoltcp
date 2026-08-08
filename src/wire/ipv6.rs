@@ -631,7 +631,14 @@ impl Repr {
         packet.set_version(6);
         packet.set_traffic_class(0);
         packet.set_flow_label(0);
-        packet.set_payload_len(self.payload_len as u16);
+        #[cfg(not(feature = "segmentation-offload"))]
+        let payload_len = self.payload_len as u16;
+        #[cfg(feature = "segmentation-offload")]
+        // If because of segmentation offload the length of the buffer exceeds what can be
+        // represented in the length field of the IP header, we fall back to 0. It will be
+        // filled by the device during segmentation anyways.
+        let payload_len = u16::try_from(self.payload_len).unwrap_or(0);
+        packet.set_payload_len(payload_len);
         packet.set_hop_limit(self.hop_limit);
         packet.set_next_header(self.next_header);
         packet.set_src_addr(self.src_addr);
