@@ -1,4 +1,5 @@
 use core::fmt;
+use core::mem::MaybeUninit;
 use managed::ManagedSlice;
 
 use super::socket_meta::Meta;
@@ -15,6 +16,16 @@ pub struct SocketStorage<'a> {
 
 impl<'a> SocketStorage<'a> {
     pub const EMPTY: Self = Self { inner: None };
+
+    #[allow(unsafe_code)]
+    pub fn init_slice<'s>(storage: &'s mut [MaybeUninit<Self>]) -> &'s mut [Self] {
+        for slot in storage.iter_mut() {
+            slot.write(Self::EMPTY);
+        }
+        // every element of `storage` was initialised by the loop above,
+        // and `MaybeUninit<T>` is guaranteed to have the same layout as `T`.
+        unsafe { &mut *(storage as *mut [MaybeUninit<Self>] as *mut [Self]) }
+    }
 }
 
 /// An item of a socket set.
@@ -53,6 +64,11 @@ impl<'a> SocketSet<'a> {
     {
         let sockets = sockets.into();
         SocketSet { sockets }
+    }
+
+    /// Create a socket set from uninitialised storage, initialising it in place.
+    pub fn new_uninit(storage: &'a mut [MaybeUninit<SocketStorage<'a>>]) -> SocketSet<'a> {
+        SocketSet::new(SocketStorage::init_slice(storage))
     }
 
     /// Add a socket to the set, and return its handle.
@@ -147,5 +163,25 @@ impl<'a> SocketSet<'a> {
     /// Iterate every socket in this set.
     pub(crate) fn items_mut(&mut self) -> impl Iterator<Item = &mut Item<'a>> + '_ {
         self.sockets.iter_mut().filter_map(|x| x.inner.as_mut())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn init_slice_initialises_every_slot() {
+        let mut storage: [MaybeUninit<SocketStorage>; 4] = [const { MaybeUninit::uninit() }; 4];
+        let slice = SocketStorage::init_slice(&mut storage);
+        assert_eq!(slice.len(), 4);
+        assert!(slice.iter().all(|s| s.inner.is_none()));
+    }
+
+    #[test]
+    fn new_uninit_yields_an_empty_set() {
+        let mut storage: [MaybeUninit<SocketStorage>; 2] = [const { MaybeUninit::uninit() }; 2];
+        let set = SocketSet::new_uninit(&mut storage);
+        assert_eq!(set.iter().count(), 0);
     }
 }
