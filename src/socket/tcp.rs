@@ -1115,6 +1115,27 @@ impl<'a> Socket<'a> {
         self.set_state(State::Closed);
     }
 
+    /// React to an ICMP "destination unreachable" hard error that refers to this
+    /// connection.
+    ///
+    /// Errors arriving in any other state are ignored: ICMP messages are unauthenticated and may
+    /// be transient or spoofed, so they must not tear down an established connection.
+    /// See RFC 1122 §4.2.3.9 and RFC 5461 §4
+    ///
+    /// Returns whether a connection attempt was aborted.
+    pub(crate) fn on_icmp_hard_error(&mut self) -> bool {
+        if self.state == State::SynSent {
+            tcp_trace!("icmp hard error; aborting connection attempt");
+            // Same primitive the timeout path uses: this closes the socket
+            // without emitting a RST, which would be pointless when the peer
+            // or the path is unreachable.
+            self.set_state(State::Closed);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Return whether the socket is passively listening for incoming connections.
     ///
     /// In terms of the TCP state machine, the socket must be in the `LISTEN` state.
@@ -3836,6 +3857,30 @@ mod test {
     // =========================================================================================//
     // Tests for the SYN-SENT state.
     // =========================================================================================//
+
+    #[test]
+    fn test_icmp_hard_error_aborts_connection_attempt() {
+        let mut s = socket_syn_sent();
+        assert_eq!(s.socket.state(), State::SynSent);
+        assert!(s.socket.on_icmp_hard_error());
+        assert_eq!(s.socket.state(), State::Closed);
+    }
+
+    #[test]
+    fn test_icmp_hard_error_ignored_when_established() {
+        let mut s = socket_established();
+        assert_eq!(s.socket.state(), State::Established);
+        assert!(!s.socket.on_icmp_hard_error());
+        assert_eq!(s.socket.state(), State::Established);
+    }
+
+    #[test]
+    fn test_icmp_hard_error_ignored_when_closed() {
+        let mut s = socket();
+        assert_eq!(s.socket.state(), State::Closed);
+        assert!(!s.socket.on_icmp_hard_error());
+        assert_eq!(s.socket.state(), State::Closed);
+    }
 
     #[test]
     fn test_connect_validation() {
