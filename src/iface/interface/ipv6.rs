@@ -20,6 +20,28 @@ impl Default for HopByHopResponse<'_> {
     }
 }
 
+/// Whether an ICMPv6 "destination unreachable" code is a hard error for TCP.
+///
+/// RFC 5461 §4 asks TCP to be conservative here: codes that indicate a
+/// transient routing condition are soft errors and must not abort a connection
+/// attempt, while an explicit administrative or policy rejection will not
+/// resolve itself and may as well fail fast.
+#[cfg(feature = "socket-tcp")]
+fn icmpv6_dst_unreachable_is_hard(reason: Icmpv6DstUnreachable) -> bool {
+    match reason {
+        // Transient: the route may come back.
+        Icmpv6DstUnreachable::NoRoute | Icmpv6DstUnreachable::AddrUnreachable => false,
+        // Explicit refusal; retrying will not help.
+        Icmpv6DstUnreachable::AdminProhibit
+        | Icmpv6DstUnreachable::BeyondScope
+        | Icmpv6DstUnreachable::PortUnreachable
+        | Icmpv6DstUnreachable::FailedPolicy
+        | Icmpv6DstUnreachable::RejectRoute => true,
+        // Unknown codes are treated as soft.
+        _ => false,
+    }
+}
+
 impl InterfaceInner {
     /// Return the IPv6 address that is a candidate source address for the given destination
     /// address, based on RFC 6724.
@@ -436,13 +458,35 @@ impl InterfaceInner {
                 _ => None,
             },
 
+            // A hard error referring to one of our TCP connections aborts an
+            // outstanding connection attempt. RFC 1122 §4.2.3.9 & RFC 5461 §4
+            #[cfg(feature = "socket-tcp")]
+            Icmpv6Repr::DstUnreachable {
+                reason,
+                header,
+                data,
+            } if header.next_header == IpProtocol::Tcp
+                && icmpv6_dst_unreachable_is_hard(reason) =>
+            {
+                super::tcp_deliver_icmp_hard_error(
+                    _sockets,
+                    header.src_addr.into(),
+                    header.dst_addr.into(),
+                    data,
+                );
+                None
+            }
+
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
             #[cfg(feature = "socket-icmp")]
             _ if handled_by_icmp_socket => None,
 
-            // FIXME: do something correct here?
-            // By doing nothing, this arm handles the case when auto echo replies are disabled.
+            // FIXME:
+            //  - PktTooBig would drive Path MTU Discovery (RFC 8201), which
+            //    needs a per-destination MTU cache that does not exist yet.
+            //  - TimeExceeded and ParamProblem are informational.
+            // This arm also handles the case when auto echo replies are disabled.
             _ => None,
         }
     }

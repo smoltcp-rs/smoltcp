@@ -826,6 +826,35 @@ impl Interface {
     }
 }
 
+/// Deliver an ICMP hard error to the TCP socket owning the connection that the
+/// error refers to, if any.
+#[cfg(feature = "socket-tcp")]
+fn tcp_deliver_icmp_hard_error(
+    sockets: &mut SocketSet,
+    local_addr: IpAddress,
+    remote_addr: IpAddress,
+    payload: &[u8],
+) {
+    use crate::socket::AnySocket;
+    use crate::socket::tcp::Socket as TcpSocket;
+
+    let packet = match TcpPacket::new_checked(payload) {
+        Ok(packet) => packet,
+        Err(_) => return,
+    };
+    let local = IpEndpoint::new(local_addr, packet.src_port());
+    let remote = IpEndpoint::new(remote_addr, packet.dst_port());
+
+    for socket in sockets
+        .items_mut()
+        .filter_map(|i| TcpSocket::downcast_mut(&mut i.socket))
+    {
+        if socket.local_endpoint() == Some(local) && socket.remote_endpoint() == Some(remote) {
+            socket.on_icmp_hard_error();
+        }
+    }
+}
+
 impl InterfaceInner {
     #[allow(unused)] // unused depending on which sockets are enabled
     pub(crate) fn now(&self) -> Instant {
