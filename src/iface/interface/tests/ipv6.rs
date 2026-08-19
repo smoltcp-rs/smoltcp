@@ -1866,3 +1866,181 @@ fn test_solicited_node_multicast_autojoin(#[case] medium: Medium) {
     assert!(!iface.has_multicast_group(addr1.solicited_node()));
     assert!(!iface.has_multicast_group(addr2.solicited_node()));
 }
+
+/// Build an ICMPv6 Destination Unreachable quoting a TCP segment we sent, feed
+/// it to the interface, and return the resulting state of the socket.
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn icmpv6_dst_unreachable_effect_on_connect(
+    reason: Icmpv6DstUnreachable,
+    quoted_proto: IpProtocol,
+) -> crate::socket::tcp::State {
+    icmpv6_dst_unreachable_effect_on_connect_inner(reason, quoted_proto, None)
+}
+
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn icmpv6_dst_unreachable_effect_on_connect_inner(
+    reason: Icmpv6DstUnreachable,
+    quoted_proto: IpProtocol,
+    truncate_quoted_to: Option<usize>,
+) -> crate::socket::tcp::State {
+    use crate::socket::tcp;
+
+    let (mut iface, mut sockets, _device) = setup(Medium::Ip);
+
+    let local = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 1);
+    let remote = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 2);
+    let (local_port, remote_port) = (49152u16, 80u16);
+
+    let handle = sockets.add(tcp::Socket::new(
+        tcp::SocketBuffer::new(vec![0; 64]),
+        tcp::SocketBuffer::new(vec![0; 64]),
+    ));
+    sockets
+        .get_mut::<tcp::Socket>(handle)
+        .connect(
+            &mut iface.inner,
+            IpEndpoint::new(remote.into(), remote_port),
+            (IpAddress::from(local), local_port),
+        )
+        .unwrap();
+    assert_eq!(
+        sockets.get_mut::<tcp::Socket>(handle).state(),
+        tcp::State::SynSent
+    );
+
+    // The SYN we just tried to send, as a router would quote it back.
+    let quoted = TcpRepr {
+        src_port: local_port,
+        dst_port: remote_port,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(0),
+        ack_number: None,
+        window_len: 1024,
+        window_scale: None,
+        max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    let mut quoted_bytes = vec![0u8; quoted.buffer_len()];
+    quoted.emit(
+        &mut TcpPacket::new_unchecked(&mut quoted_bytes),
+        &local.into(),
+        &remote.into(),
+        &ChecksumCapabilities::default(),
+    );
+    if let Some(len) = truncate_quoted_to {
+        quoted_bytes.truncate(len);
+    }
+
+    let icmp_repr = Icmpv6Repr::DstUnreachable {
+        reason,
+        header: Ipv6Repr {
+            src_addr: local,
+            dst_addr: remote,
+            next_header: quoted_proto,
+            payload_len: quoted_bytes.len(),
+            hop_limit: 64,
+        },
+        data: &quoted_bytes,
+    };
+    let mut icmp_bytes = vec![0u8; icmp_repr.buffer_len()];
+    icmp_repr.emit(
+        &remote,
+        &local,
+        &mut Icmpv6Packet::new_unchecked(&mut icmp_bytes),
+        &ChecksumCapabilities::default(),
+    );
+
+    iface.inner.process_icmpv6(
+        &mut sockets,
+        Ipv6Repr {
+            src_addr: remote,
+            dst_addr: local,
+            next_header: IpProtocol::Icmpv6,
+            payload_len: icmp_bytes.len(),
+            hop_limit: 64,
+        },
+        &icmp_bytes,
+    );
+
+    sockets.get_mut::<tcp::Socket>(handle).state()
+}
+
+/// A hard error aborts an outstanding connection attempt. RFC 1122 §4.2.3.9
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn test_icmpv6_hard_error_aborts_tcp_connect() {
+    for reason in [
+        Icmpv6DstUnreachable::AdminProhibit,
+        Icmpv6DstUnreachable::BeyondScope,
+        Icmpv6DstUnreachable::PortUnreachable,
+        Icmpv6DstUnreachable::FailedPolicy,
+        Icmpv6DstUnreachable::RejectRoute,
+    ] {
+        assert_eq!(
+            icmpv6_dst_unreachable_effect_on_connect(reason, IpProtocol::Tcp),
+            crate::socket::tcp::State::Closed,
+            "{reason} should abort the connection attempt"
+        );
+    }
+}
+
+/// A soft error must not abort the attempt: the condition may be transient.
+/// RFC 5461 §4
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn test_icmpv6_soft_error_does_not_abort_tcp_connect() {
+    for reason in [
+        Icmpv6DstUnreachable::NoRoute,
+        Icmpv6DstUnreachable::AddrUnreachable,
+    ] {
+        assert_eq!(
+            icmpv6_dst_unreachable_effect_on_connect(reason, IpProtocol::Tcp),
+            crate::socket::tcp::State::SynSent,
+            "{reason} is a soft error and must be ignored"
+        );
+    }
+}
+
+/// An error quoting a non-TCP packet must not touch TCP sockets.
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn test_icmpv6_hard_error_quoting_udp_leaves_tcp_alone() {
+    assert_eq!(
+        icmpv6_dst_unreachable_effect_on_connect(
+            Icmpv6DstUnreachable::AdminProhibit,
+            IpProtocol::Udp
+        ),
+        crate::socket::tcp::State::SynSent
+    );
+}
+
+/// An unrecognised code is treated as soft, so it must not abort the attempt.
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn test_icmpv6_unknown_code_does_not_abort_tcp_connect() {
+    assert_eq!(
+        icmpv6_dst_unreachable_effect_on_connect(
+            Icmpv6DstUnreachable::Unknown(200),
+            IpProtocol::Tcp
+        ),
+        crate::socket::tcp::State::SynSent
+    );
+}
+
+/// A quoted packet truncated below a full TCP header carries no usable ports,
+/// so it must be ignored rather than guessed at.
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn test_icmpv6_truncated_quoted_header_is_ignored() {
+    assert_eq!(
+        icmpv6_dst_unreachable_effect_on_connect_inner(
+            Icmpv6DstUnreachable::AdminProhibit,
+            IpProtocol::Tcp,
+            Some(4),
+        ),
+        crate::socket::tcp::State::SynSent
+    );
+}
