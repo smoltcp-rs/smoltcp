@@ -315,7 +315,7 @@ impl Assembler {
 
     /// Iterate over all of the contiguous data ranges.
     ///
-    /// Returns `(offset, size)` tuples for each contiguous data range, where
+    /// Returns `(offset, offset + size)` tuples for each contiguous data range, where
     /// offset is relative to the start of the assembler.
     ///
     ///    Data        Hole        Data
