@@ -508,7 +508,12 @@ impl fmt::Display for ListenEndpoint {
 #[cfg(feature = "defmt")]
 impl defmt::Format for ListenEndpoint {
     fn format(&self, f: defmt::Formatter) {
-        defmt::write!(f, "{:?}:{:?}", self.addr, self.port);
+        match (self.addr, self.port) {
+            (Some(addr), Some(port)) => defmt::write!(f, "{}:{=u16}", addr, port),
+            (Some(addr), None) => defmt::write!(f, "{}:*", addr),
+            (None, Some(port)) => defmt::write!(f, "*:{=u16}", port),
+            (None, None) => defmt::write!(f, "*:*"),
+        }
     }
 }
 
