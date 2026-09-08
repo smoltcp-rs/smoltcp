@@ -939,12 +939,15 @@ impl<'a> Socket<'a> {
     /// This function returns `Err(Error::InvalidState)` if the socket was already open
     /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
     /// if the port in the given endpoint is zero.
+    ///
+    /// A `None` port ([`IpListenEndpoint::ANY_PORT`]) may be used to listen on
+    /// any port, which is useful for VPN/proxy-like applications.
     pub fn listen<T>(&mut self, local_endpoint: T) -> Result<(), ListenError>
     where
         T: Into<IpListenEndpoint>,
     {
         let local_endpoint = local_endpoint.into();
-        if local_endpoint.port == 0 {
+        if local_endpoint.port == Some(0) {
             return Err(ListenError::Unaddressable);
         }
 
@@ -1029,9 +1032,13 @@ impl<'a> Socket<'a> {
         if remote_endpoint.port == 0 || remote_endpoint.addr.is_unspecified() {
             return Err(ConnectError::Unaddressable);
         }
-        if local_endpoint.port == 0 {
-            return Err(ConnectError::Unaddressable);
-        }
+
+        // The local port must be specified (a `None` port means "any port" and is
+        // only valid for listening) and nonzero.
+        let local_port = match local_endpoint.port {
+            Some(port) if port != 0 => port,
+            _ => return Err(ConnectError::Unaddressable),
+        };
 
         // If local address is not provided, choose it automatically.
         let local_endpoint = IpEndpoint {
@@ -1046,7 +1053,7 @@ impl<'a> Socket<'a> {
                     .get_source_address(&remote_endpoint.addr)
                     .ok_or(ConnectError::Unaddressable)?,
             },
-            port: local_endpoint.port,
+            port: local_port,
         };
 
         if local_endpoint.addr.version() != remote_endpoint.addr.version() {
@@ -1578,7 +1585,11 @@ impl<'a> Socket<'a> {
                 Some(addr) => ip_repr.dst_addr() == addr,
                 None => true,
             };
-            addr_ok && repr.dst_port != 0 && repr.dst_port == self.listen_endpoint.port
+            let port_ok = match self.listen_endpoint.port {
+                Some(port) => repr.dst_port == port,
+                None => true,
+            };
+            addr_ok && port_ok && repr.dst_port != 0
         }
     }
 
@@ -1884,7 +1895,9 @@ impl<'a> Socket<'a> {
             // Here we need to additionally check `listen_endpoint`, because we want to make sure
             // that SYN-RECEIVED was actually converted from the LISTEN state (another possible
             // reason is TCP simultaneous open).
-            (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
+            (State::SynReceived, TcpControl::Rst)
+                if self.listen_endpoint.port.is_some_and(|p| p != 0) =>
+            {
                 tcp_trace!("received RST");
                 self.tuple = None;
                 self.set_state(State::Listen);
@@ -2931,7 +2944,7 @@ mod test {
     const REMOTE_PORT: u16 = 49500;
     const LISTEN_END: IpListenEndpoint = IpListenEndpoint {
         addr: None,
-        port: LOCAL_PORT,
+        port: Some(LOCAL_PORT),
     };
     const TUPLE: Tuple = Tuple {
         local: LOCAL_END,
@@ -3496,6 +3509,84 @@ mod test {
     fn test_listen_validation() {
         let mut s = socket();
         assert_eq!(s.listen(0), Err(ListenError::Unaddressable));
+    }
+
+    #[test]
+    fn test_listen_any_port() {
+        let mut s = socket();
+        assert_eq!(s.listen(IpListenEndpoint::ANY_PORT), Ok(()));
+        // A socket listening on any port accepts SYN packets to arbitrary ports.
+        let tcp_repr = TcpRepr {
+            dst_port: 12345,
+            control: TcpControl::Syn,
+            ack_number: None,
+            ..SEND_TEMPL
+        };
+        assert!(s.socket.accepts(&mut s.cx, &SEND_IP_TEMPL, &tcp_repr));
+    }
+
+    #[test]
+    fn test_any_port_handshake_and_data() {
+        for port in [80, 443] {
+            let mut s = socket();
+            s.listen(IpListenEndpoint::ANY_PORT).unwrap();
+            send!(
+                s,
+                TcpRepr {
+                    dst_port: port,
+                    control: TcpControl::Syn,
+                    seq_number: REMOTE_SEQ,
+                    ack_number: None,
+                    ..SEND_TEMPL
+                }
+            );
+            assert_eq!(s.local_endpoint().unwrap().port, port);
+            recv!(
+                s,
+                [TcpRepr {
+                    src_port: port,
+                    control: TcpControl::Syn,
+                    seq_number: LOCAL_SEQ,
+                    ack_number: Some(REMOTE_SEQ + 1),
+                    max_seg_size: Some(BASE_MSS),
+                    ..RECV_TEMPL
+                }]
+            );
+            send!(
+                s,
+                TcpRepr {
+                    dst_port: port,
+                    seq_number: REMOTE_SEQ + 1,
+                    ack_number: Some(LOCAL_SEQ + 1),
+                    ..SEND_TEMPL
+                }
+            );
+            assert_eq!(s.state(), State::Established);
+            send!(
+                s,
+                TcpRepr {
+                    dst_port: port,
+                    seq_number: REMOTE_SEQ + 1,
+                    ack_number: Some(LOCAL_SEQ + 1),
+                    payload: b"hello",
+                    ..SEND_TEMPL
+                }
+            );
+            let mut data = [0; 5];
+            assert_eq!(s.recv_slice(&mut data), Ok(5));
+            assert_eq!(&data, b"hello");
+            assert_eq!(s.send_slice(b"world"), Ok(5));
+            recv!(
+                s,
+                [TcpRepr {
+                    src_port: port,
+                    seq_number: LOCAL_SEQ + 1,
+                    ack_number: Some(REMOTE_SEQ + 6),
+                    payload: b"world",
+                    ..RECV_TEMPL
+                }]
+            );
+        }
     }
 
     #[test]
