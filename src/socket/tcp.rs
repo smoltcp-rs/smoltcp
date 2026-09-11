@@ -1090,8 +1090,14 @@ impl<'a> Socket<'a> {
             State::SynSent => self.set_state(State::Closed),
             // In the SYN-RECEIVED, ESTABLISHED and CLOSE-WAIT states the transmit half
             // of the connection is open, and needs to be explicitly closed with a FIN.
-            State::SynReceived | State::Established => self.set_state(State::FinWait1),
-            State::CloseWait => self.set_state(State::LastAck),
+            State::SynReceived | State::Established => {
+                self.remote_last_ts = None;
+                self.set_state(State::FinWait1);
+            }
+            State::CloseWait => {
+                self.remote_last_ts = None;
+                self.set_state(State::LastAck);
+            }
             // In the FIN-WAIT-1, FIN-WAIT-2, CLOSING, LAST-ACK, TIME-WAIT and CLOSED states,
             // the transmit half of the connection is already closed, and no further
             // action is needed.
@@ -2289,7 +2295,22 @@ impl<'a> Socket<'a> {
         }
     }
 
+    fn timeout_active(&self) -> bool {
+        match self.state {
+            State::SynSent | State::SynReceived => true,
+            State::FinWait1 | State::Closing | State::LastAck => true,
+            State::Established | State::CloseWait => {
+                !self.tx_buffer.is_empty() || self.keep_alive.is_some()
+            }
+            _ => false,
+        }
+    }
+
     fn timed_out(&self, timestamp: Instant) -> bool {
+        if !self.timeout_active() {
+            return false;
+        }
+
         match (self.remote_last_ts, self.timeout) {
             (Some(remote_last_ts), Some(timeout)) => timestamp >= remote_last_ts + timeout,
             (_, _) => false,
@@ -2451,11 +2472,12 @@ impl<'a> Socket<'a> {
             return Ok(());
         }
 
-        if self.remote_last_ts.is_none() {
-            // We get here in exactly two cases:
+        if self.remote_last_ts.is_none() && self.timeout_active() {
+            // We get here in cases where the socket starts talking or waiting for a response:
             //  1) This socket just transitioned into SYN-SENT.
             //  2) This socket had an empty transmit buffer and some data was added there.
-            // Both are similar in that the socket has been quiet for an indefinite
+            //  3) This socket just transitioned into FIN-WAIT-1 or LAST-ACK on close.
+            // In these cases, the socket has been quiet for an indefinite
             // period of time, it isn't anymore, and the local endpoint is talking.
             // So, we start counting the timeout not from the last received packet
             // but from the first transmitted one.
@@ -2862,7 +2884,7 @@ impl<'a> Socket<'a> {
         if self.tuple.is_none() {
             // No one to talk to, nothing to transmit.
             PollAt::Ingress
-        } else if self.remote_last_ts.is_none() {
+        } else if self.remote_last_ts.is_none() && self.timeout_active() {
             // Socket stopped being quiet recently, we need to acquire a timestamp.
             PollAt::Now
         } else if self.state == State::Closed {
@@ -2884,12 +2906,16 @@ impl<'a> Socket<'a> {
                 (true, AckDelayTimer::Immediate) => PollAt::Now,
             };
 
-            let timeout_poll_at = match (self.remote_last_ts, self.timeout) {
-                // If we're transmitting or retransmitting data, we need to poll at the moment
-                // when the timeout would expire.
-                (Some(remote_last_ts), Some(timeout)) => PollAt::Time(remote_last_ts + timeout),
-                // Otherwise we have no timeout.
-                (_, _) => PollAt::Ingress,
+            let timeout_poll_at = if self.timeout_active() {
+                match (self.remote_last_ts, self.timeout) {
+                    // If we're transmitting or retransmitting data, we need to poll at the moment
+                    // when the timeout would expire.
+                    (Some(remote_last_ts), Some(timeout)) => PollAt::Time(remote_last_ts + timeout),
+                    // Otherwise we have no timeout.
+                    (_, _) => PollAt::Ingress,
+                }
+            } else {
+                PollAt::Ingress
             };
 
             // We wait for the earliest of our timers to fire.
@@ -8606,10 +8632,7 @@ mod test {
         let mut s = socket_established();
         s.set_timeout(Some(Duration::from_millis(2000)));
         recv_nothing!(s, time 250);
-        assert_eq!(
-            s.socket.poll_at(&mut s.cx),
-            PollAt::Time(Instant::from_millis(2250))
-        );
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Ingress);
         s.send_slice(b"abcdef").unwrap();
         assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Now);
         recv!(s, time 255, Ok(TcpRepr {
@@ -8635,6 +8658,55 @@ mod test {
         recv!(s, time 2255, Ok(TcpRepr {
             control:    TcpControl::Rst,
             seq_number: LOCAL_SEQ + 1 + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }));
+        assert_eq!(s.state, State::Closed);
+    }
+
+    #[test]
+    fn test_established_idle_no_timeout() {
+        let mut s = socket_established();
+        s.set_timeout(Some(Duration::from_millis(1000)));
+        recv_nothing!(s, time 250);
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Ingress);
+        // Extended idle period with no traffic should not trigger timeout
+        recv_nothing!(s, time 5000);
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Ingress);
+        assert_eq!(s.state, State::Established);
+    }
+
+    #[test]
+    fn test_established_idle_close_timeout() {
+        let mut s = socket_established();
+        s.set_timeout(Some(Duration::from_millis(1000)));
+        // Connection sits idle for 100 seconds
+        recv_nothing!(s, time 100_000);
+        assert_eq!(s.state, State::Established);
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Ingress);
+
+        // Initiate close after long idle period
+        s.close();
+        assert_eq!(s.state, State::FinWait1);
+
+        // FIN packet sent at t=100_000
+        recv!(s, time 100_000, Ok(TcpRepr {
+            control:    TcpControl::Fin,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            ..RECV_TEMPL
+        }));
+
+        // Timeout should be relative to FIN transmission at 100_000, not ancient idle timestamp
+        assert_eq!(
+            s.socket.poll_at(&mut s.cx),
+            PollAt::Time(Instant::from_millis(101_000))
+        );
+
+        // Abort at t=101_000 if FIN is not ACKed
+        recv!(s, time 101_000, Ok(TcpRepr {
+            control:    TcpControl::Rst,
+            seq_number: LOCAL_SEQ + 1 + 1,
             ack_number: Some(REMOTE_SEQ + 1),
             ..RECV_TEMPL
         }));
