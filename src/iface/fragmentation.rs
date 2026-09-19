@@ -126,7 +126,9 @@ impl<K> PacketAssembler<K> {
             offset
         );
 
-        self.assembler.add(offset, len);
+        self.assembler
+            .add(offset, len)
+            .map_err(|_| AssemblerError)?;
         Ok(())
     }
 
@@ -134,8 +136,11 @@ impl<K> PacketAssembler<K> {
     ///
     /// # Errors
     ///
-    /// - Returns [`Error::PacketAssemblerBufferTooSmall`] when trying to add data into the buffer at a non-existing
-    ///   place.
+    /// - Returns [`AssemblerError`] when trying to add data into the buffer at a non-existing
+    ///   place, or when the range cannot be recorded because the assembler
+    ///   already holds [`ASSEMBLER_MAX_SEGMENT_COUNT`] discontiguous ranges.
+    ///
+    /// [`ASSEMBLER_MAX_SEGMENT_COUNT`]: crate::config::ASSEMBLER_MAX_SEGMENT_COUNT
     pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<(), AssemblerError> {
         #[cfg(not(feature = "alloc"))]
         if self.buffer.len() < offset + data.len() {
@@ -156,7 +161,9 @@ impl<K> PacketAssembler<K> {
             offset
         );
 
-        self.assembler.add(offset, data.len());
+        self.assembler
+            .add(offset, data.len())
+            .map_err(|_| AssemblerError)?;
         Ok(())
     }
 
@@ -397,6 +404,7 @@ impl Fragmenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ASSEMBLER_MAX_SEGMENT_COUNT;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
     struct Key {
@@ -410,10 +418,31 @@ mod tests {
         p_assembler.set_total_size(5).unwrap();
 
         let data = b"Rust";
-        p_assembler.add(&data[..], 0);
-        p_assembler.add(&data[..], 1);
+        p_assembler.add(&data[..], 0).unwrap();
+        p_assembler.add(&data[..], 1).unwrap();
 
         assert_eq!(p_assembler.assemble(), Some(&b"RRust"[..]))
+    }
+
+    /// `Assembler::add` refuses a range once `ASSEMBLER_MAX_SEGMENT_COUNT`
+    /// discontiguous ranges are already recorded. That refusal used to be
+    /// dropped on the floor: the bytes were copied into the buffer, the range
+    /// was not recorded, and the datagram could then never complete — it sat
+    /// in its slot until the reassembly timeout, with nothing reported.
+    #[test]
+    fn packet_assembler_reports_a_range_it_could_not_record() {
+        let mut p_assembler = PacketAssembler::<Key>::new();
+        p_assembler.set_total_size(64).unwrap();
+
+        // One byte every other offset: each is its own contig, so the budget
+        // is spent after ASSEMBLER_MAX_SEGMENT_COUNT of them.
+        let mut offset = 0;
+        for _ in 0..ASSEMBLER_MAX_SEGMENT_COUNT {
+            p_assembler.add(&[0xff], offset).unwrap();
+            offset += 2;
+        }
+
+        assert_eq!(p_assembler.add(&[0xff], offset), Err(AssemblerError));
     }
 
     #[test]
