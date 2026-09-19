@@ -454,6 +454,28 @@ impl Interface {
         self.fragments.reassembly_timeout
     }
 
+    /// Get the largest datagram reassembly will produce.
+    #[cfg(feature = "_proto-fragmentation")]
+    pub fn reassembly_max_len(&self) -> usize {
+        self.fragments.assembler.max_len()
+    }
+
+    /// Bound the largest datagram reassembly will produce.
+    ///
+    /// Defaults to 65535, the most an IP header can describe. Lower it to
+    /// bound what an interface can be made to hold: under `alloc` a slot's
+    /// buffer grows to whatever offset a fragment claims, so the ceiling is
+    /// what multiplies by the reassembly slot count to give the worst case.
+    ///
+    /// Applies to datagrams started from now on. A fragment that would
+    /// carry a datagram past the bound is discarded, and discarded quietly:
+    /// this is a local resource decision, not a protocol error the sender
+    /// could have avoided.
+    #[cfg(feature = "_proto-fragmentation")]
+    pub fn set_reassembly_max_len(&mut self, max_len: usize) {
+        self.fragments.assembler.set_max_len(max_len);
+    }
+
     /// Set the packet reassembly timeout.
     #[cfg(feature = "_proto-fragmentation")]
     pub fn set_reassembly_timeout(&mut self, timeout: Duration) {

@@ -56,6 +56,10 @@ pub struct PacketAssembler<K> {
     total_size: Option<usize>,
     expires_at: Instant,
 
+    /// The largest datagram this slot may assemble, stamped from the set
+    /// when the slot is handed out.
+    max_len: usize,
+
     /// What the FIRST fragment of an IPv6 datagram said, kept because the
     /// reassembled packet's header comes from it (RFC 8200 section 4.5) and
     /// the fragment that completes the datagram is usually not that one.
@@ -92,6 +96,7 @@ impl<K> PacketAssembler<K> {
             assembler: Assembler::new(),
             total_size: None,
             expires_at: Instant::ZERO,
+            max_len: REASSEMBLY_MAX_LEN_DEFAULT,
 
             #[cfg(feature = "proto-ipv6-fragmentation")]
             ipv6_first_fragment: None,
@@ -127,6 +132,10 @@ impl<K> PacketAssembler<K> {
         if let Some(old_size) = self.total_size
             && old_size != size
         {
+            return Err(AssemblerError);
+        }
+
+        if size > self.max_len {
             return Err(AssemblerError);
         }
 
@@ -183,6 +192,14 @@ impl<K> PacketAssembler<K> {
     ///
     /// [`ASSEMBLER_MAX_SEGMENT_COUNT`]: crate::config::ASSEMBLER_MAX_SEGMENT_COUNT
     pub(crate) fn add(&mut self, data: &[u8], offset: usize) -> Result<(), AssemblerError> {
+        // Before any growth: under `alloc` the buffer resizes to whatever a
+        // fragment's offset asks for, so without this one datagram could
+        // make the slot hold `max_len` octets on the strength of a single
+        // packet claiming a far offset.
+        if offset + data.len() > self.max_len {
+            return Err(AssemblerError);
+        }
+
         #[cfg(not(feature = "alloc"))]
         if self.buffer.len() < offset + data.len() {
             return Err(AssemblerError);
@@ -239,10 +256,15 @@ impl<K> PacketAssembler<K> {
     }
 }
 
+/// The largest datagram reassembly will produce unless an embedder lowers
+/// it: the most an IP header can describe.
+pub const REASSEMBLY_MAX_LEN_DEFAULT: usize = u16::MAX as usize;
+
 /// Set holding multiple [`PacketAssembler`].
 #[derive(Debug)]
 pub struct PacketAssemblerSet<K: Eq + Copy> {
     assemblers: [PacketAssembler<K>; REASSEMBLY_BUFFER_COUNT],
+    max_len: usize,
 }
 
 impl<K: Eq + Copy> PacketAssemblerSet<K> {
@@ -252,7 +274,22 @@ impl<K: Eq + Copy> PacketAssemblerSet<K> {
     pub fn new() -> Self {
         Self {
             assemblers: [Self::NEW_PA; REASSEMBLY_BUFFER_COUNT],
+            max_len: REASSEMBLY_MAX_LEN_DEFAULT,
         }
+    }
+
+    /// The largest datagram any slot of this set will assemble.
+    pub fn max_len(&self) -> usize {
+        self.max_len
+    }
+
+    /// Bound the largest datagram any slot of this set will assemble.
+    ///
+    /// Applies to slots handed out from now on; a datagram already being
+    /// assembled keeps the bound it started under, so lowering this never
+    /// strands a slot holding more than it is allowed to.
+    pub fn set_max_len(&mut self, max_len: usize) {
+        self.max_len = max_len;
     }
 
     /// Get a [`PacketAssembler`] for a specific key.
@@ -276,8 +313,19 @@ impl<K: Eq + Copy> PacketAssemblerSet<K> {
         }
 
         let slot = empty_slot.ok_or(AssemblerFullError)?;
+        // Hand the slot over clean. Under `alloc` its buffer still carries
+        // the previous datagram's high-water mark, so without this a single
+        // large datagram would pin `max_len` octets per slot for the life of
+        // the interface; and clearing keeps stale octets of one datagram
+        // from ever being read as part of the next.
+        #[cfg(feature = "alloc")]
+        {
+            slot.buffer.clear();
+            slot.buffer.shrink_to(REASSEMBLY_BUFFER_SIZE);
+        }
         slot.key = Some(*key);
         slot.expires_at = expires_at;
+        slot.max_len = self.max_len;
         Ok(slot)
     }
 
@@ -526,6 +574,63 @@ mod tests {
         }
 
         assert_eq!(p_assembler.add(&[0xff], offset), Err(AssemblerError));
+    }
+
+    /// The bound is what multiplies by the slot count to give the worst
+    /// case, so it has to stop the growth rather than notice it afterwards.
+    #[test]
+    fn a_bounded_set_refuses_to_grow_past_its_ceiling() {
+        let mut set = PacketAssemblerSet::<Key>::new();
+        assert_eq!(set.max_len(), REASSEMBLY_MAX_LEN_DEFAULT);
+        set.set_max_len(64);
+
+        let assr = set.get(&Key { id: 1 }, Instant::ZERO).unwrap();
+        assert_eq!(assr.add(&[0xff; 8], 56), Ok(()), "the last octet it may");
+        assert_eq!(
+            assr.add(&[0xff; 8], 57),
+            Err(AssemblerError),
+            "one past, refused before anything is copied or resized"
+        );
+        assert_eq!(assr.set_total_size(65), Err(AssemblerError));
+    }
+
+    /// A slot handed out for a new datagram starts clean: under `alloc` the
+    /// previous datagram's high-water mark would otherwise be pinned for
+    /// the life of the interface.
+    #[test]
+    #[cfg(feature = "alloc")]
+    fn a_reused_slot_gives_its_buffer_back() {
+        // Which slot `get` hands out is its own business — it happens to
+        // pick the last free one — so this looks at the whole set.
+        fn widest(set: &PacketAssemblerSet<Key>) -> usize {
+            set.assemblers
+                .iter()
+                .map(|slot| slot.buffer.capacity())
+                .max()
+                .unwrap()
+        }
+
+        let mut set = PacketAssemblerSet::<Key>::new();
+
+        let assr = set.get(&Key { id: 1 }, Instant::ZERO).unwrap();
+        assr.set_total_size(8192).unwrap();
+        assr.add(&[0xff; 8192], 0).unwrap();
+        assert!(assr.assemble().is_some());
+        assert!(
+            widest(&set) >= 8192,
+            "the datagram grew a buffer: {}",
+            widest(&set)
+        );
+
+        // Every slot handed out again, so every buffer is given back.
+        for id in 0..REASSEMBLY_BUFFER_COUNT {
+            let _ = set.get(&Key { id }, Instant::ZERO).unwrap();
+        }
+        assert!(
+            widest(&set) <= REASSEMBLY_BUFFER_SIZE,
+            "a slot still holds {} octets",
+            widest(&set)
+        );
     }
 
     #[test]

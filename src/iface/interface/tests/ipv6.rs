@@ -2247,4 +2247,37 @@ mod fragmentation {
             "the repeat dropped the datagram, so the final completes nothing"
         );
     }
+
+    /// The bound is a local resource decision, so it is enforced quietly —
+    /// the sender did nothing a protocol error could name.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn a_datagram_past_the_reassembly_bound_is_dropped(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+        assert_eq!(message.len(), 72);
+
+        // Room for the head but not for the whole datagram.
+        iface.set_reassembly_max_len(48);
+        assert_eq!(iface.reassembly_max_len(), 48);
+
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0x77, 0, true, 64, &message[..40]);
+        let last = fragment(LOCAL, IpProtocol::Icmpv6, 0x77, 5, false, 64, &message[40..]);
+
+        assert!(feed(&mut iface, &mut sockets, &first).is_none());
+        assert!(
+            feed(&mut iface, &mut sockets, &last).is_none(),
+            "72 octets is past the bound, and nothing is said about it"
+        );
+
+        // Raised again, the same datagram reassembles: the bound was the
+        // only thing standing in its way.
+        iface.set_reassembly_max_len(65_535);
+        assert!(feed(&mut iface, &mut sockets, &first).is_none());
+        expect_echo_reply(feed(&mut iface, &mut sockets, &last), &payload);
+    }
 }
