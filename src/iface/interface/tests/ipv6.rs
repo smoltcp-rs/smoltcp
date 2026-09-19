@@ -2194,4 +2194,57 @@ mod fragmentation {
             "discarded, and silently"
         );
     }
+    /// RFC 5722: an overlapping fragment condemns the whole datagram, and
+    /// silently — an ICMP answer would be a reflection sized by the sender.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn an_overlapping_fragment_drops_the_datagram(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0x55, 0, true, 64, &message[..40]);
+        // Offset 32 reaches back into the octets the first fragment already
+        // claimed: 32..40 belongs to both.
+        let overlapping = fragment(LOCAL, IpProtocol::Icmpv6, 0x55, 4, true, 64, &message[32..48]);
+        let last = fragment(LOCAL, IpProtocol::Icmpv6, 0x55, 5, false, 64, &message[40..]);
+
+        assert!(feed(&mut iface, &mut sockets, &first).is_none());
+        assert!(
+            feed(&mut iface, &mut sockets, &overlapping).is_none(),
+            "the overlap is answered with nothing at all"
+        );
+        assert!(
+            feed(&mut iface, &mut sockets, &last).is_none(),
+            "the datagram went with it: the final fragment completes nothing"
+        );
+    }
+
+    /// The strict reading, written down so the trade is visible: a fragment
+    /// that repeats an earlier one exactly counts as an overlap, because
+    /// telling a rewrite from a network duplicate would mean comparing
+    /// payloads.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn an_exactly_repeated_fragment_counts_as_an_overlap(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0x66, 0, true, 64, &message[..40]);
+        let last = fragment(LOCAL, IpProtocol::Icmpv6, 0x66, 5, false, 64, &message[40..]);
+
+        assert!(feed(&mut iface, &mut sockets, &first).is_none());
+        assert!(feed(&mut iface, &mut sockets, &first.clone()).is_none());
+        assert!(
+            feed(&mut iface, &mut sockets, &last).is_none(),
+            "the repeat dropped the datagram, so the final completes nothing"
+        );
+    }
 }

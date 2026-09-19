@@ -221,6 +221,13 @@ impl<K> PacketAssembler<K> {
         Some(&self.buffer[..total_size])
     }
 
+    /// Whether a fragment at `offset` of `len` octets would land on top of
+    /// one already received (RFC 5722).
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    pub(crate) fn overlaps(&self, offset: usize, len: usize) -> bool {
+        self.assembler.overlaps(offset, len)
+    }
+
     /// Returns `true` when all fragments have been received, otherwise `false`.
     pub(crate) fn is_complete(&self) -> bool {
         self.total_size == Some(self.assembler.peek_front())

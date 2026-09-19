@@ -322,6 +322,20 @@ impl Assembler {
     /// |--- 100 ---|--- 200 ---|--- 100 ---|
     ///
     /// Would return the ranges: ``(0, 100), (300, 400)``
+    /// Whether `[offset, offset + size)` intersects a range already recorded.
+    ///
+    /// RFC 5722 makes an overlapping IPv6 fragment a reason to discard the
+    /// whole datagram, so the receive path has to be able to ask BEFORE it
+    /// copies the fragment's octets over whatever is already in the buffer.
+    pub fn overlaps(&self, offset: usize, size: usize) -> bool {
+        if size == 0 {
+            return false;
+        }
+        let end = offset + size;
+        self.iter_data()
+            .any(|(left, right)| offset < right && left < end)
+    }
+
     pub fn iter_data(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
         let mut offset = 0;
         self.contigs.iter().filter_map(move |contig| {

@@ -484,6 +484,25 @@ impl InterfaceInner {
             }
         };
 
+        // RFC 5722: an overlapping fragment makes the whole datagram
+        // untrustworthy — two writers claim the same octets and the reader
+        // cannot say which the firewall in the middle saw — so everything
+        // received for it is dropped. Silently: an ICMP answer here would be
+        // a reflection whose size the attacker chooses.
+        //
+        // This treats a fragment that repeats an earlier one EXACTLY as an
+        // overlap too. It is the stricter reading: a same-offset,
+        // same-length repeat with different octets is precisely the rewrite
+        // the RFC is about, and telling it apart from a duplicate the
+        // network produced would mean comparing the payloads. The cost is
+        // that a genuinely duplicated fragment drops a datagram the upper
+        // layer then has to send again.
+        if slot.overlaps(offset, data.len()) {
+            net_debug!("IPv6 fragment overlaps one already received; dropping the datagram");
+            slot.reset();
+            return Ipv6FragmentResponse::Discard(None);
+        }
+
         if !frag_repr.more_frags {
             // The final fragment is the only one that fixes the total, and
             // two finals that disagree are an attack, not a retransmission.
