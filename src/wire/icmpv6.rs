@@ -156,7 +156,9 @@ enum_with_unknown! {
         /// Unrecognized Next Header type encountered.
         UnrecognizedNxtHdr = 1,
         /// Unrecognized IPv6 option encountered.
-        UnrecognizedOption = 2
+        UnrecognizedOption = 2,
+        /// IPv6 First Fragment has incomplete IPv6 Header Chain (RFC 7112).
+        IncompleteHdrChain = 3
     }
 }
 
@@ -166,6 +168,9 @@ impl fmt::Display for ParamProblem {
             ParamProblem::ErroneousHdrField => write!(f, "erroneous header field."),
             ParamProblem::UnrecognizedNxtHdr => write!(f, "unrecognized next header type."),
             ParamProblem::UnrecognizedOption => write!(f, "unrecognized IPv6 option."),
+            ParamProblem::IncompleteHdrChain => {
+                write!(f, "first fragment has an incomplete header chain.")
+            }
             ParamProblem::Unknown(id) => write!(f, "{id}"),
         }
     }

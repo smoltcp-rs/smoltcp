@@ -85,7 +85,8 @@ fn any_ip(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         None
     );
@@ -99,7 +100,8 @@ fn any_ip(#[case] medium: Medium) {
                 &mut sockets,
                 PacketMeta::default(),
                 HardwareAddress::default(),
-                &Ipv6Packet::new_checked(&data[..]).unwrap()
+                &Ipv6Packet::new_checked(&data[..]).unwrap(),
+                Ipv6Reassembly::from(&mut iface.fragments)
             )
             .is_some()
     );
@@ -128,7 +130,8 @@ fn multicast_source_address(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -177,7 +180,8 @@ fn hop_by_hop_skip_with_icmp(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -213,7 +217,8 @@ fn hop_by_hop_discard_with_icmp(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -268,7 +273,8 @@ fn hop_by_hop_discard_param_problem(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -326,7 +332,8 @@ fn hop_by_hop_discard_with_multicast(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -386,7 +393,8 @@ fn imcp_empty_echo_request(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -447,7 +455,8 @@ fn icmp_echo_request(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -495,7 +504,8 @@ fn icmp_echo_reply_as_input(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -544,7 +554,8 @@ fn unknown_proto_with_multicast_dst_address(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -594,7 +605,8 @@ fn unknown_proto(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -639,7 +651,8 @@ fn ndisc_neighbor_advertisement_ethernet(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -696,7 +709,8 @@ fn ndisc_neighbor_advertisement_ethernet_multicast_addr(#[case] medium: Medium) 
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -749,7 +763,8 @@ fn ndisc_neighbor_advertisement_ieee802154(#[case] medium: Medium) {
             &mut sockets,
             PacketMeta::default(),
             HardwareAddress::default(),
-            &Ipv6Packet::new_checked(&data[..]).unwrap()
+            &Ipv6Packet::new_checked(&data[..]).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments)
         ),
         response
     );
@@ -1865,4 +1880,318 @@ fn test_solicited_node_multicast_autojoin(#[case] medium: Medium) {
     });
     assert!(!iface.has_multicast_group(addr1.solicited_node()));
     assert!(!iface.has_multicast_group(addr2.solicited_node()));
+}
+
+#[cfg(feature = "proto-ipv6-fragmentation")]
+mod fragmentation {
+    use super::*;
+
+    const REMOTE: Ipv6Address = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0002);
+    const LOCAL: Ipv6Address = Ipv6Address::new(0xfdbe, 0, 0, 0, 0, 0, 0, 0x0001);
+    /// Offset of the Fragment header's Fragment Offset field from the start
+    /// of a packet whose only extension header is the Fragment header.
+    const FRAG_OFFSET_FIELD: u32 = 40 + 2;
+
+    /// `[IPv6 header][Fragment header][data]`, emitted by hand because the
+    /// dispatch path cannot produce IPv6 fragments.
+    #[allow(clippy::too_many_arguments)]
+    fn fragment(
+        dst_addr: Ipv6Address,
+        next_header: IpProtocol,
+        ident: u32,
+        frag_offset: u16,
+        more_frags: bool,
+        hop_limit: u8,
+        data: &[u8],
+    ) -> Vec<u8> {
+        let repr = Ipv6Repr {
+            src_addr: REMOTE,
+            dst_addr,
+            next_header: IpProtocol::Ipv6Frag,
+            payload_len: 8 + data.len(),
+            hop_limit,
+        };
+        let mut bytes = std::vec![0u8; repr.buffer_len() + repr.payload_len];
+        repr.emit(&mut Ipv6Packet::new_unchecked(&mut bytes[..]));
+
+        bytes[40] = u8::from(next_header);
+        bytes[41] = 0;
+        {
+            let mut header = Ipv6FragmentHeader::new_unchecked(&mut bytes[42..48]);
+            header.clear_reserved();
+            header.set_frag_offset(frag_offset);
+            header.set_more_frags(more_frags);
+            header.set_ident(ident);
+        }
+        bytes[48..].copy_from_slice(data);
+        bytes
+    }
+
+    /// A complete ICMPv6 echo request, checksummed over the whole message —
+    /// which is what makes reassembly observable end to end: the reply only
+    /// comes back if every octet landed at the right offset.
+    fn echo_request(payload: &[u8]) -> Vec<u8> {
+        let repr = Icmpv6Repr::EchoRequest {
+            ident: 0x1234,
+            seq_no: 0x5678,
+            data: payload,
+        };
+        let mut bytes = std::vec![0u8; repr.buffer_len()];
+        repr.emit(
+            &REMOTE,
+            &LOCAL,
+            &mut Icmpv6Packet::new_unchecked(&mut bytes[..]),
+            &ChecksumCapabilities::default(),
+        );
+        bytes
+    }
+
+    fn feed<'a>(
+        iface: &'a mut Interface,
+        sockets: &mut SocketSet<'_>,
+        data: &'a [u8],
+    ) -> Option<Packet<'a>> {
+        iface.inner.process_ipv6(
+            sockets,
+            PacketMeta::default(),
+            HardwareAddress::default(),
+            &Ipv6Packet::new_checked(data).unwrap(),
+            Ipv6Reassembly::from(&mut iface.fragments),
+        )
+    }
+
+    /// The reply an echo request of `payload` should draw once reassembled.
+    fn expect_echo_reply(packet: Option<Packet<'_>>, payload: &[u8]) {
+        match packet {
+            Some(Packet::Ipv6(p)) => match p.payload {
+                IpPayload::Icmpv6(Icmpv6Repr::EchoReply {
+                    ident,
+                    seq_no,
+                    data,
+                }) => {
+                    assert_eq!(ident, 0x1234);
+                    assert_eq!(seq_no, 0x5678);
+                    assert_eq!(data, payload, "every octet, at its own offset");
+                }
+                other => panic!("expected an echo reply, got {other:?}"),
+            },
+            other => panic!("expected an IPv6 packet, got {other:?}"),
+        }
+    }
+
+    /// The Parameter Problem a refused fragment should draw.
+    fn expect_param_problem(
+        packet: Option<Packet<'_>>,
+        expected_reason: Icmpv6ParamProblem,
+        expected_pointer: u32,
+    ) {
+        match packet {
+            Some(Packet::Ipv6(p)) => match p.payload {
+                IpPayload::Icmpv6(Icmpv6Repr::ParamProblem {
+                    reason, pointer, ..
+                }) => {
+                    assert_eq!(reason, expected_reason);
+                    assert_eq!(pointer, expected_pointer);
+                }
+                other => panic!("expected a parameter problem, got {other:?}"),
+            },
+            other => panic!("expected an IPv6 packet, got {other:?}"),
+        }
+    }
+
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn two_fragments_reassemble(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+        assert_eq!(message.len(), 8 + 64);
+
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0xaa, 0, true, 64, &message[..40]);
+        let last = fragment(LOCAL, IpProtocol::Icmpv6, 0xaa, 5, false, 64, &message[40..]);
+
+        assert!(
+            feed(&mut iface, &mut sockets, &first).is_none(),
+            "a first fragment delivers nothing on its own"
+        );
+        expect_echo_reply(feed(&mut iface, &mut sockets, &last), &payload);
+    }
+
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn fragments_reassemble_out_of_order(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0xbb, 0, true, 64, &message[..40]);
+        let last = fragment(LOCAL, IpProtocol::Icmpv6, 0xbb, 5, false, 64, &message[40..]);
+
+        // The last fragment first: it fixes the total, and the datagram
+        // completes only when the head finally lands.
+        assert!(feed(&mut iface, &mut sockets, &last).is_none());
+        expect_echo_reply(feed(&mut iface, &mut sockets, &first), &payload);
+    }
+
+    /// RFC 6946: offset zero with no more fragments is a whole datagram. It
+    /// must not go through the assembler, where it would otherwise be able
+    /// to collide with a genuinely fragmented datagram of the same identity.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn an_atomic_fragment_is_delivered_whole(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..16u8).collect();
+        let message = echo_request(&payload);
+
+        // A half-finished datagram under the SAME identification, which the
+        // atomic fragment must leave untouched.
+        let head = fragment(LOCAL, IpProtocol::Icmpv6, 0xcc, 0, true, 64, &message[..8]);
+        assert!(feed(&mut iface, &mut sockets, &head).is_none());
+
+        let atomic = fragment(LOCAL, IpProtocol::Icmpv6, 0xcc, 0, false, 64, &message);
+        expect_echo_reply(feed(&mut iface, &mut sockets, &atomic), &payload);
+    }
+
+    /// RFC 8200 section 4.5: a non-final fragment that is not a multiple of
+    /// eight octets is discarded, pointing at Payload Length.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn a_non_final_fragment_must_be_a_multiple_of_eight(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let data = [0u8; 12];
+        let odd = fragment(LOCAL, IpProtocol::Icmpv6, 0xdd, 0, true, 64, &data);
+        expect_param_problem(
+            feed(&mut iface, &mut sockets, &odd),
+            Icmpv6ParamProblem::ErroneousHdrField,
+            4,
+        );
+    }
+
+    /// ... and one whose tail would put the datagram past 65535 octets is
+    /// discarded, pointing at Fragment Offset.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn a_fragment_past_the_payload_ceiling_is_refused(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let data = [0u8; 16];
+        // 8191 * 8 + 16 = 65544.
+        let beyond = fragment(LOCAL, IpProtocol::Icmpv6, 0xee, 8191, true, 64, &data);
+        expect_param_problem(
+            feed(&mut iface, &mut sockets, &beyond),
+            Icmpv6ParamProblem::ErroneousHdrField,
+            FRAG_OFFSET_FIELD,
+        );
+    }
+
+    /// RFC 7112: a first fragment that does not carry its upper-layer header
+    /// is discarded with code 3. Splitting the chain so a stateless filter
+    /// cannot see the ports is the attack this closes.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn a_first_fragment_without_its_upper_layer_header_is_refused(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        // Sixteen octets: a whole number of eight-octet units, so the length
+        // rule above lets it past, and still four short of a TCP header.
+        let stub = [0u8; 16];
+        let split = fragment(LOCAL, IpProtocol::Tcp, 0x11, 0, true, 64, &stub);
+        expect_param_problem(
+            feed(&mut iface, &mut sockets, &split),
+            Icmpv6ParamProblem::IncompleteHdrChain,
+            40,
+        );
+    }
+
+    /// RFC 8200 section 4.5: the reassembled packet's header fields come
+    /// from the FIRST fragment, not from whichever one completes it.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn the_reassembled_header_comes_from_the_first_fragment(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+
+        // The first fragment names the protocol and carries hop limit 64;
+        // the last one lies about both.
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0x22, 0, true, 64, &message[..40]);
+        let last = fragment(
+            LOCAL,
+            IpProtocol::Unknown(0xfd),
+            0x22,
+            5,
+            false,
+            1,
+            &message[40..],
+        );
+
+        assert!(feed(&mut iface, &mut sockets, &first).is_none());
+        // Still an echo reply: the ICMPv6 next header came from the first
+        // fragment. Had the last one's `Unknown(0xfd)` been taken, this
+        // would be an unrecognised-next-header parameter problem instead.
+        expect_echo_reply(feed(&mut iface, &mut sockets, &last), &payload);
+    }
+
+    /// Two finals that disagree on where the datagram ends are an attack,
+    /// not a retransmission: the slot is dropped rather than resized.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn finals_that_disagree_on_the_total_are_dropped(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0x33, 0, true, 64, &message[..40]);
+        let short_last = fragment(LOCAL, IpProtocol::Icmpv6, 0x33, 5, false, 64, &message[40..56]);
+        let real_last = fragment(LOCAL, IpProtocol::Icmpv6, 0x33, 5, false, 64, &message[40..]);
+
+        assert!(feed(&mut iface, &mut sockets, &first).is_none());
+        assert!(feed(&mut iface, &mut sockets, &short_last).is_none());
+        // The second final disagrees, so the slot is reset and this one
+        // starts over rather than completing a datagram of two minds.
+        assert!(
+            feed(&mut iface, &mut sockets, &real_last).is_none(),
+            "the disagreement dropped the partial datagram"
+        );
+    }
+
+    /// RFC 4443 section 2.4: no ICMPv6 error for a packet sent to a
+    /// multicast group, or one answer is multiplied by every member.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn a_refused_fragment_to_a_multicast_group_is_silent(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let group = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 1);
+        let data = [0u8; 12];
+        let odd = fragment(group, IpProtocol::Icmpv6, 0x44, 0, true, 64, &data);
+        assert!(
+            feed(&mut iface, &mut sockets, &odd).is_none(),
+            "discarded, and silently"
+        );
+    }
 }

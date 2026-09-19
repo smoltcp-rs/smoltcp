@@ -13,6 +13,43 @@ enum HopByHopResponse<'frame> {
     Discard(Option<Packet<'frame>>),
 }
 
+/// The same shape as [`HopByHopResponse`], for the Fragment header: either
+/// the datagram is now whole and processing continues on it, or there is
+/// nothing to deliver — because the fragment was absorbed, or refused, in
+/// which case this carries the ICMPv6 answer it earned.
+#[cfg(feature = "proto-ipv6-fragmentation")]
+#[allow(clippy::large_enum_variant)]
+enum Ipv6FragmentResponse<'frame> {
+    /// A complete datagram: its upper-layer protocol and its payload.
+    Continue((IpProtocol, &'frame [u8])),
+    /// Nothing to deliver, and maybe an ICMPv6 packet to send back.
+    Discard(Option<Packet<'frame>>),
+}
+
+/// Offset of the Payload Length field from the start of an IPv6 header,
+/// which is where RFC 8200 section 4.5 points a Parameter Problem for a
+/// non-final fragment that is not a multiple of 8 octets.
+#[cfg(feature = "proto-ipv6-fragmentation")]
+const IPV6_PAYLOAD_LEN_OFFSET: usize = 4;
+
+/// The largest payload an IPv6 header can describe, and so the largest
+/// datagram reassembly may produce.
+#[cfg(feature = "proto-ipv6-fragmentation")]
+const IPV6_MAX_PAYLOAD_LEN: usize = u16::MAX as usize;
+
+/// The smallest header the named upper-layer protocol can have, or `None`
+/// when this code cannot say — an extension header, or one it does not
+/// know, in which case RFC 7112 is not enforced rather than guessed at.
+#[cfg(feature = "proto-ipv6-fragmentation")]
+const fn upper_layer_min_len(protocol: IpProtocol) -> Option<usize> {
+    match protocol {
+        IpProtocol::Udp => Some(8),
+        IpProtocol::Tcp => Some(20),
+        IpProtocol::Icmpv6 => Some(4),
+        _ => None,
+    }
+}
+
 // We implement `Default` such that we can use the check! macro.
 impl Default for HopByHopResponse<'_> {
     fn default() -> Self {
@@ -192,8 +229,10 @@ impl InterfaceInner {
         meta: PacketMeta,
         source_hardware_addr: HardwareAddress,
         ipv6_packet: &Ipv6Packet<&'frame [u8]>,
+        _reassembly: Ipv6Reassembly<'frame>,
     ) -> Option<Packet<'frame>> {
-        let ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
+        #[allow(unused_mut)]
+        let mut ipv6_repr = check!(Ipv6Repr::parse(ipv6_packet));
 
         if !ipv6_repr.src_addr.x_is_unicast() {
             // Discard packets with non-unicast source addresses.
@@ -235,6 +274,31 @@ impl InterfaceInner {
             net_trace!("Rejecting IPv6 packet; no assigned address");
             return None;
         }
+
+        // Reassembly sits AFTER the address checks, unlike the IPv4 path's:
+        // RFC 8200 section 4.5 reassembles at the destination, so a datagram
+        // this interface is not the destination of must never take a slot.
+        // It sits before the raw-socket filter so that a raw socket is
+        // handed the datagram rather than its pieces.
+        #[cfg(feature = "proto-ipv6-fragmentation")]
+        let (next_header, ip_payload) = if next_header == IpProtocol::Ipv6Frag {
+            // Where the Fragment header begins inside the packet, which is
+            // what the ICMP pointers below are measured from: the fixed
+            // header plus whatever extension headers were consumed above.
+            let header_offset =
+                ipv6_repr.buffer_len() + (ipv6_packet.payload().len() - ip_payload.len());
+            match self.process_ipv6_fragment(
+                &mut ipv6_repr,
+                header_offset,
+                ip_payload,
+                _reassembly,
+            ) {
+                Ipv6FragmentResponse::Discard(reply) => return reply,
+                Ipv6FragmentResponse::Continue(next) => next,
+            }
+        } else {
+            (next_header, ip_payload)
+        };
 
         #[cfg(feature = "socket-raw")]
         let handled_by_raw_socket = self.raw_socket_filter(sockets, &ipv6_repr.into(), ip_payload);
@@ -316,6 +380,175 @@ impl InterfaceInner {
             ext_repr.next_header,
             &ip_payload[ext_repr.header_len() + ext_repr.data.len()..],
         ))
+    }
+
+    /// Absorb one IPv6 fragment, and hand back the datagram once its last
+    /// hole is filled (RFC 8200 section 4.5).
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    fn process_ipv6_fragment<'frame>(
+        &mut self,
+        ipv6_repr: &mut Ipv6Repr,
+        header_offset: usize,
+        ip_payload: &'frame [u8],
+        reassembly: Ipv6Reassembly<'frame>,
+    ) -> Ipv6FragmentResponse<'frame> {
+        // A Fragment header is a fixed eight octets — Next Header, one
+        // reserved octet, then the six the wire type covers. It carries no
+        // Hdr Ext Len field, so it is parsed here rather than through
+        // `Ipv6ExtHeader`, whose second octet is a length.
+        const FRAG_HEADER_LEN: usize = 2 + 6;
+
+        if ip_payload.len() < FRAG_HEADER_LEN {
+            net_debug!("IPv6 fragment header truncated");
+            return Ipv6FragmentResponse::Discard(None);
+        }
+        let next_header = IpProtocol::from(ip_payload[0]);
+        let frag_header = match Ipv6FragmentHeader::new_checked(&ip_payload[2..FRAG_HEADER_LEN]) {
+            Ok(header) => header,
+            Err(_) => return Ipv6FragmentResponse::Discard(None),
+        };
+        let frag_repr = match Ipv6FragmentRepr::parse(&frag_header) {
+            Ok(repr) => repr,
+            Err(_) => return Ipv6FragmentResponse::Discard(None),
+        };
+        let data = &ip_payload[FRAG_HEADER_LEN..];
+        // `frag_offset` is already in 8-octet units.
+        let offset = frag_repr.frag_offset as usize * 8;
+
+        // RFC 6946: an atomic fragment — offset zero and no more fragments —
+        // is a whole datagram that happens to carry the header. It must not
+        // touch the reassembly queue, where it could otherwise collide with a
+        // genuinely fragmented datagram of the same identification.
+        if offset == 0 && !frag_repr.more_frags {
+            ipv6_repr.next_header = next_header;
+            ipv6_repr.payload_len = data.len();
+            return Ipv6FragmentResponse::Continue((next_header, data));
+        }
+
+        // RFC 8200 section 4.5: a non-final fragment whose payload is not a
+        // multiple of 8 octets is discarded, pointing at Payload Length.
+        if frag_repr.more_frags && !data.len().is_multiple_of(8) {
+            net_debug!("IPv6 non-final fragment is not a multiple of 8 octets");
+            return Ipv6FragmentResponse::Discard(self.ipv6_fragment_param_problem(
+                *ipv6_repr,
+                ip_payload,
+                Icmpv6ParamProblem::ErroneousHdrField,
+                IPV6_PAYLOAD_LEN_OFFSET as u32,
+            ));
+        }
+
+        // ... and one that would carry the reassembled payload past 65535
+        // octets is discarded, pointing at its Fragment Offset.
+        if offset + data.len() > IPV6_MAX_PAYLOAD_LEN {
+            net_debug!("IPv6 fragment would reassemble past 65535 octets");
+            return Ipv6FragmentResponse::Discard(self.ipv6_fragment_param_problem(
+                *ipv6_repr,
+                ip_payload,
+                Icmpv6ParamProblem::ErroneousHdrField,
+                (header_offset + 2) as u32,
+            ));
+        }
+
+        // RFC 7112: a first fragment that does not carry the whole header
+        // chain is discarded with code 3. The chain is not walked here —
+        // what is checked is that the upper-layer header the Fragment header
+        // names is itself present, which is the case the RFC was written
+        // for: a chain split so that a stateless filter cannot see the
+        // ports it is meant to be filtering on.
+        if offset == 0
+            && let Some(min) = upper_layer_min_len(next_header)
+            && data.len() < min
+        {
+            net_debug!("IPv6 first fragment does not carry its upper-layer header");
+            return Ipv6FragmentResponse::Discard(self.ipv6_fragment_param_problem(
+                *ipv6_repr,
+                ip_payload,
+                Icmpv6ParamProblem::IncompleteHdrChain,
+                header_offset as u32,
+            ));
+        }
+
+        let key = FragKey::Ipv6(Ipv6FragKey {
+            src_addr: ipv6_repr.src_addr,
+            dst_addr: ipv6_repr.dst_addr,
+            ident: frag_repr.ident,
+        });
+        let slot = match reassembly
+            .assembler
+            .get(&key, self.now + reassembly.timeout)
+        {
+            Ok(slot) => slot,
+            Err(_) => {
+                net_debug!("No available packet assembler for fragmented packet");
+                return Ipv6FragmentResponse::Discard(None);
+            }
+        };
+
+        if !frag_repr.more_frags {
+            // The final fragment is the only one that fixes the total, and
+            // two finals that disagree are an attack, not a retransmission.
+            if slot.set_total_size(offset + data.len()).is_err() {
+                net_debug!("IPv6 fragment disagrees with the datagram's total length");
+                slot.reset();
+                return Ipv6FragmentResponse::Discard(None);
+            }
+        }
+
+        if offset == 0 {
+            slot.set_ipv6_first_fragment(Ipv6FirstFragment {
+                next_header,
+                hop_limit: ipv6_repr.hop_limit,
+            });
+        }
+
+        if let Err(e) = slot.add(data, offset) {
+            net_debug!("IPv6 fragmentation error: {:?}", e);
+            slot.reset();
+            return Ipv6FragmentResponse::Discard(None);
+        }
+
+        // Read before `assemble`, which resets the slot and with it this.
+        let Some(first) = slot.ipv6_first_fragment() else {
+            return Ipv6FragmentResponse::Discard(None);
+        };
+        let Some(payload) = slot.assemble() else {
+            return Ipv6FragmentResponse::Discard(None);
+        };
+
+        // RFC 8200 section 4.5: the reassembled packet's header comes from
+        // the FIRST fragment, not from whichever one completed it.
+        ipv6_repr.next_header = first.next_header;
+        ipv6_repr.hop_limit = first.hop_limit;
+        ipv6_repr.payload_len = payload.len();
+        Ipv6FragmentResponse::Continue((first.next_header, payload))
+    }
+
+    /// The Parameter Problem an offending fragment earns, or `None` when
+    /// RFC 4443 section 2.4 forbids answering it.
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    fn ipv6_fragment_param_problem<'frame>(
+        &mut self,
+        ipv6_repr: Ipv6Repr,
+        ip_payload: &'frame [u8],
+        reason: Icmpv6ParamProblem,
+        pointer: u32,
+    ) -> Option<Packet<'frame>> {
+        // An ICMPv6 error is never sent for a packet addressed to a
+        // multicast group: the answer would be multiplied by every member.
+        if !ipv6_repr.dst_addr.x_is_unicast() {
+            return None;
+        }
+        let payload_len =
+            icmp_reply_payload_len(ip_payload.len(), IPV6_MIN_MTU, ipv6_repr.buffer_len());
+        self.icmpv6_reply(
+            ipv6_repr,
+            Icmpv6Repr::ParamProblem {
+                reason,
+                pointer,
+                header: ipv6_repr,
+                data: &ip_payload[0..payload_len],
+            },
+        )
     }
 
     /// Given the next header value forward the payload onto the correct process

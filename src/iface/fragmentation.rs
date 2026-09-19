@@ -55,6 +55,27 @@ pub struct PacketAssembler<K> {
     assembler: Assembler,
     total_size: Option<usize>,
     expires_at: Instant,
+
+    /// What the FIRST fragment of an IPv6 datagram said, kept because the
+    /// reassembled packet's header comes from it (RFC 8200 section 4.5) and
+    /// the fragment that completes the datagram is usually not that one.
+    ///
+    /// It lives here rather than in a table beside the set so that it is
+    /// cleared by the same `reset` that frees the slot; a side table would be
+    /// one more thing to keep in step with expiry and eviction.
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    ipv6_first_fragment: Option<Ipv6FirstFragment>,
+}
+
+/// The fields of an IPv6 datagram that only its first fragment carries.
+#[cfg(feature = "proto-ipv6-fragmentation")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub(crate) struct Ipv6FirstFragment {
+    /// The upper-layer protocol, from the first fragment's Fragment header.
+    pub next_header: IpProtocol,
+    /// The hop limit the reassembled packet is presented with.
+    pub hop_limit: u8,
 }
 
 impl<K> PacketAssembler<K> {
@@ -71,13 +92,33 @@ impl<K> PacketAssembler<K> {
             assembler: Assembler::new(),
             total_size: None,
             expires_at: Instant::ZERO,
+
+            #[cfg(feature = "proto-ipv6-fragmentation")]
+            ipv6_first_fragment: None,
         }
+    }
+
+    /// Record what this datagram's first fragment carried, if it has arrived.
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    pub(crate) fn set_ipv6_first_fragment(&mut self, first: Ipv6FirstFragment) {
+        self.ipv6_first_fragment = Some(first);
+    }
+
+    /// What this datagram's first fragment carried, or `None` while it has
+    /// not arrived yet.
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    pub(crate) fn ipv6_first_fragment(&self) -> Option<Ipv6FirstFragment> {
+        self.ipv6_first_fragment
     }
 
     pub(crate) fn reset(&mut self) {
         self.key = None;
         self.assembler.clear();
         self.total_size = None;
+        #[cfg(feature = "proto-ipv6-fragmentation")]
+        {
+            self.ipv6_first_fragment = None;
+        }
         self.expires_at = Instant::ZERO;
     }
 
@@ -253,8 +294,43 @@ pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 pub(crate) enum FragKey {
     #[cfg(feature = "proto-ipv4-fragmentation")]
     Ipv4(Ipv4FragKey),
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    Ipv6(Ipv6FragKey),
     #[cfg(feature = "proto-sixlowpan-fragmentation")]
     Sixlowpan(SixlowpanFragKey),
+}
+
+/// The reassembly state the IPv6 receive path needs, borrowed field by field
+/// rather than as a whole [`FragmentsBuffer`].
+///
+/// The 6LoWPAN path is why. It decompresses into `FragmentsBuffer`'s
+/// `decompress_buf` and hands the resulting slice to `process_ipv6`, so that
+/// slice keeps an immutable borrow of one field alive for as long as the
+/// packet it produces — which leaves no way to pass `&mut FragmentsBuffer`
+/// alongside it. The assembler is a disjoint field, so it can still be
+/// handed over on its own.
+pub(crate) struct Ipv6Reassembly<'a> {
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    pub assembler: &'a mut PacketAssemblerSet<FragKey>,
+    #[cfg(feature = "proto-ipv6-fragmentation")]
+    pub timeout: Duration,
+    /// Keeps the lifetime and the type inhabited when IPv6 reassembly is
+    /// compiled out, so that callers need no `cfg` on the argument they pass.
+    #[cfg(not(feature = "proto-ipv6-fragmentation"))]
+    pub _borrow: core::marker::PhantomData<&'a mut ()>,
+}
+
+impl<'a> From<&'a mut FragmentsBuffer> for Ipv6Reassembly<'a> {
+    fn from(_frag: &'a mut FragmentsBuffer) -> Self {
+        Self {
+            #[cfg(feature = "proto-ipv6-fragmentation")]
+            timeout: _frag.reassembly_timeout,
+            #[cfg(feature = "proto-ipv6-fragmentation")]
+            assembler: &mut _frag.assembler,
+            #[cfg(not(feature = "proto-ipv6-fragmentation"))]
+            _borrow: core::marker::PhantomData,
+        }
+    }
 }
 
 pub(crate) struct FragmentsBuffer {

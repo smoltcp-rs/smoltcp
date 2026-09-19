@@ -77,6 +77,26 @@ impl From<u8> for MulticastScope {
 
 pub use core::net::Ipv6Addr as Address;
 
+/// The identity fragments of one datagram share, per RFC 8200 section 4.5.
+///
+/// Source address, destination address and the Fragment header's
+/// Identification, and deliberately nothing else. Unlike [`ipv4::Key`], which
+/// includes the protocol field, the upper-layer protocol is NOT part of an
+/// IPv6 datagram's reassembly identity: it lives in the Fragment header's Next
+/// Header field, which non-first fragments carry too but which the RFC does
+/// not make part of the key. Keying on it would let a sender split one
+/// datagram across two reassembly slots by lying in a later fragment.
+///
+/// [`ipv4::Key`]: super::ipv4::Key
+#[cfg(feature = "proto-ipv6-fragmentation")]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Key {
+    pub(crate) src_addr: Address,
+    pub(crate) dst_addr: Address,
+    pub(crate) ident: u32,
+}
+
 pub(crate) trait AddressExt {
     /// Create an IPv6 address based on the provided prefix and hardware identifier.
     fn from_link_prefix(

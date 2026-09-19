@@ -23,6 +23,7 @@ FEATURES_TEST=(
     "std,medium-ethernet,proto-ipv4,socket-udp,socket-tcp,socket-dns"
     "std,medium-ethernet,proto-ipv4,proto-dhcpv4,socket-udp"
     "std,medium-ethernet,medium-ip,medium-ieee802154,proto-ipv6,multicast,proto-rpl,socket-udp,socket-dns,auto-icmp-echo-reply"
+    "std,medium-ethernet,medium-ip,proto-ipv6,proto-ipv6-fragmentation,multicast,socket-raw,socket-udp,socket-tcp,socket-icmp,auto-icmp-echo-reply"
     "std,medium-ethernet,proto-ipv6,socket-tcp"
     "std,medium-ethernet,proto-ipv6,socket-tcp,proto-ipv6-slaac"
     "std,medium-ethernet,medium-ip,proto-ipv4,socket-icmp,socket-tcp"

@@ -31,8 +31,15 @@ use heapless::Vec;
 
 #[cfg(feature = "_proto-fragmentation")]
 use super::fragmentation::FragKey;
-#[cfg(any(feature = "proto-ipv4", feature = "proto-sixlowpan"))]
+// Gated on the umbrella rather than on ipv4/sixlowpan: `FragmentsBuffer`'s
+// `assembler` field is gated on the umbrella too, and `proto-ipv6-fragmentation`
+// alone now reaches it.
+#[cfg(feature = "_proto-fragmentation")]
 use super::fragmentation::PacketAssemblerSet;
+#[cfg(feature = "proto-ipv6-fragmentation")]
+use super::fragmentation::Ipv6FirstFragment;
+#[cfg(feature = "proto-ipv6")]
+use super::fragmentation::Ipv6Reassembly;
 use super::fragmentation::{Fragmenter, FragmentsBuffer};
 
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -954,7 +961,13 @@ impl InterfaceInner {
             #[cfg(feature = "proto-ipv6")]
             Ok(IpVersion::Ipv6) => {
                 let ipv6_packet = check!(Ipv6Packet::new_checked(ip_payload));
-                self.process_ipv6(sockets, meta, HardwareAddress::Ip, &ipv6_packet)
+                self.process_ipv6(
+                    sockets,
+                    meta,
+                    HardwareAddress::Ip,
+                    &ipv6_packet,
+                    Ipv6Reassembly::from(frag),
+                )
             }
             // Drop all other traffic.
             _ => None,

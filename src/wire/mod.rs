@@ -204,6 +204,8 @@ pub use self::ipv6::{
     LINK_LOCAL_ALL_RPL_NODES as IPV6_LINK_LOCAL_ALL_RPL_NODES, MIN_MTU as IPV6_MIN_MTU,
     Packet as Ipv6Packet, Repr as Ipv6Repr,
 };
+#[cfg(feature = "proto-ipv6-fragmentation")]
+pub use self::ipv6::Key as Ipv6FragKey;
 #[cfg(feature = "proto-ipv6")]
 pub(crate) use self::ipv6::{AddressExt as Ipv6AddressExt, MulticastScope as Ipv6MulticastScope};
 

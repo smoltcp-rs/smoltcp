@@ -87,6 +87,18 @@ impl InterfaceInner {
             }
         };
 
+        // `payload` borrows `f.decompress_buf` for as long as the packet this
+        // returns, so the assembler beside it can only travel as a disjoint
+        // field borrow — see `Ipv6Reassembly`.
+        let reassembly = Ipv6Reassembly {
+            #[cfg(feature = "proto-ipv6-fragmentation")]
+            timeout: f.reassembly_timeout,
+            #[cfg(feature = "proto-ipv6-fragmentation")]
+            assembler: &mut f.assembler,
+            #[cfg(not(feature = "proto-ipv6-fragmentation"))]
+            _borrow: core::marker::PhantomData,
+        };
+
         self.process_ipv6(
             sockets,
             meta,
@@ -95,6 +107,7 @@ impl InterfaceInner {
                 None => HardwareAddress::Ieee802154(Ieee802154Address::Absent),
             },
             &check!(Ipv6Packet::new_checked(payload)),
+            reassembly,
         )
     }
 
