@@ -24,6 +24,8 @@ pub use self::interface::{
     Config, Interface, InterfaceInner as Context, PollIngressSingleResult, PollResult,
 };
 
+#[cfg(feature = "_proto-fragmentation")]
+pub use self::fragmentation::{FragKey, ReassemblyEntry, REASSEMBLY_MAX_LEN_DEFAULT};
 pub use self::route::{Route, RouteTableFull, Routes};
 #[cfg(feature = "proto-ipv6-slaac")]
 pub use self::slaac::Slaac;

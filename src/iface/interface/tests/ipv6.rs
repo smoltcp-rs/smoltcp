@@ -2280,4 +2280,45 @@ mod fragmentation {
         assert!(feed(&mut iface, &mut sockets, &first).is_none());
         expect_echo_reply(feed(&mut iface, &mut sockets, &last), &payload);
     }
+
+    /// What the API is for: an embedder keeping a budget of its own can see
+    /// what is held, name it, and let go of it — none of which the timeout
+    /// can do, being per-interface and coarse.
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    fn a_half_assembled_datagram_can_be_seen_and_evicted(#[case] medium: Medium) {
+        let (mut iface, mut sockets, _device) = setup(medium);
+        let payload: Vec<u8> = (0..64u8).collect();
+        let message = echo_request(&payload);
+        let first = fragment(LOCAL, IpProtocol::Icmpv6, 0x88, 0, true, 64, &message[..40]);
+        let last = fragment(LOCAL, IpProtocol::Icmpv6, 0x88, 5, false, 64, &message[40..]);
+
+        assert_eq!(iface.reassembly_entries().count(), 0);
+        assert!(feed(&mut iface, &mut sockets, &first).is_none());
+
+        let entries: Vec<_> = iface.reassembly_entries().collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].received, 40);
+        assert_eq!(entries[0].total, None, "no final fragment has said yet");
+        assert!(entries[0].capacity >= 40);
+
+        // The identity an embedder derives from the wire names the same
+        // datagram the interface is holding.
+        let derived = FragKey::Ipv6(Ipv6FragKey::new(REMOTE, LOCAL, 0x88));
+        assert_eq!(entries[0].key, derived);
+        assert!(iface.reassembly_entry(&derived).is_some());
+
+        assert!(iface.reassembly_evict(&derived));
+        assert_eq!(iface.reassembly_entries().count(), 0);
+        assert!(
+            feed(&mut iface, &mut sockets, &last).is_none(),
+            "the head was let go of, so the final fragment completes nothing"
+        );
+
+        iface.reassembly_clear();
+        assert_eq!(iface.reassembly_entries().count(), 0);
+    }
 }

@@ -260,6 +260,37 @@ impl<K> PacketAssembler<K> {
 /// it: the most an IP header can describe.
 pub const REASSEMBLY_MAX_LEN_DEFAULT: usize = u16::MAX as usize;
 
+/// A datagram currently being reassembled, as an embedder sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ReassemblyEntry<K> {
+    /// What identifies the datagram.
+    pub key: K,
+    /// Octets recorded so far. Not the same as `capacity`: a datagram
+    /// whose first fragment claimed a far offset holds a buffer much
+    /// larger than what has actually arrived, which is the shape a
+    /// memory budget has to be able to see.
+    pub received: usize,
+    /// The datagram's total length, once its final fragment has said.
+    pub total: Option<usize>,
+    /// When the slot is discarded if it is still incomplete.
+    pub expires_at: Instant,
+    /// Octets the slot's buffer is holding on the datagram's behalf.
+    pub capacity: usize,
+}
+
+impl<K: Copy> ReassemblyEntry<K> {
+    fn of(slot: &PacketAssembler<K>) -> Self {
+        Self {
+            key: slot.key.expect("a slot with no key is not an entry"),
+            received: slot.assembler.iter_data().map(|(a, b)| b - a).sum(),
+            total: slot.total_size,
+            expires_at: slot.expires_at,
+            capacity: slot.buffer.len(),
+        }
+    }
+}
+
 /// Set holding multiple [`PacketAssembler`].
 #[derive(Debug)]
 pub struct PacketAssemblerSet<K: Eq + Copy> {
@@ -329,6 +360,52 @@ impl<K: Eq + Copy> PacketAssemblerSet<K> {
         Ok(slot)
     }
 
+    /// Every datagram currently being reassembled.
+    ///
+    /// An embedder that owns a budget of its own — a kernel charging
+    /// retained octets to an interface, a namespace or a tenant — needs to
+    /// see what is held and to be able to let go of it. Without this the
+    /// only lever is the timeout, which is the wrong instrument: it is
+    /// per-interface, it is coarse, and it cannot single out the datagram
+    /// whose owner has just gone away.
+    pub fn entries(&self) -> impl Iterator<Item = ReassemblyEntry<K>> + '_ {
+        self.assemblers
+            .iter()
+            .filter(|slot| !slot.is_free())
+            .map(ReassemblyEntry::of)
+    }
+
+    /// The datagram being reassembled under `key`, if there is one.
+    pub fn entry(&self, key: &K) -> Option<ReassemblyEntry<K>> {
+        self.assemblers
+            .iter()
+            .find(|slot| slot.key.as_ref() == Some(key))
+            .map(ReassemblyEntry::of)
+    }
+
+    /// Discard the datagram being reassembled under `key`, freeing its
+    /// slot. Returns whether there was one.
+    pub fn evict(&mut self, key: &K) -> bool {
+        match self
+            .assemblers
+            .iter_mut()
+            .find(|slot| slot.key.as_ref() == Some(key))
+        {
+            Some(slot) => {
+                slot.reset();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Discard every datagram being reassembled.
+    pub fn clear(&mut self) {
+        for slot in &mut self.assemblers {
+            slot.reset();
+        }
+    }
+
     /// Remove all [`PacketAssembler`]s that are expired.
     pub fn remove_expired(&mut self, timestamp: Instant) {
         for frag in &mut self.assemblers {
@@ -346,7 +423,7 @@ pub(crate) const MAX_DECOMPRESSED_LEN: usize = 1500;
 #[cfg(feature = "_proto-fragmentation")]
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) enum FragKey {
+pub enum FragKey {
     #[cfg(feature = "proto-ipv4-fragmentation")]
     Ipv4(Ipv4FragKey),
     #[cfg(feature = "proto-ipv6-fragmentation")]

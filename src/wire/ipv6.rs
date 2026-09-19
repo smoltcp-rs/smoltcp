@@ -97,6 +97,37 @@ pub struct Key {
     pub(crate) ident: u32,
 }
 
+#[cfg(feature = "proto-ipv6-fragmentation")]
+impl Key {
+    /// The identity of the datagram these three fields name.
+    ///
+    /// Public because an embedder that watches frames on their way in
+    /// derives the identity itself, and then has to be able to name the
+    /// datagram it derived when it asks the interface about it.
+    pub const fn new(src_addr: Address, dst_addr: Address, ident: u32) -> Self {
+        Self {
+            src_addr,
+            dst_addr,
+            ident,
+        }
+    }
+
+    /// The source address fragments of this datagram share.
+    pub const fn src_addr(&self) -> Address {
+        self.src_addr
+    }
+
+    /// The destination address fragments of this datagram share.
+    pub const fn dst_addr(&self) -> Address {
+        self.dst_addr
+    }
+
+    /// The Fragment header Identification fragments of this datagram share.
+    pub const fn ident(&self) -> u32 {
+        self.ident
+    }
+}
+
 pub(crate) trait AddressExt {
     /// Create an IPv6 address based on the provided prefix and hardware identifier.
     fn from_link_prefix(

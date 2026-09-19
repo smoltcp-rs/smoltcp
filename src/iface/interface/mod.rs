@@ -35,7 +35,7 @@ use super::fragmentation::FragKey;
 // `assembler` field is gated on the umbrella too, and `proto-ipv6-fragmentation`
 // alone now reaches it.
 #[cfg(feature = "_proto-fragmentation")]
-use super::fragmentation::PacketAssemblerSet;
+use super::fragmentation::{PacketAssemblerSet, ReassemblyEntry};
 #[cfg(feature = "proto-ipv6-fragmentation")]
 use super::fragmentation::Ipv6FirstFragment;
 #[cfg(feature = "proto-ipv6")]
@@ -474,6 +474,38 @@ impl Interface {
     #[cfg(feature = "_proto-fragmentation")]
     pub fn set_reassembly_max_len(&mut self, max_len: usize) {
         self.fragments.assembler.set_max_len(max_len);
+    }
+
+    /// Every datagram this interface is currently reassembling.
+    ///
+    /// For an embedder that keeps a budget of its own — retained octets
+    /// charged to an interface, a namespace, a tenant — and needs to see
+    /// what is held rather than infer it from the timeout.
+    #[cfg(feature = "_proto-fragmentation")]
+    pub fn reassembly_entries(&self) -> impl Iterator<Item = ReassemblyEntry<FragKey>> + '_ {
+        self.fragments.assembler.entries()
+    }
+
+    /// The datagram being reassembled under `key`, if there is one.
+    #[cfg(feature = "_proto-fragmentation")]
+    pub fn reassembly_entry(&self, key: &FragKey) -> Option<ReassemblyEntry<FragKey>> {
+        self.fragments.assembler.entry(key)
+    }
+
+    /// Discard one datagram being reassembled, freeing its slot and its
+    /// buffer. Returns whether there was one.
+    ///
+    /// The timeout cannot do this job: it is per-interface and coarse, and
+    /// it cannot single out the datagram whose owner has just gone away.
+    #[cfg(feature = "_proto-fragmentation")]
+    pub fn reassembly_evict(&mut self, key: &FragKey) -> bool {
+        self.fragments.assembler.evict(key)
+    }
+
+    /// Discard every datagram being reassembled.
+    #[cfg(feature = "_proto-fragmentation")]
+    pub fn reassembly_clear(&mut self) {
+        self.fragments.assembler.clear();
     }
 
     /// Set the packet reassembly timeout.
