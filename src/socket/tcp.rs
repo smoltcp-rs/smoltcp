@@ -141,7 +141,7 @@ impl fmt::Display for State {
 /// RFC 6298: (2.1) Until a round-trip time (RTT) measurement has been made for a
 /// segment sent between the sender and receiver, the sender SHOULD
 /// set RTO <- 1 second,
-const RTTE_INITIAL_RTO: u32 = 1000;
+const RTTE_INITIAL_RTO: u16 = 1000;
 
 // Minimum "safety margin" for the RTO that kicks in when the
 // variance gets very low.
@@ -152,11 +152,11 @@ const RTTE_K: u32 = 4;
 
 // RFC 6298 (2.4): Whenever RTO is computed, if it is less than 1 second, then the
 // RTO SHOULD be rounded up to 1 second.
-const RTTE_MIN_RTO: u32 = 1000;
+const RTTE_MIN_RTO: u16 = 1000;
 
 // RFC 6298 (2.5) A maximum value MAY be placed on RTO provided it is at least 60
 // seconds
-const RTTE_MAX_RTO: u32 = 60_000;
+const RTTE_MAX_RTO: u16 = 60_000;
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -169,7 +169,7 @@ struct RttEstimator {
     /// RTT variance.
     rttvar: u32,
     /// Retransmission Time-Out
-    rto: u32,
+    rto: u16,
     timestamp: Option<(Instant, TcpSeqNumber)>,
     max_seq_sent: Option<TcpSeqNumber>,
     rto_count: u8,
@@ -214,7 +214,7 @@ impl RttEstimator {
 
         // RFC 6298 (2.2), (2.3)
         let margin = RTTE_MIN_MARGIN.max(self.rttvar * RTTE_K);
-        self.rto = (self.srtt + margin).clamp(RTTE_MIN_RTO, RTTE_MAX_RTO);
+        self.rto = (self.srtt + margin).clamp(RTTE_MIN_RTO as u32, RTTE_MAX_RTO as u32) as u16;
 
         self.rto_count = 0;
 
@@ -254,7 +254,7 @@ impl RttEstimator {
         // RFC 6298 (5.5) The host MUST set RTO <- RTO * 2 ("back off the timer").  The
         // maximum value discussed in (2.5) above may be used to provide
         // an upper bound to this doubling operation.
-        self.rto = (self.rto * 2).min(RTTE_MAX_RTO);
+        self.rto = (self.rto as u32 * 2).min(RTTE_MAX_RTO as u32) as u16;
         tcp_trace!("rtte: doubling rto to {:?}", self.rto);
 
         // RFC 6298: a TCP implementation MAY clear SRTT and RTTVAR after
