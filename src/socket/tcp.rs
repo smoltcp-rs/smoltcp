@@ -158,6 +158,11 @@ const RTTE_MIN_RTO: u16 = 1000;
 // seconds
 const RTTE_MAX_RTO: u16 = 60_000;
 
+/// Convert a user-supplied RTO to milliseconds, clamped to a usable range.
+fn rto_millis(duration: Duration) -> u16 {
+    duration.total_millis().clamp(1, RTTE_MAX_RTO as u64) as u16
+}
+
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct RttEstimator {
@@ -756,6 +761,20 @@ impl<'a> Socket<'a> {
         self.ack_delay
     }
 
+    /// Return the minimum retransmission timeout.
+    ///
+    /// See also the [set_min_rto](#method.set_min_rto) method.
+    pub fn min_rto(&self) -> Duration {
+        Duration::from_millis(self.rtte.min_rto as u64)
+    }
+
+    /// Return the retransmission timeout used before the first RTT measurement.
+    ///
+    /// See also the [set_initial_rto](#method.set_initial_rto) method.
+    pub fn initial_rto(&self) -> Duration {
+        Duration::from_millis(self.rtte.initial_rto as u64)
+    }
+
     /// Return whether Nagle's Algorithm is enabled.
     ///
     /// See also the [set_nagle_enabled](#method.set_nagle_enabled) method.
@@ -820,6 +839,44 @@ impl<'a> Socket<'a> {
     /// By default, the ACK delay is set to 10ms.
     pub fn set_ack_delay(&mut self, duration: Option<Duration>) {
         self.ack_delay = duration
+    }
+
+    /// Set the minimum retransmission timeout.
+    ///
+    /// The RTO computed from the RTT estimate is never allowed below this value.
+    /// By default it is 1s, as recommended by RFC 6298 (2.4).
+    ///
+    /// On links whose round-trip time is far below a second, such as virtio, TAP, or a local
+    /// Ethernet segment, this floor rather than the estimate determines the RTO, so a single lost
+    /// segment costs a full second to recover.
+    ///
+    /// Setting this below the remote peer's delayed-ACK timer turns every delayed
+    /// ACK into a spurious retransmission. [set_ack_delay](#method.set_ack_delay)
+    /// delays ACKs by 10ms by default.
+    ///
+    /// The value is clamped to 1ms..=60s, and is preserved across [listen](#method.listen) and
+    /// [connect](#method.connect). Raising it takes effect immediately.
+    /// Lowering it takes effect at the next RTT measurement.
+    pub fn set_min_rto(&mut self, duration: Duration) {
+        self.rtte.min_rto = rto_millis(duration);
+        self.rtte.rto = self.rtte.rto.max(self.rtte.min_rto);
+    }
+
+    /// Set the retransmission timeout used before the first RTT measurement.
+    ///
+    /// This is the RTO for the SYN, and for data sent before a round trip has been measured.
+    /// By default it is 1s, as recommended by RFC 6298 (2.1).
+    ///
+    /// The value is clamped to 1ms..=60s, and is preserved across [listen](#method.listen) and
+    /// [connect](#method.connect), so the usual place to call it is right after [new](#method.new).
+    /// On a connected socket it takes effect only while no RTT measurement has been made and the
+    /// retransmit timer has not backed off.
+    pub fn set_initial_rto(&mut self, duration: Duration) {
+        let initial_rto = rto_millis(duration);
+        if !self.rtte.have_measurement && self.rtte.rto == self.rtte.initial_rto {
+            self.rtte.rto = initial_rto;
+        }
+        self.rtte.initial_rto = initial_rto;
     }
 
     /// Enable or disable Nagle's Algorithm.
@@ -9598,6 +9655,92 @@ mod test {
             r.sample(2000);
             assert_eq!(r.retransmission_timeout(), Duration::from_millis(rto));
         }
+    }
+
+    #[test]
+    fn test_rtt_estimator_min_rto() {
+        let mut r = RttEstimator {
+            min_rto: 10,
+            initial_rto: 10,
+            ..Default::default()
+        };
+
+        // Imitate a sub-millisecond link which samples as 0ms.
+        r.sample(0);
+        assert_eq!(r.retransmission_timeout(), Duration::from_millis(10));
+
+        // With the RFC floor the same link gets a 1s RTO instead. Terrible.
+        r.min_rto = 1000;
+        r.sample(0);
+        assert_eq!(r.retransmission_timeout(), Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn test_set_get_rto() {
+        let mut s = socket_established();
+
+        assert_eq!(s.min_rto(), Duration::from_millis(1000));
+        assert_eq!(s.initial_rto(), Duration::from_millis(1000));
+
+        s.set_min_rto(Duration::from_millis(20));
+        s.set_initial_rto(Duration::from_millis(50));
+        assert_eq!(s.min_rto(), Duration::from_millis(20));
+        assert_eq!(s.initial_rto(), Duration::from_millis(50));
+
+        // It gets the clamps (otherwise u16 is bad idea.)
+        s.set_min_rto(Duration::from_millis(0));
+        assert_eq!(s.min_rto(), Duration::from_millis(1));
+        s.set_min_rto(Duration::from_secs(120));
+        assert_eq!(s.min_rto(), Duration::from_millis(60_000));
+    }
+
+    #[test]
+    fn test_set_min_rto_raises_current_rto() {
+        let mut s = socket_established();
+        s.set_min_rto(Duration::from_millis(20));
+
+        s.rtte.sample(1);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(20));
+
+        // Raising the floor applies to the connection in progress.
+        s.set_min_rto(Duration::from_millis(500));
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn test_set_initial_rto_does_not_undo_backoff() {
+        let mut s = socket_established();
+        s.set_initial_rto(Duration::from_millis(50));
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(50));
+
+        // Three consecutive timeouts wrap rto_count back to zero, so the guard
+        // cannot rely on it alone.
+        for _ in 0..3 {
+            s.rtte.on_rto();
+        }
+        assert_eq!(s.rtte.rto_count, 0);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(400));
+
+        // The backed-off RTO must survive; RFC 6298 (5.5) makes the backoff a MUST.
+        s.set_initial_rto(Duration::from_millis(50));
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(400));
+        assert_eq!(s.initial_rto(), Duration::from_millis(50));
+    }
+
+    #[test]
+    fn test_rto_config_survives_reset() {
+        let mut s = socket_established();
+        s.set_min_rto(Duration::from_millis(20));
+        s.set_initial_rto(Duration::from_millis(50));
+        s.rtte.sample(400);
+
+        // listen() and connect() both go through reset().
+        s.reset();
+
+        assert_eq!(s.min_rto(), Duration::from_millis(20));
+        assert_eq!(s.initial_rto(), Duration::from_millis(50));
+        assert!(!s.rtte.have_measurement);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(50));
     }
 
     #[test]
