@@ -45,7 +45,9 @@ impl Answer {
 #[derive(Debug)]
 pub struct Cache {
     storage: LinearMap<IpAddress, Neighbor, IFACE_NEIGHBOR_CACHE_COUNT>,
-    silent_until: Instant,
+    /// Silence deadline per address, so discovery rate limiting for one
+    /// address does not delay discovery for a different one.
+    silent_until: LinearMap<IpAddress, Instant, IFACE_NEIGHBOR_CACHE_COUNT>,
 }
 
 impl Cache {
@@ -59,7 +61,7 @@ impl Cache {
     pub fn new() -> Self {
         Self {
             storage: LinearMap::new(),
-            silent_until: Instant::from_millis(0),
+            silent_until: LinearMap::new(),
         }
     }
 
@@ -158,19 +160,38 @@ impl Cache {
             return Answer::Found(hardware_addr);
         }
 
-        if timestamp < self.silent_until {
+        if let Some(silent_until) = self.silent_until.get(protocol_addr)
+            && timestamp < *silent_until
+        {
             Answer::RateLimited
         } else {
             Answer::NotFound
         }
     }
 
-    pub(crate) fn limit_rate(&mut self, timestamp: Instant) {
-        self.silent_until = timestamp + Self::SILENT_TIME;
+    pub(crate) fn limit_rate(&mut self, protocol_addr: IpAddress, timestamp: Instant) {
+        // If the map is full, drop the entry with the earliest deadline,
+        // analogous to how `fill_with_expiration` evicts the oldest neighbor.
+        if self.silent_until.get(&protocol_addr).is_none()
+            && self.silent_until.len() >= self.silent_until.capacity()
+        {
+            if let Some(earliest) = self
+                .silent_until
+                .iter()
+                .min_by_key(|(_, deadline)| *deadline)
+                .map(|(addr, _)| *addr)
+            {
+                let _ = self.silent_until.remove(&earliest);
+            }
+        }
+        let _ = self
+            .silent_until
+            .insert(protocol_addr, timestamp + Self::SILENT_TIME);
     }
 
     pub(crate) fn flush(&mut self) {
-        self.storage.clear()
+        self.storage.clear();
+        self.silent_until.clear();
     }
 }
 
@@ -305,13 +326,59 @@ mod test {
             Answer::NotFound
         );
 
-        cache.limit_rate(Instant::from_millis(0));
+        cache.limit_rate(MOCK_IP_ADDR_1.into(), Instant::from_millis(0));
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(100)),
             Answer::RateLimited
         );
+        // A different address must not be silenced by a request for another one.
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(100)),
+            Answer::NotFound
+        );
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(2000)),
+            Answer::NotFound
+        );
+    }
+
+    #[test]
+    fn test_hush_is_per_address() {
+        let mut cache = Cache::new();
+
+        cache.limit_rate(MOCK_IP_ADDR_1.into(), Instant::from_millis(0));
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0)),
+            Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(0)),
+            Answer::NotFound
+        );
+
+        cache.limit_rate(MOCK_IP_ADDR_2.into(), Instant::from_millis(100));
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(500)),
+            Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(500)),
+            Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_3.into(), Instant::from_millis(500)),
+            Answer::NotFound
+        );
+    }
+
+    #[test]
+    fn test_flush_clears_silence() {
+        let mut cache = Cache::new();
+
+        cache.limit_rate(MOCK_IP_ADDR_1.into(), Instant::from_millis(0));
+        cache.flush();
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(0)),
             Answer::NotFound
         );
     }
