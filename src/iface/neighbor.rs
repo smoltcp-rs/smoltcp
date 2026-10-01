@@ -174,15 +174,13 @@ impl Cache {
         // analogous to how `fill_with_expiration` evicts the oldest neighbor.
         if self.silent_until.get(&protocol_addr).is_none()
             && self.silent_until.len() >= self.silent_until.capacity()
-        {
-            if let Some(earliest) = self
+            && let Some((earliest, _)) = self
                 .silent_until
                 .iter()
                 .min_by_key(|(_, deadline)| *deadline)
-                .map(|(addr, _)| *addr)
-            {
-                let _ = self.silent_until.remove(&earliest);
-            }
+        {
+            let earliest = *earliest;
+            let _ = self.silent_until.remove(&earliest);
         }
         let _ = self
             .silent_until
