@@ -170,6 +170,10 @@ struct RttEstimator {
     rttvar: u32,
     /// Retransmission Time-Out
     rto: u16,
+    /// Lower bound for the computed RTO.
+    min_rto: u16,
+    /// RTO used until the first RTT measurement has been made.
+    initial_rto: u16,
     timestamp: Option<(Instant, TcpSeqNumber)>,
     max_seq_sent: Option<TcpSeqNumber>,
     rto_count: u8,
@@ -182,6 +186,8 @@ impl Default for RttEstimator {
             srtt: 0,   // ignored, will be overwritten on first measurement.
             rttvar: 0, // ignored, will be overwritten on first measurement.
             rto: RTTE_INITIAL_RTO,
+            min_rto: RTTE_MIN_RTO,
+            initial_rto: RTTE_INITIAL_RTO,
             timestamp: None,
             max_seq_sent: None,
             rto_count: 0,
@@ -190,6 +196,16 @@ impl Default for RttEstimator {
 }
 
 impl RttEstimator {
+    /// Discard the current estimate, keeping the configured RTO bounds.
+    fn reset(&mut self) {
+        *self = Self {
+            rto: self.initial_rto,
+            min_rto: self.min_rto,
+            initial_rto: self.initial_rto,
+            ..Self::default()
+        };
+    }
+
     fn retransmission_timeout(&self) -> Duration {
         Duration::from_millis(self.rto as _)
     }
@@ -214,7 +230,7 @@ impl RttEstimator {
 
         // RFC 6298 (2.2), (2.3)
         let margin = RTTE_MIN_MARGIN.max(self.rttvar * RTTE_K);
-        self.rto = (self.srtt + margin).clamp(RTTE_MIN_RTO as u32, RTTE_MAX_RTO as u32) as u16;
+        self.rto = (self.srtt + margin).clamp(self.min_rto as u32, RTTE_MAX_RTO as u32) as u16;
 
         self.rto_count = 0;
 
@@ -907,7 +923,7 @@ impl<'a> Socket<'a> {
 
         self.state = State::Closed;
         self.timer = Timer::new();
-        self.rtte = RttEstimator::default();
+        self.rtte.reset();
         self.assembler = Assembler::new();
         self.tx_buffer.clear();
         self.rx_buffer.clear();
