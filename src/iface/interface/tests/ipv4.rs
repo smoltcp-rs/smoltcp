@@ -1548,3 +1548,127 @@ fn test_ipv4_fragment_size() {
         );
     }
 }
+
+/// Build an ICMPv4 Destination Unreachable quoting a TCP segment we sent, feed
+/// it to the interface, and return the resulting state of the socket.
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn icmpv4_dst_unreachable_effect_on_connect(
+    reason: Icmpv4DstUnreachable,
+) -> crate::socket::tcp::State {
+    use crate::socket::tcp;
+
+    let (mut iface, mut sockets, _device) = setup(Medium::Ip);
+
+    let local = Ipv4Address::new(192, 168, 1, 1);
+    let remote = Ipv4Address::new(192, 168, 1, 2);
+    let (local_port, remote_port) = (49152u16, 80u16);
+
+    let handle = sockets.add(tcp::Socket::new(
+        tcp::SocketBuffer::new(vec![0; 64]),
+        tcp::SocketBuffer::new(vec![0; 64]),
+    ));
+    sockets
+        .get_mut::<tcp::Socket>(handle)
+        .connect(
+            &mut iface.inner,
+            IpEndpoint::new(remote.into(), remote_port),
+            (IpAddress::from(local), local_port),
+        )
+        .unwrap();
+    assert_eq!(
+        sockets.get_mut::<tcp::Socket>(handle).state(),
+        tcp::State::SynSent
+    );
+
+    let quoted = TcpRepr {
+        src_port: local_port,
+        dst_port: remote_port,
+        control: TcpControl::Syn,
+        seq_number: TcpSeqNumber(0),
+        ack_number: None,
+        window_len: 1024,
+        window_scale: None,
+        max_seg_size: None,
+        sack_permitted: false,
+        sack_ranges: [None, None, None],
+        timestamp: None,
+        payload: &[],
+    };
+    let mut quoted_bytes = vec![0u8; quoted.buffer_len()];
+    quoted.emit(
+        &mut TcpPacket::new_unchecked(&mut quoted_bytes),
+        &local.into(),
+        &remote.into(),
+        &ChecksumCapabilities::default(),
+    );
+
+    let icmp_repr = Icmpv4Repr::DstUnreachable {
+        reason,
+        header: Ipv4Repr {
+            src_addr: local,
+            dst_addr: remote,
+            next_header: IpProtocol::Tcp,
+            payload_len: quoted_bytes.len(),
+            hop_limit: 64,
+        },
+        data: &quoted_bytes,
+    };
+    let mut icmp_bytes = vec![0u8; icmp_repr.buffer_len()];
+    icmp_repr.emit(
+        &mut Icmpv4Packet::new_unchecked(&mut icmp_bytes),
+        &ChecksumCapabilities::default(),
+    );
+
+    iface.inner.process_icmpv4(
+        &mut sockets,
+        Ipv4Repr {
+            src_addr: remote,
+            dst_addr: local,
+            next_header: IpProtocol::Icmp,
+            payload_len: icmp_bytes.len(),
+            hop_limit: 64,
+        },
+        &icmp_bytes,
+    );
+
+    sockets.get_mut::<tcp::Socket>(handle).state()
+}
+
+/// A hard error aborts an outstanding connection attempt. RFC 1122 §4.2.3.9
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn test_icmpv4_hard_error_aborts_tcp_connect() {
+    for reason in [
+        Icmpv4DstUnreachable::ProtoUnreachable,
+        Icmpv4DstUnreachable::PortUnreachable,
+        Icmpv4DstUnreachable::NetProhibited,
+        Icmpv4DstUnreachable::HostProhibited,
+        Icmpv4DstUnreachable::CommProhibited,
+    ] {
+        assert_eq!(
+            icmpv4_dst_unreachable_effect_on_connect(reason),
+            crate::socket::tcp::State::Closed,
+            "{reason} should abort the connection attempt"
+        );
+    }
+}
+
+/// Soft errors, and FragRequired in particular, must not abort the attempt:
+/// codes 0, 1 and 5 are transient (RFC 1122 §4.2.3.9) and FragRequired drives
+/// Path MTU Discovery rather than teardown.
+#[test]
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp"))]
+fn test_icmpv4_soft_error_does_not_abort_tcp_connect() {
+    for reason in [
+        Icmpv4DstUnreachable::NetUnreachable,
+        Icmpv4DstUnreachable::HostUnreachable,
+        Icmpv4DstUnreachable::SrcRouteFailed,
+        Icmpv4DstUnreachable::FragRequired,
+    ] {
+        assert_eq!(
+            icmpv4_dst_unreachable_effect_on_connect(reason),
+            crate::socket::tcp::State::SynSent,
+            "{reason} is a soft error and must be ignored"
+        );
+    }
+}
