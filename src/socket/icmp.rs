@@ -93,8 +93,8 @@ impl Endpoint {
         match *self {
             Endpoint::Unspecified => false,
             Endpoint::Ident(_) => true,
-            Endpoint::Tcp(endpoint) => endpoint.port != 0,
-            Endpoint::Udp(endpoint) => endpoint.port != 0,
+            Endpoint::Tcp(endpoint) => matches!(endpoint.port, Some(p) if p != 0),
+            Endpoint::Udp(endpoint) => matches!(endpoint.port, Some(p) if p != 0),
         }
     }
 }
@@ -449,7 +449,7 @@ impl<'a> Socket<'a> {
                     &header.dst_addr.into(),
                     &cx.checksum_caps(),
                 ) {
-                    Ok(repr) => endpoint.port == repr.src_port,
+                    Ok(repr) => endpoint.port == Some(repr.src_port),
                     Err(_) => false,
                 }
             }
@@ -469,7 +469,7 @@ impl<'a> Socket<'a> {
                     &header.dst_addr.into(),
                     &cx.checksum_caps(),
                 ) {
-                    Ok(repr) => endpoint.port == repr.src_port,
+                    Ok(repr) => endpoint.port == Some(repr.src_port),
                     Err(_) => false,
                 }
             }
@@ -511,7 +511,7 @@ impl<'a> Socket<'a> {
                     &header.dst_addr.into(),
                     &cx.checksum_caps(),
                 ) {
-                    Ok(repr) => endpoint.port == repr.src_port,
+                    Ok(repr) => endpoint.port == Some(repr.src_port),
                     Err(_) => false,
                 }
             }
@@ -531,7 +531,7 @@ impl<'a> Socket<'a> {
                     &header.dst_addr.into(),
                     &cx.checksum_caps(),
                 ) {
-                    Ok(repr) => endpoint.port == repr.src_port,
+                    Ok(repr) => endpoint.port == Some(repr.src_port),
                     Err(_) => false,
                 }
             }
