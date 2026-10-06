@@ -2,7 +2,7 @@ use core::cmp::min;
 #[cfg(feature = "async")]
 use core::task::Waker;
 
-use heapless::Vec;
+use crate::data_structure::Vec;
 use managed::ManagedSlice;
 
 use crate::config::{DNS_MAX_NAME_SIZE, DNS_MAX_RESULT_COUNT, DNS_MAX_SERVER_COUNT};
