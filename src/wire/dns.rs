@@ -2,6 +2,7 @@
 
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
+use core::fmt;
 use core::iter;
 use core::iter::Iterator;
 
@@ -42,7 +43,9 @@ enum_with_unknown! {
         Ns    = 0x0002,
         Cname = 0x0005,
         Soa   = 0x0006,
+        Ptr   = 0x000c,
         Aaaa  = 0x001c,
+        Srv   = 0x0021,
     }
 }
 
@@ -74,6 +77,420 @@ mod field {
 
 // DNS class IN (Internet)
 const CLASS_IN: u16 = 1;
+
+/// A DNS name borrowed either from a DNS message or a canonical standalone buffer.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Name<'a> {
+    message: &'a [u8],
+    raw_name: &'a [u8],
+}
+
+impl<'a> Name<'a> {
+    /// Creates a DNS name view over `raw_name`, using `message` as the base for compression
+    /// pointers.
+    pub fn new(message: &'a [u8], raw_name: &'a [u8]) -> Result<Self> {
+        let name = Self { message, raw_name };
+
+        for label in name.labels() {
+            let _ = label?;
+        }
+
+        Ok(name)
+    }
+
+    /// Parses exactly one DNS name from `raw_name`, rejecting any trailing bytes.
+    pub fn parse(message: &'a [u8], raw_name: &'a [u8]) -> Result<Self> {
+        let (rest, _) = parse_name_part(raw_name, |_| ())?;
+        if !rest.is_empty() {
+            return Err(Error);
+        }
+
+        Self::new(message, raw_name)
+    }
+
+    /// Returns the raw wire-format name slice.
+    pub const fn raw(&self) -> &'a [u8] {
+        self.raw_name
+    }
+
+    /// Returns whether this name is the DNS root (`.`).
+    pub const fn is_root(&self) -> bool {
+        self.raw_name.len() == 1 && self.raw_name[0] == 0
+    }
+
+    /// Returns an iterator over the labels in this name, following compression pointers if present.
+    pub fn labels(&self) -> NameIter<'a> {
+        NameIter {
+            packet: self.message,
+            bytes: self.raw_name,
+        }
+    }
+
+    /// Returns the size of this name when written in canonical, uncompressed wire format.
+    pub const fn wire_len(&self) -> Result<usize> {
+        let packet = self.message;
+        let mut bytes = self.raw_name;
+        let mut offset = 0;
+        let mut packet_limit = packet.len();
+        let mut len = 1;
+
+        loop {
+            if offset >= bytes.len() {
+                return Err(Error);
+            }
+
+            match bytes[offset] {
+                0x00 => return Ok(len),
+                x if x & 0xC0 == 0x00 => {
+                    let label_len = (x & 0x3F) as usize;
+                    if bytes.len() - offset < 1 + label_len {
+                        return Err(Error);
+                    }
+
+                    len += 1 + label_len;
+                    offset += 1 + label_len;
+                }
+                x if x & 0xC0 == 0xC0 => {
+                    if bytes.len() - offset < 2 {
+                        return Err(Error);
+                    }
+
+                    let ptr = ((x & 0x3F) as usize) << 8 | bytes[offset + 1] as usize;
+                    if packet_limit <= ptr {
+                        return Err(Error);
+                    }
+
+                    bytes = packet;
+                    offset = ptr;
+                    packet_limit = ptr;
+                }
+                _ => return Err(Error),
+            }
+        }
+    }
+
+    /// Writes this name into `buffer` in canonical, uncompressed wire format.
+    pub fn write_uncompressed(&self, buffer: &mut [u8]) -> Result<usize> {
+        let len = self.wire_len()?;
+        if buffer.len() < len {
+            return Err(Error);
+        }
+
+        let mut offset = 0;
+        for label in self.labels() {
+            let label = label?;
+            buffer[offset] = label.len() as u8;
+            offset += 1;
+
+            let next = offset + label.len();
+            buffer[offset..next].copy_from_slice(label);
+            offset = next;
+        }
+
+        buffer[offset] = 0;
+        Ok(len)
+    }
+
+    /// Compares this name with another name label-by-label.
+    pub fn labels_eq(&self, other: Name<'_>) -> Result<bool> {
+        let mut lhs = self.labels();
+        let mut rhs = other.labels();
+
+        loop {
+            let pair = (lhs.next().transpose()?, rhs.next().transpose()?);
+            match pair {
+                (None, None) => return Ok(true),
+                (Some(lhs_label), Some(rhs_label)) if lhs_label == rhs_label => {
+                    continue;
+                }
+                _ => return Ok(false),
+            }
+        }
+    }
+
+    /// Encodes `labels` into `buffer` and returns a canonical name view over the encoded bytes.
+    pub fn from_labels<T>(buffer: &'a mut [u8], labels: impl IntoIterator<Item = T>) -> Result<Self>
+    where
+        T: AsRef<[u8]>,
+    {
+        let mut offset = 0;
+
+        for label in labels {
+            let label = label.as_ref();
+
+            if label.len() > 63 {
+                return Err(Error);
+            }
+
+            let next = offset + 1 + label.len();
+            if next + 1 > buffer.len() {
+                return Err(Error);
+            }
+
+            buffer[offset] = label.len() as u8;
+            offset += 1;
+
+            buffer[offset..offset + label.len()].copy_from_slice(label);
+            offset += label.len();
+        }
+
+        if offset >= buffer.len() {
+            return Err(Error);
+        }
+
+        buffer[offset] = 0;
+        offset += 1;
+
+        Self::from_const(&buffer[..offset])
+    }
+
+    /// Encodes a dotted presentation-form name into `buffer` and returns a canonical name view.
+    ///
+    /// Names with and without a trailing dot are treated the same. DNS search path expansion is
+    /// not supported.
+    pub fn from_str(buffer: &'a mut [u8], name: &str) -> Result<Self> {
+        let name = name.as_bytes();
+        if name.is_empty() {
+            return Err(Error);
+        }
+
+        let name = if name[name.len() - 1] == b'.' {
+            &name[..name.len() - 1]
+        } else {
+            name
+        };
+
+        if name.is_empty() {
+            if buffer.is_empty() {
+                return Err(Error);
+            }
+
+            buffer[0] = 0;
+            return Self::from_const(&buffer[..1]);
+        }
+
+        Self::from_labels(buffer, name.split(|&byte| byte == b'.'))
+    }
+
+    /// Returns whether `raw_name` contains exactly one canonical, uncompressed DNS name.
+    pub const fn is_canonical(raw_name: &[u8]) -> bool {
+        let mut offset = 0;
+
+        while offset < raw_name.len() {
+            let len = raw_name[offset];
+            if len & 0xC0 != 0 {
+                return false;
+            }
+
+            offset += 1;
+
+            if len == 0 {
+                return offset == raw_name.len();
+            }
+
+            let len = len as usize;
+            if len > 63 || offset + len > raw_name.len() {
+                return false;
+            }
+
+            offset += len;
+        }
+
+        false
+    }
+
+    /// Validates that `raw_name` is one canonical, uncompressed wire-format DNS name and
+    /// returns a [`Name`] view over it.
+    pub const fn from_const(raw_name: &'a [u8]) -> Result<Self> {
+        if !Self::is_canonical(raw_name) {
+            return Err(Error);
+        }
+
+        Ok(Self {
+            message: raw_name,
+            raw_name,
+        })
+    }
+
+    /// # Safety
+    ///
+    /// `raw_name` must contain exactly one canonical, uncompressed DNS name.
+    /// It is always sound to call this with a slice borrowed from static storage produced by
+    /// [`dns_name!`](crate::dns_name).
+    #[allow(unsafe_code)]
+    pub const unsafe fn from_const_unchecked(raw_name: &'a [u8]) -> Self {
+        Self {
+            message: raw_name,
+            raw_name,
+        }
+    }
+
+    /// Encodes a dotted string literal into canonical, uncompressed DNS wire format at compile
+    /// time.
+    ///
+    /// Most callers should use [`dns_name!`](crate::dns_name) instead of calling this function
+    /// directly.
+    #[doc(hidden)]
+    pub const fn encode_str_const(name: &'static str) -> ([u8; 255], usize) {
+        let bytes = name.as_bytes();
+        let mut encoded = [0u8; 255];
+
+        if bytes.is_empty() {
+            panic!("DNS name cannot be empty");
+        }
+
+        let mut input = 0;
+        let mut output = 1;
+        let mut label_len = 0usize;
+        let mut label_start = 0usize;
+        let len = if bytes[bytes.len() - 1] == b'.' {
+            bytes.len() - 1
+        } else {
+            bytes.len()
+        };
+
+        if len == 0 {
+            encoded[0] = 0;
+            return (encoded, 1);
+        }
+
+        while input < len {
+            if bytes[input] == b'.' {
+                if label_len == 0 {
+                    panic!("DNS name contains an empty label");
+                }
+
+                encoded[label_start] = label_len as u8;
+                label_start = output;
+                output += 1;
+                label_len = 0;
+                input += 1;
+                continue;
+            }
+
+            if label_len == 63 {
+                panic!("DNS label exceeds 63 bytes");
+            }
+
+            if output >= encoded.len() {
+                panic!("DNS name exceeds 255 bytes");
+            }
+
+            encoded[output] = bytes[input];
+            output += 1;
+            label_len += 1;
+            input += 1;
+        }
+
+        if label_len == 0 {
+            panic!("DNS name contains an empty label");
+        }
+
+        if output >= encoded.len() {
+            panic!("DNS name exceeds 255 bytes");
+        }
+
+        encoded[label_start] = label_len as u8;
+        encoded[output] = 0;
+        output += 1;
+
+        (encoded, output)
+    }
+}
+
+impl fmt::Display for Name<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_root() {
+            return write!(f, ".");
+        }
+
+        let mut first = true;
+        for label in self.labels() {
+            let label = label.map_err(|_| fmt::Error)?;
+
+            if !first {
+                write!(f, ".")?;
+            }
+
+            for &byte in label {
+                match byte {
+                    b'.' | b'\\' => {
+                        write!(f, "\\{}", byte as char)?;
+                    }
+                    0x20..=0x7e => {
+                        write!(f, "{}", byte as char)?;
+                    }
+                    _ => {
+                        write!(f, "\\{byte:03}")?;
+                    }
+                }
+            }
+
+            first = false;
+        }
+
+        Ok(())
+    }
+}
+
+impl PartialEq<&[u8]> for Name<'_> {
+    fn eq(&self, other: &&[u8]) -> bool {
+        self.raw_name == *other
+    }
+}
+
+impl<const N: usize> PartialEq<&[u8; N]> for Name<'_> {
+    fn eq(&self, other: &&[u8; N]) -> bool {
+        self.raw_name == other.as_slice()
+    }
+}
+
+pub struct NameIter<'a> {
+    packet: &'a [u8],
+    bytes: &'a [u8],
+}
+
+impl<'a> Iterator for NameIter<'a> {
+    type Item = Result<&'a [u8]>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.bytes.is_empty() {
+                return Some(Err(Error));
+            }
+
+            match self.bytes[0] {
+                0x00 => return None,
+                x if x & 0xC0 == 0x00 => {
+                    let len = (x & 0x3F) as usize;
+                    if self.bytes.len() < 1 + len {
+                        return Some(Err(Error));
+                    }
+
+                    let label = &self.bytes[1..1 + len];
+                    self.bytes = &self.bytes[1 + len..];
+                    return Some(Ok(label));
+                }
+                x if x & 0xC0 == 0xC0 => {
+                    if self.bytes.len() < 2 {
+                        return Some(Err(Error));
+                    }
+
+                    let y = self.bytes[1];
+                    let ptr = ((x & 0x3F) as usize) << 8 | y as usize;
+                    if self.packet.len() <= ptr {
+                        return Some(Err(Error));
+                    }
+
+                    self.bytes = &self.packet[ptr..];
+                    self.packet = &self.packet[..ptr];
+                }
+                _ => return Some(Err(Error)),
+            }
+        }
+    }
+}
 
 /// A read/write wrapper around a DNS packet buffer.
 #[derive(Debug, PartialEq, Eq)]
@@ -289,20 +706,26 @@ fn parse_name_part<'a>(
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Question<'a> {
-    pub name: &'a [u8],
+    pub name: Name<'a>,
     pub type_: Type,
 }
 
 impl<'a> Question<'a> {
-    pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], Question<'a>)> {
+    /// Parses one DNS question from the front of `buffer`.
+    ///
+    /// `message` must be the full original DNS packet. `buffer` is the current rolling parse
+    /// slice within that packet and is advanced by the returned remainder. The split is needed
+    /// because DNS names inside `buffer` may contain compression pointers that refer back to
+    /// earlier bytes in `message`.
+    pub fn parse(message: &'a [u8], buffer: &'a [u8]) -> Result<(&'a [u8], Question<'a>)> {
         let (rest, _) = parse_name_part(buffer, |_| ())?;
-        let name = &buffer[..buffer.len() - rest.len()];
+        let name = Name::new(message, &buffer[..buffer.len() - rest.len()])?;
 
         if rest.len() < 4 {
             return Err(Error);
         }
         let type_ = NetworkEndian::read_u16(&rest[0..2]).into();
-        let class = NetworkEndian::read_u16(&rest[2..4]);
+        let class = NetworkEndian::read_u16(&rest[2..4]) & 0x7fff;
         let rest = &rest[4..];
 
         if class != CLASS_IN {
@@ -314,13 +737,19 @@ impl<'a> Question<'a> {
 
     /// Return the length of a packet that will be emitted from this high-level representation.
     pub const fn buffer_len(&self) -> usize {
-        self.name.len() + 4
+        match self.name.wire_len() {
+            Ok(name_len) => name_len + 4,
+            Err(_) => panic!("DnsName should be validated"),
+        }
     }
 
     /// Emit a high-level representation into a DNS packet.
     pub fn emit(&self, packet: &mut [u8]) {
-        packet[..self.name.len()].copy_from_slice(self.name);
-        let rest = &mut packet[self.name.len()..];
+        let name_len = self.name.wire_len().expect("DnsName should be validated");
+        self.name
+            .write_uncompressed(&mut packet[..name_len])
+            .expect("packet buffer should fit DNS name");
+        let rest = &mut packet[name_len..];
         NetworkEndian::write_u16(&mut rest[0..2], self.type_.into());
         NetworkEndian::write_u16(&mut rest[2..4], CLASS_IN);
     }
@@ -329,13 +758,42 @@ impl<'a> Question<'a> {
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Record<'a> {
-    pub name: &'a [u8],
+    pub name: Name<'a>,
     pub ttl: u32,
     pub data: RecordData<'a>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SrvRecord<Target> {
+    pub priority: u16,
+    pub weight: u16,
+    pub port: u16,
+    pub target: Target,
+}
+
+impl<'a> SrvRecord<Name<'a>> {
+    pub fn parse(message: &'a [u8], data: &'a [u8]) -> Result<SrvRecord<Name<'a>>> {
+        if data.len() < 6 {
+            return Err(Error);
+        }
+
+        let priority = NetworkEndian::read_u16(&data[0..2]);
+        let weight = NetworkEndian::read_u16(&data[2..4]);
+        let port = NetworkEndian::read_u16(&data[4..6]);
+        let target = Name::parse(message, &data[6..])?;
+
+        Ok(SrvRecord {
+            priority,
+            weight,
+            port,
+            target,
+        })
+    }
+}
+
 impl<'a> RecordData<'a> {
-    pub fn parse(type_: Type, data: &'a [u8]) -> Result<RecordData<'a>> {
+    pub fn parse(message: &'a [u8], type_: Type, data: &'a [u8]) -> Result<RecordData<'a>> {
         match type_ {
             #[cfg(feature = "proto-ipv4")]
             Type::A => Ok(RecordData::A(Ipv4Address::from_octets(
@@ -345,7 +803,9 @@ impl<'a> RecordData<'a> {
             Type::Aaaa => Ok(RecordData::Aaaa(Ipv6Address::from_octets(
                 data.try_into().map_err(|_| Error)?,
             ))),
-            Type::Cname => Ok(RecordData::Cname(data)),
+            Type::Cname => Ok(RecordData::Cname(Name::parse(message, data)?)),
+            Type::Ptr => Ok(RecordData::Ptr(Name::parse(message, data)?)),
+            Type::Srv => Ok(RecordData::Srv(SrvRecord::parse(message, data)?)),
             x => Ok(RecordData::Other(x, data)),
         }
     }
@@ -358,20 +818,28 @@ pub enum RecordData<'a> {
     A(Ipv4Address),
     #[cfg(feature = "proto-ipv6")]
     Aaaa(Ipv6Address),
-    Cname(&'a [u8]),
+    Cname(Name<'a>),
+    Ptr(Name<'a>),
+    Srv(SrvRecord<Name<'a>>),
     Other(Type, &'a [u8]),
 }
 
 impl<'a> Record<'a> {
-    pub fn parse(buffer: &'a [u8]) -> Result<(&'a [u8], Record<'a>)> {
+    /// Parses one DNS record from the front of `buffer`.
+    ///
+    /// `message` must be the full original DNS packet. `buffer` is the current rolling parse
+    /// slice within that packet and is advanced by the returned remainder. The split is needed
+    /// because record names and name-bearing RDATA may contain compression pointers that refer
+    /// back to earlier bytes in `message`.
+    pub fn parse(message: &'a [u8], buffer: &'a [u8]) -> Result<(&'a [u8], Record<'a>)> {
         let (rest, _) = parse_name_part(buffer, |_| ())?;
-        let name = &buffer[..buffer.len() - rest.len()];
+        let name = Name::new(message, &buffer[..buffer.len() - rest.len()])?;
 
         if rest.len() < 10 {
             return Err(Error);
         }
         let type_ = NetworkEndian::read_u16(&rest[0..2]).into();
-        let class = NetworkEndian::read_u16(&rest[2..4]);
+        let class = NetworkEndian::read_u16(&rest[2..4]) & 0x7fff;
         let ttl = NetworkEndian::read_u32(&rest[4..8]);
         let len = NetworkEndian::read_u16(&rest[8..10]) as usize;
         let rest = &rest[10..];
@@ -388,7 +856,7 @@ impl<'a> Record<'a> {
             Record {
                 name,
                 ttl,
-                data: RecordData::parse(type_, data)?,
+                data: RecordData::parse(message, type_, data)?,
             },
         ))
     }
@@ -448,8 +916,9 @@ mod test {
 
         let name_vec = |bytes| {
             let mut v = Vec::new();
-            packet
-                .parse_name(bytes)
+            Name::new(packet.buffer.as_ref(), bytes)
+                .unwrap()
+                .labels()
                 .try_for_each(|label| label.map(|label| v.push(label)))
                 .map(|_| v)
         };
@@ -505,22 +974,22 @@ mod test {
             let mut payload = &bytes[12..];
 
             for _ in 0..packet.question_count() {
-                let (p, r) = Question::parse(payload)?;
+                let (p, r) = Question::parse(bytes, payload)?;
                 questions.push(r);
                 payload = p;
             }
             for _ in 0..packet.answer_record_count() {
-                let (p, r) = Record::parse(payload)?;
+                let (p, r) = Record::parse(bytes, payload)?;
                 answers.push(r);
                 payload = p;
             }
             for _ in 0..packet.authority_record_count() {
-                let (p, r) = Record::parse(payload)?;
+                let (p, r) = Record::parse(bytes, payload)?;
                 authorities.push(r);
                 payload = p;
             }
             for _ in 0..packet.additional_record_count() {
-                let (p, r) = Record::parse(payload)?;
+                let (p, r) = Record::parse(bytes, payload)?;
                 additionals.push(r);
                 payload = p;
             }
@@ -559,7 +1028,7 @@ mod test {
 
         assert_eq!(p.questions.len(), 1);
         assert_eq!(
-            p.questions[0].name,
+            p.questions[0].name.raw(),
             &[
                 0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00
             ]
@@ -710,10 +1179,16 @@ mod test {
         assert_eq!(p.answers[0].ttl, 1523);
         assert_eq!(
             p.answers[0].data,
-            RecordData::Cname(&[
-                0x09, 0x73, 0x74, 0x61, 0x72, 0x2d, 0x6d, 0x69, 0x6e, 0x69, 0x04, 0x63, 0x31, 0x30,
-                0x72, 0xc0, 0x10
-            ])
+            RecordData::Cname(
+                Name::new(
+                    p.packet.buffer,
+                    &[
+                        0x09, 0x73, 0x74, 0x61, 0x72, 0x2d, 0x6d, 0x69, 0x6e, 0x69, 0x04, 0x63,
+                        0x31, 0x30, 0x72, 0xc0, 0x10
+                    ]
+                )
+                .unwrap()
+            )
         );
         // a
         assert_eq!(p.answers[1].name, &[0xc0, 0x2e]);
@@ -721,6 +1196,104 @@ mod test {
         assert_eq!(
             p.answers[1].data,
             RecordData::A(Ipv4Address::new(0x1f, 0x0d, 0x53, 0x24))
+        );
+    }
+
+    #[test]
+    fn test_parse_response_ptr() {
+        let bytes = &[
+            0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x34,
+            0x01, 0x33, 0x01, 0x32, 0x01, 0x31, 0x07, 0x69, 0x6e, 0x2d, 0x61, 0x64, 0x64, 0x72,
+            0x04, 0x61, 0x72, 0x70, 0x61, 0x00, 0x00, 0x0c, 0x00, 0x01, 0xc0, 0x0c, 0x00, 0x0c,
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x0d, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70,
+            0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00,
+        ];
+
+        let p = Parsed::parse(bytes).unwrap();
+
+        assert_eq!(p.packet.transaction_id(), 0x1234);
+        assert_eq!(p.packet.answer_record_count(), 1);
+        assert_eq!(p.questions[0].type_, Type::Ptr);
+        assert_eq!(p.answers[0].name, &[0xc0, 0x0c]);
+        assert_eq!(p.answers[0].ttl, 60);
+        assert_eq!(
+            p.answers[0].data,
+            RecordData::Ptr(
+                Name::new(
+                    p.packet.buffer,
+                    &[
+                        0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d,
+                        0x00
+                    ]
+                )
+                .unwrap()
+            )
+        );
+
+        let mut target_labels = Vec::new();
+        match &p.answers[0].data {
+            RecordData::Ptr(ptr) => ptr
+                .labels()
+                .try_for_each(|label| label.map(|label| target_labels.push(label)))
+                .unwrap(),
+            other => panic!("unexpected answer data: {other:?}"),
+        }
+        assert_eq!(target_labels, vec![&b"example"[..], &b"com"[..]]);
+    }
+
+    #[test]
+    fn test_parse_response_srv() {
+        let bytes = &[
+            0x12, 0x34, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x04, 0x5f,
+            0x73, 0x69, 0x70, 0x04, 0x5f, 0x74, 0x63, 0x70, 0x07, 0x65, 0x78, 0x61, 0x6d, 0x70,
+            0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x21, 0x00, 0x01, 0xc0, 0x0c, 0x00,
+            0x21, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x12, 0x00, 0x00, 0x00, 0x05, 0x13,
+            0xc4, 0x09, 0x73, 0x69, 0x70, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0xc0, 0x16,
+        ];
+
+        let p = Parsed::parse(bytes).unwrap();
+
+        assert_eq!(p.packet.transaction_id(), 0x1234);
+        assert_eq!(
+            p.packet.flags(),
+            Flags::RESPONSE | Flags::RECURSION_DESIRED | Flags::RECURSION_AVAILABLE
+        );
+        assert_eq!(p.packet.opcode(), Opcode::Query);
+        assert_eq!(p.packet.rcode(), Rcode::NoError);
+        assert_eq!(p.packet.question_count(), 1);
+        assert_eq!(p.packet.answer_record_count(), 1);
+
+        assert_eq!(p.questions[0].type_, Type::Srv);
+        assert_eq!(p.answers[0].name, &[0xc0, 0x0c]);
+        assert_eq!(p.answers[0].ttl, 60);
+        assert_eq!(
+            p.answers[0].data,
+            RecordData::Srv(SrvRecord {
+                priority: 0,
+                weight: 5,
+                port: 5060,
+                target: Name::new(
+                    p.packet.buffer,
+                    &[
+                        0x09, 0x73, 0x69, 0x70, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0xc0, 0x16
+                    ]
+                )
+                .unwrap(),
+            })
+        );
+
+        let mut target_labels = Vec::new();
+        match &p.answers[0].data {
+            RecordData::Srv(srv) => srv
+                .target
+                .labels()
+                .try_for_each(|label| label.map(|label| target_labels.push(label)))
+                .unwrap(),
+            other => panic!("unexpected answer data: {other:?}"),
+        }
+        assert_eq!(
+            target_labels,
+            vec![&b"sipserver"[..], &b"example"[..], &b"com"[..]]
         );
     }
 
@@ -774,7 +1347,7 @@ mod test {
             flags: Flags::RECURSION_DESIRED,
             opcode: Opcode::Query,
             question: Question {
-                name,
+                name: Name::from_const(name).unwrap(),
                 type_: Type::A,
             },
         };
