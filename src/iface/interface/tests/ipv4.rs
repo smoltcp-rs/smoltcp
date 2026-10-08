@@ -879,6 +879,91 @@ fn test_packet_len(#[case] medium: Medium) {
     }
 }
 
+/// A fragmented packet's checksum must cover that packet only, not what an
+/// earlier, larger packet left behind in the fragmentation buffer.
+#[rstest]
+#[cfg_attr(feature = "medium-ip", case(Medium::Ip))]
+#[cfg_attr(feature = "medium-ethernet", case(Medium::Ethernet))]
+#[cfg(all(
+    feature = "proto-ipv4-fragmentation",
+    any(feature = "medium-ip", feature = "medium-ethernet")
+))]
+fn test_fragmented_checksum_ignores_stale_buffer(#[case] medium: Medium) {
+    use crate::phy::Device;
+    use crate::wire::{Icmpv4Packet, Icmpv4Repr};
+
+    let (mut iface, _, mut device) = setup(medium);
+    let src_addr = Ipv4Address::new(127, 0, 0, 1);
+    let dst_addr = Ipv4Address::new(127, 0, 0, 2);
+    #[cfg(feature = "medium-ethernet")]
+    iface.inner.neighbor_cache.fill(
+        dst_addr.into(),
+        EthernetAddress([2; 6]).into(),
+        Instant::ZERO,
+    );
+
+    let data = vec![0x5a; iface.inner.ip_mtu()];
+
+    // Dispatch an oversized packet into a buffer an earlier packet left junk
+    // in, and return its IP payload as the fragmenter holds it.
+    let mut emit = |next_header, payload_len, payload| {
+        iface.fragmenter.buffer.fill(0xa5);
+        let repr = Ipv4Repr {
+            src_addr,
+            dst_addr,
+            next_header,
+            payload_len,
+            hop_limit: 64,
+        };
+        let tx = device.transmit(Instant::ZERO).unwrap();
+        let packet = Packet::new_ipv4(repr, payload);
+        let frag = &mut iface.fragmenter;
+        iface
+            .inner
+            .dispatch_ip(tx, PacketMeta::default(), packet, frag)
+            .unwrap();
+        assert!(!frag.is_empty(), "the packet was not fragmented");
+        let emitted = frag.buffer[repr.buffer_len()..frag.packet_len].to_vec();
+        frag.reset();
+        emitted
+    };
+
+    let icmp = Icmpv4Repr::EchoReply {
+        ident: 1,
+        seq_no: 1,
+        data: &data,
+    };
+    let emitted = emit(IpProtocol::Icmp, icmp.buffer_len(), IpPayload::Icmpv4(icmp));
+    assert!(
+        Icmpv4Packet::new_checked(&emitted[..])
+            .unwrap()
+            .verify_checksum()
+    );
+
+    #[cfg(feature = "socket-tcp")]
+    {
+        use crate::wire::{TcpControl, TcpPacket, TcpRepr, TcpSeqNumber};
+
+        let tcp = TcpRepr {
+            src_port: 1,
+            dst_port: 2,
+            control: TcpControl::None,
+            seq_number: TcpSeqNumber(1),
+            ack_number: Some(TcpSeqNumber(1)),
+            window_len: 1024,
+            window_scale: None,
+            max_seg_size: None,
+            sack_permitted: false,
+            sack_ranges: [None; 3],
+            timestamp: None,
+            payload: &data,
+        };
+        let emitted = emit(IpProtocol::Tcp, tcp.buffer_len(), IpPayload::Tcp(tcp));
+        let packet = TcpPacket::new_checked(&emitted[..]).unwrap();
+        assert!(packet.verify_checksum(&src_addr.into(), &dst_addr.into()));
+    }
+}
+
 /// Check no reply is emitted when using a raw socket
 #[cfg(feature = "socket-raw")]
 fn check_no_reply_raw_socket(medium: Medium, frame: &crate::wire::ipv4::Packet<&[u8]>) {

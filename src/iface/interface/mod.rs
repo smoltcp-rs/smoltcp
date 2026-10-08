@@ -1345,8 +1345,10 @@ impl InterfaceInner {
                         // Save the number of bytes we will send now.
                         frag.sent_bytes = first_frag_ip_len;
 
-                        // Emit the IP header to the buffer.
-                        emit_ip(&ip_repr, &mut frag.buffer);
+                        // Emit the IP header and the whole payload, but only within the packet's
+                        // own length: ICMP and TCP checksum the slice they are given, and beyond
+                        // the packet the buffer still holds bytes from an earlier, larger packet.
+                        emit_ip(&ip_repr, &mut frag.buffer[..total_ip_len]);
 
                         let mut ipv4_packet = Ipv4Packet::new_unchecked(&mut frag.buffer[..]);
                         frag.ipv4.ident = ipv4_id;

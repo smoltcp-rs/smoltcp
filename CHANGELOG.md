@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - tcp: add `set_min_rto`/`set_initial_rto` to tune the retransmission timeout bounds per socket.
+- iface: fix the ICMP and TCP checksums of fragmented IPv4 packets, which covered stale bytes left in the fragmentation buffer by an earlier, larger packet.
 
 ## [0.14.0] - 2026-08-07
 
