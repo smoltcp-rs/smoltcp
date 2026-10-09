@@ -43,7 +43,10 @@ impl RawSocket {
             mtu += 2;
         }
 
-        #[cfg(feature = "medium-ethernet")]
+        #[cfg(all(
+            feature = "medium-ethernet",
+            not(any(target_os = "macos", target_os = "openbsd"))
+        ))]
         if medium == Medium::Ethernet {
             // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
             // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
