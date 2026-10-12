@@ -613,6 +613,17 @@ impl InterfaceInner {
 }
 
 impl Interface {
+    /// Restart stateless address autoconfiguration.
+    ///
+    /// The addresses and routes from previous router advertisements are removed from
+    /// the interface, and router solicitation restarts. Call this when reconnecting
+    /// to another network.
+    #[cfg(feature = "proto-ipv6-slaac")]
+    pub fn reset_slaac(&mut self) {
+        self.inner.slaac.reset();
+        self.sync_slaac_state(self.inner.now);
+    }
+
     /// Synchronize the slaac address and router state with the interface state.
     #[cfg(feature = "proto-ipv6-slaac")]
     pub(super) fn sync_slaac_state(&mut self, timestamp: Instant) {
