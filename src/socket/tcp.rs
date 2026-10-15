@@ -2709,8 +2709,6 @@ impl<'a> Socket<'a> {
                     repr.seq_number = self.local_seq_no;
                     repr.payload = self.tx_buffer.get_allocated(0, size);
 
-                    self.pending_fast_retransmit = false;
-
                     0
                 } else {
                     // Right edge of window, ie the max sequence number we're allowed to send.
@@ -2862,6 +2860,9 @@ impl<'a> Socket<'a> {
         // for sure will not be successfully transmitted.
         ip_repr.set_payload_len(repr.buffer_len());
         emit(cx, packet_meta, (ip_repr, repr))?;
+
+        // We have successfully emitted, if this was a fast retransmission it is not pending anymore
+        self.pending_fast_retransmit = false;
 
         // We've sent something, whether useful data or a keep-alive packet, so rewind
         // the keep-alive timer.
@@ -7398,6 +7399,61 @@ mod test {
         // even though we're in "fast retransmit", we shouldn't
         // force-send anything because the remote's window is full.
         recv_nothing!(s);
+    }
+
+    #[test]
+    fn test_fast_retransmit_retries_after_failed_emit() {
+        let mut s = socket_established();
+        s.remote_mss = 1;
+
+        // Baseline ack
+        send!(s, time 1000, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(LOCAL_SEQ + 1),
+            ..SEND_TEMPL
+        });
+
+        // We will not get acks for this data
+        let data_to_send = b"abc";
+        assert_eq!(s.send_slice(data_to_send), Ok(3));
+        for (i, chunk) in data_to_send.chunks(s.remote_mss).enumerate() {
+            recv!(s, time 1000 + i as i64, Ok(TcpRepr {
+                seq_number: LOCAL_SEQ + 1 + i,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    chunk,
+                ..RECV_TEMPL
+            }));
+        }
+
+        // Send 3 duplicate ACKs pointing to the "a" segment to trigger fast retransmit
+        for _ in 0..3 {
+            send!(s, time 1100, TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                ..SEND_TEMPL
+            });
+        }
+
+        // Fail to fast-retransmit
+        assert_eq!(
+            s.socket.dispatch(&mut s.cx, |_, _, (_, repr)| {
+                assert_eq!(repr.payload, &b"a"[..]);
+                assert_eq!(repr.seq_number, LOCAL_SEQ + 1);
+                Err::<_, ()>(())
+            }),
+            Err(())
+        );
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Now);
+
+        // The fast-retransmit should be retried
+        recv!(s, time 1200, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &b"a"[..],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s);
+        assert_ne!(s.socket.poll_at(&mut s.cx), PollAt::Now);
     }
 
     #[test]
