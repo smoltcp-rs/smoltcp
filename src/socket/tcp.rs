@@ -216,8 +216,12 @@ impl RttEstimator {
     }
 
     #[cfg(feature = "socket-tcp-cubic")]
-    fn smoothed_rtt(&self) -> u32 {
-        if self.have_measurement { self.srtt } else { 0 }
+    fn smoothed_rtt(&self) -> Duration {
+        if self.have_measurement {
+            Duration::from_millis(self.srtt as u64)
+        } else {
+            Duration::ZERO
+        }
     }
 
     fn sample(&mut self, new_rtt: u32) {
