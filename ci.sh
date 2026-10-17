@@ -39,7 +39,7 @@ FEATURES_TEST=(
 )
 
 FEATURES_CHECK=(
-    "medium-ip,medium-ethernet,medium-ieee802154,proto-ipv6,proto-ipv6-slaac,multicast,proto-dhcpv4,proto-ipsec,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
+    "medium-ip,medium-ethernet,medium-ieee802154,proto-ipv6,proto-ipv6-slaac,multicast,proto-dhcpv4,proto-ipsec,socket-raw,socket-udp,socket-tcp,socket-tcp-reno,socket-tcp-cubic,socket-icmp,socket-dns,async"
     "defmt,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6-slaac,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
     "defmt,alloc,medium-ip,medium-ethernet,proto-ipv6,proto-ipv6-slaac,multicast,proto-dhcpv4,socket-raw,socket-udp,socket-tcp,socket-icmp,socket-dns,async"
     "medium-ieee802154,proto-sixlowpan,socket-dns,auto-icmp-echo-reply"

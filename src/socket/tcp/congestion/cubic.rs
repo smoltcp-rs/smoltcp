@@ -1,4 +1,7 @@
-use crate::{socket::tcp::RttEstimator, time::Instant};
+use crate::{
+    socket::tcp::RttEstimator,
+    time::{Duration, Instant},
+};
 
 use super::Controller;
 
@@ -38,7 +41,7 @@ impl Cubic {
             w_max: DEFAULT_MSS * 2,
             cwnd: DEFAULT_MSS * 2,
             mss: DEFAULT_MSS,
-            rwnd: 64 * DEFAULT_MSS,
+            rwnd: DEFAULT_MSS.saturating_mul(64),
             ssthresh: usize::MAX,
             k: 0.0,
             w_est: (DEFAULT_MSS * 2) as f64,
@@ -69,6 +72,16 @@ impl Cubic {
             self.recovery_start = Some(start + (now - idle));
         }
         self.idle_start = None;
+    }
+
+    fn w_cubic(&self, t: Duration) -> f64 {
+        // W_cubic(t) = C(t - K)^3 + w_max, evaluated at time t.
+        let c_as_bytes = C * self.mss as f64;
+
+        // The time is evaluated with microsecond resolution, so the cubic curve
+        // still advances between ACKs on sub-millisecond-RTT links.
+        let t_minus_k = (t.total_micros() as f64 / 1_000_000.0) - self.k;
+        c_as_bytes * (t_minus_k * t_minus_k * t_minus_k) + self.w_max as f64
     }
 }
 
@@ -126,17 +139,10 @@ impl Controller for Cubic {
             }
         };
 
-        // Elapsed time since the start of the recovery phase, in microseconds so the
-        // cubic curve still advances between ACKs on sub-millisecond-RTT links.
-        let t = now.total_micros() - recovery_start.total_micros();
-        if t < 0 {
+        if recovery_start > now {
             return;
         }
-
-        // RFC 9438 §4.3: use cubic function to get suggested cwnd.
-        // W_cubic(t) = C(t - K)^3 + w_max, evaluated at the current time t.
-        let c_as_bytes = C * self.mss as f64;
-        let w_cubic = c_as_bytes * (t as f64 / 1_000_000.0 - self.k).powi(3) + self.w_max as f64;
+        let t = now - recovery_start;
 
         // RFC 9438 §4.3: advance our reno-like suggested cwnd.
         // When cwnd exceeds prior cwnd, change α_cubic to match Reno's AIMD.
@@ -151,19 +157,18 @@ impl Controller for Cubic {
             self.w_est
         };
 
-        // RFC 9438 §4.3: use the suggested window that grows fastest.
-        if w_cubic < w_est {
+        // RFC 9438 §4.3: use cubic function to get suggested cwnd
+        //                and use the suggested window that grows fastest.
+        if self.w_cubic(t) < w_est {
             self.cwnd = (w_est as usize).min(self.rwnd).max(self.mss);
             return;
         }
 
         // RFC 9438 §4.2: the congestion window target is W_cubic one RTT into the future.
         let w_cubic_target = {
-            // srtt is in millis so floor at 1ms to ensure sub-ms RTTs don't ruin the lookahead.
-            let srtt = (rtt.smoothed_rtt() as u64 * 1000).max(1000);
-
-            let t_ahead = (t as f64 + srtt as f64) / 1_000_000.0;
-            let raw = c_as_bytes * (t_ahead - self.k).powi(3) + self.w_max as f64;
+            // Floor srtt at 1ms to ensure sub-ms RTTs don't ruin the lookahead.
+            let srtt = rtt.smoothed_rtt().max(Duration::from_millis(1));
+            let raw = self.w_cubic(t + srtt);
             raw.min(1.5 * self.cwnd as f64) // clamp to avoid increasing faster than slow-start would
         };
 
@@ -285,7 +290,7 @@ fn cube_root(a: f64) -> f64 {
 
     // extract mantissa, get rough cbrt using linear interpolation
     let m = f64::from_bits((bits & 0x000F_FFFF_FFFF_FFFF) | 0x3FF0_0000_0000_0000);
-    let cbrt_m = m.mul_add(0.2599, 0.7401);
+    let cbrt_m = m * 0.2599 + 0.7401;
 
     // extract exponent, break into quotient and remainder
     // e = 3q + r where r ∈ {0, 1, 2}

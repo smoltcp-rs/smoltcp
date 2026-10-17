@@ -25,7 +25,7 @@ impl Reno {
             cwnd: DEFAULT_MSS * 2,
             mss: DEFAULT_MSS,
             ssthresh: usize::MAX,
-            rwnd: 64 * DEFAULT_MSS,
+            rwnd: DEFAULT_MSS.saturating_mul(64),
             in_fast_recovery: false,
             in_rto_recovery: false,
         }
