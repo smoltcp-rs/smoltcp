@@ -874,6 +874,73 @@ mod test {
     #[cfg(feature = "medium-ethernet")]
     #[case::ieee802154(Medium::Ieee802154)]
     #[cfg(feature = "medium-ieee802154")]
+    fn test_can_recv_with_padding(#[case] medium: Medium) {
+        let (mut iface, _, _) = setup(medium);
+        let cx = iface.context();
+
+        let rx_buffer = PacketBuffer::new(vec![PacketMetadata::EMPTY; 4], vec![0; 16]);
+        let mut socket = socket(rx_buffer, buffer(0));
+        assert_eq!(socket.bind(LOCAL_PORT), Ok(()));
+
+        assert!(!socket.can_recv());
+
+        // Process packet 1 (6 bytes)
+        socket.process(
+            cx,
+            PacketMeta::default(),
+            &REMOTE_IP_REPR,
+            &REMOTE_UDP_REPR,
+            b"123456",
+        );
+        assert!(socket.can_recv());
+
+        // Process packet 2 (8 bytes, takes payload offset 6..14)
+        socket.process(
+            cx,
+            PacketMeta::default(),
+            &REMOTE_IP_REPR,
+            &REMOTE_UDP_REPR,
+            b"12345678",
+        );
+        assert!(socket.can_recv());
+
+        // Dequeue packet 1. Now payload 6..14 is allocated, 2 bytes contiguous window at end.
+        assert_eq!(socket.recv().unwrap().0, b"123456");
+        assert!(socket.can_recv());
+
+        // Process packet 3 (4 bytes). Contiguous window at end is 2 bytes (< 4),
+        // so 2 bytes padding is added and packet 3 is placed at start (0..4).
+        socket.process(
+            cx,
+            PacketMeta::default(),
+            &REMOTE_IP_REPR,
+            &REMOTE_UDP_REPR,
+            b"abcd",
+        );
+        assert!(socket.can_recv());
+
+        // Dequeue packet 2 (8 bytes). Now padding is at head of rx_buffer,
+        // followed by packet 3.
+        assert_eq!(socket.recv().unwrap().0, b"12345678");
+
+        // can_recv MUST return true because packet 3 ("abcd") is still available!
+        assert!(socket.can_recv());
+
+        // Dequeue packet 3 ("abcd").
+        assert_eq!(socket.recv().unwrap().0, b"abcd");
+
+        // Now buffer is completely empty. can_recv MUST return false!
+        assert!(!socket.can_recv());
+        assert_eq!(socket.recv(), Err(RecvError::Exhausted));
+    }
+
+    #[rstest]
+    #[case::ip(Medium::Ip)]
+    #[cfg(feature = "medium-ip")]
+    #[case::ethernet(Medium::Ethernet)]
+    #[cfg(feature = "medium-ethernet")]
+    #[case::ieee802154(Medium::Ieee802154)]
+    #[cfg(feature = "medium-ieee802154")]
     fn test_peek_process(#[case] medium: Medium) {
         let (mut iface, _, _) = setup(medium);
         let cx = iface.context();
