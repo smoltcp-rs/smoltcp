@@ -922,7 +922,7 @@ pub mod options {
         pub const ROUTE_INFO_PREFIX_LENGTH: usize = 2;
         pub const ROUTE_INFO_RESERVED: usize = 3;
         pub const ROUTE_INFO_PREFERENCE: usize = 3;
-        pub const ROUTE_INFO_LIFETIME: Field = 4..9;
+        pub const ROUTE_INFO_LIFETIME: Field = 4..8;
 
         // DODAG Configuration fields.
         pub const DODAG_CONF_FLAGS: usize = 2;
@@ -1017,12 +1017,12 @@ pub mod options {
                 | OptionType::PadN
                 | OptionType::DagMetricContainer
                 | OptionType::Unknown(_) => 2,
-                // prefix() reads buffer[9..body].
+                // prefix() reads buffer[8..body].
                 OptionType::RouteInformation => {
-                    if body < field::ROUTE_INFO_LIFETIME.end {
-                        return Err(Error);
-                    }
-                    body
+                    // Byte:  0     1       2         3       4  5  6  7
+                    //        Type Length PrefixLen Flags     Lifetime
+                    //                   └──────── 6 body bytes ───────┘
+                    field::ROUTE_INFO_LIFETIME.end
                 }
                 OptionType::DodagConfiguration => field::DODAG_CONF_LIFETIME_UNIT.end,
                 // target_prefix() yields buffer[4..body+2]; parse needs a 16-byte prefix.
@@ -1149,9 +1149,8 @@ pub mod options {
         /// Return the Prefix field.
         #[inline]
         pub fn prefix(&self) -> &'p [u8] {
-            let option_len = self.option_length();
-            &self.buffer.as_ref()[field::ROUTE_INFO_LIFETIME.end..]
-                [..option_len as usize - field::ROUTE_INFO_LIFETIME.end]
+            let option_len = 2 + usize::from(self.option_length());
+            &self.buffer.as_ref()[field::ROUTE_INFO_LIFETIME.end..option_len]
         }
     }
 
@@ -2636,6 +2635,65 @@ mod tests {
         );
         // check that the following option is preserved
         assert_eq!(packet.next_option(), Some(&data[6..]));
+    }
+
+    /* This tesst creates PadN Option with lenghth 254 but it doesnt
+     * provide any data so it is rejected!
+     */
+    #[test]
+    fn truncated_padn_is_rejected() {
+        let data = [0x01, 0xFE]; // kind=PadN, length=254
+        // returns error since data is missing
+        let packet = OptionPacket::new_unchecked(&data);
+
+        assert!(packet.check_len().is_err());
+        assert!(OptionRepr::parse(&packet).is_err());
+    }
+
+    /* This test checks empty and nonempty prefixes,
+     * including their exact contents.
+     */
+    #[test]
+    fn route_information_prefix_is_parsed_correctly() {
+        let cases: &[(&[u8], &[u8])] = &[
+            // Body length 6: fixed fields only, no prefix.
+            (&[0x03, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01], &[]),
+            // Body length 8: fixed fields plus a two-byte prefix.
+            (
+                &[0x03, 0x08, 0x16, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01],
+                &[0x20, 0x01],
+            ),
+        ];
+
+        for &(data, expected_prefix) in cases {
+            let packet = OptionPacket::new_checked(data).unwrap();
+
+            assert_eq!(
+                OptionRepr::parse(&packet),
+                Ok(OptionRepr::RouteInformation {
+                    prefix_length: data[2],
+                    preference: 0,
+                    lifetime: 1,
+                    prefix: expected_prefix,
+                })
+            );
+        }
+    }
+
+    /* This test checks that prefix stops before next option */
+    #[test]
+    fn route_information_with_prefix_and_next_option() {
+        let data = [
+            0x03, 0x08, 0x16, 0x00, 0x00, 0x00, 0x00, 0x01, // kind=PadN, length=8
+            0x20, 0x01, // Two-byte prefix
+            0x00, // Following kind=Pad1
+        ];
+        let packet = OptionPacket::new_checked(&data).unwrap();
+
+        // check prefix
+        assert_eq!(packet.prefix(), &[0x20, 0x01]);
+        // check next option
+        assert_eq!(packet.next_option(), Some(&data[10..]));
     }
 
     #[test]
