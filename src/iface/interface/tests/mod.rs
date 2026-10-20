@@ -319,6 +319,7 @@ mod tcp_connection_precedence {
         sockets: SocketSet<'static>,
         connection: SocketHandle,
         listener: SocketHandle,
+        server_isn: TcpSeqNumber,
     }
 
     fn socket() -> tcp::Socket<'static> {
@@ -335,6 +336,7 @@ mod tcp_connection_precedence {
         seq_number: TcpSeqNumber,
         ack_number: Option<TcpSeqNumber>,
         control: TcpControl,
+        payload: &[u8],
     ) -> Option<(TcpControl, TcpSeqNumber, Option<TcpSeqNumber>)> {
         let tcp = TcpRepr {
             src_port,
@@ -348,7 +350,7 @@ mod tcp_connection_precedence {
             sack_permitted: false,
             sack_ranges: [None, None, None],
             timestamp: None,
-            payload: &[],
+            payload,
         };
         let ip = Ipv4Repr {
             src_addr: CLIENT_ADDR,
@@ -409,6 +411,7 @@ mod tcp_connection_precedence {
                 CLIENT_ISN,
                 None,
                 TcpControl::Syn,
+                &[],
             ),
             None
         );
@@ -425,6 +428,7 @@ mod tcp_connection_precedence {
                     CLIENT_ISN + 1,
                     Some(syn_ack.1 + 1),
                     TcpControl::None,
+                    &[],
                 ),
                 None
             );
@@ -443,7 +447,33 @@ mod tcp_connection_precedence {
             sockets,
             connection,
             listener,
+            server_isn: syn_ack.1,
         }
+    }
+
+    fn enter_time_wait(cx: &mut TestContext, client_seq: TcpSeqNumber) -> TcpSeqNumber {
+        cx.sockets.get_mut::<tcp::Socket>(cx.connection).close();
+        let fin = dispatch_segment(&mut cx.iface, &mut cx.sockets, cx.connection).unwrap();
+        assert_eq!(fin.0, TcpControl::Fin);
+
+        let successor_isn = fin.1 + 1 + 65_535 + 2;
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                client_seq,
+                Some(fin.1 + 1),
+                TcpControl::Fin,
+                &[],
+            ),
+            None
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::TimeWait
+        );
+        successor_isn
     }
 
     #[test]
@@ -458,6 +488,7 @@ mod tcp_connection_precedence {
                 CLIENT_ISN,
                 None,
                 TcpControl::Syn,
+                &[],
             ),
             None
         );
@@ -486,6 +517,7 @@ mod tcp_connection_precedence {
                 CLIENT_ISN,
                 None,
                 TcpControl::Syn,
+                &[],
             ),
             None
         );
@@ -510,6 +542,7 @@ mod tcp_connection_precedence {
                 NEW_CLIENT_ISN,
                 None,
                 TcpControl::Syn,
+                &[],
             ),
             None
         );
@@ -529,5 +562,136 @@ mod tcp_connection_precedence {
             cx.sockets.get::<tcp::Socket>(cx.connection).state(),
             tcp::State::Established
         );
+    }
+
+    #[test]
+    fn syn_reopens_time_wait_connection_through_listener() {
+        let mut cx = setup_connection(true);
+        let successor_isn = enter_time_wait(&mut cx, CLIENT_ISN + 1);
+        let new_client_isn = CLIENT_ISN + 100_000;
+
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                new_client_isn,
+                None,
+                TcpControl::Syn,
+                &[],
+            ),
+            None
+        );
+        let syn_ack = dispatch_segment(&mut cx.iface, &mut cx.sockets, cx.listener).unwrap();
+
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(syn_ack.1, successor_isn);
+        assert_eq!(syn_ack.2, Some(new_client_isn + 1));
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.listener).state(),
+            tcp::State::SynReceived
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.listener).remote_endpoint(),
+            Some(IpEndpoint::new(CLIENT_ADDR.into(), CLIENT_PORT))
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::Closed
+        );
+    }
+
+    #[test]
+    fn old_duplicate_syn_does_not_reopen_time_wait() {
+        let mut cx = setup_connection(true);
+        enter_time_wait(&mut cx, CLIENT_ISN + 1);
+
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                CLIENT_ISN,
+                None,
+                TcpControl::Syn,
+                &[],
+            ),
+            None
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::TimeWait
+        );
+        assert!(cx.sockets.get::<tcp::Socket>(cx.listener).is_listening());
+    }
+
+    #[test]
+    fn syn_without_listener_keeps_time_wait() {
+        let mut cx = setup_connection(true);
+        enter_time_wait(&mut cx, CLIENT_ISN + 1);
+        cx.sockets.remove(cx.listener);
+
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                CLIENT_ISN + 100_000,
+                None,
+                TcpControl::Syn,
+                &[],
+            ),
+            None
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::TimeWait
+        );
+    }
+
+    #[test]
+    fn time_wait_with_unread_data_is_not_reopened() {
+        const PAYLOAD: &[u8] = b"unread";
+
+        let mut cx = setup_connection(true);
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                CLIENT_ISN + 1,
+                Some(cx.server_isn + 1),
+                TcpControl::Psh,
+                PAYLOAD,
+            ),
+            None
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).recv_queue(),
+            PAYLOAD.len()
+        );
+
+        enter_time_wait(&mut cx, CLIENT_ISN + 1 + PAYLOAD.len());
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                CLIENT_ISN + 100_000,
+                None,
+                TcpControl::Syn,
+                &[],
+            ),
+            None
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::TimeWait
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).recv_queue(),
+            PAYLOAD.len()
+        );
+        assert!(cx.sockets.get::<tcp::Socket>(cx.listener).is_listening());
     }
 }

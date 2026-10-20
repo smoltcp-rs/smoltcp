@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::socket::tcp::Socket;
+use crate::socket::tcp::{Socket, State};
 
 impl InterfaceInner {
     pub(crate) fn process_tcp<'frame>(
@@ -29,30 +29,67 @@ impl InterfaceInner {
             &self.caps.checksum
         ));
 
+        let mut time_wait_reopen = None;
+
         // Prefer sockets bound to a connection, so a repeated SYN cannot be
         // intercepted by an earlier listening socket.
-        for tcp_socket in sockets
-            .items_mut()
-            .filter_map(|i| Socket::downcast_mut(&mut i.socket))
-            .filter(|socket| socket.remote_endpoint().is_some())
-        {
+        for item in sockets.items_mut() {
+            let handle = item.meta.handle;
+            let Some(tcp_socket) = Socket::downcast_mut(&mut item.socket) else {
+                continue;
+            };
+            if tcp_socket.remote_endpoint().is_none() {
+                continue;
+            }
+
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
+                // RFC 1122 §4.2.2.13 permits a newer SYN to replace a TIME-WAIT connection.
+                if tcp_socket.can_reopen_time_wait(&tcp_repr) {
+                    time_wait_reopen = Some((handle, tcp_socket.time_wait_reopen_isn()));
+                    break;
+                }
+
                 return tcp_socket
                     .process(self, &ip_repr, &tcp_repr)
                     .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
             }
         }
 
+        let mut listener_result = None;
+        let mut reopened_time_wait = None;
         for tcp_socket in sockets
             .items_mut()
             .filter_map(|i| Socket::downcast_mut(&mut i.socket))
             .filter(|socket| socket.remote_endpoint().is_none())
         {
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
-                return tcp_socket
+                let result = tcp_socket
                     .process(self, &ip_repr, &tcp_repr)
                     .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
+
+                if let Some((handle, successor_isn)) = time_wait_reopen
+                    && tcp_socket.state() == State::SynReceived
+                {
+                    tcp_socket.set_syn_received_isn(successor_isn);
+                    reopened_time_wait = Some(handle);
+                }
+                listener_result = Some(result);
+                break;
             }
+        }
+
+        if let Some(result) = listener_result {
+            if let Some(handle) = reopened_time_wait {
+                sockets.get_mut::<Socket>(handle).close_time_wait();
+            }
+            return result;
+        }
+
+        if let Some((handle, _)) = time_wait_reopen {
+            return sockets
+                .get_mut::<Socket>(handle)
+                .process(self, &ip_repr, &tcp_repr)
+                .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
         }
 
         if tcp_repr.control == TcpControl::Rst

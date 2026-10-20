@@ -591,6 +591,10 @@ const DEFAULT_MSS: usize = 536;
 /// timestamps) so that every segment carries some payload.
 const MIN_REMOTE_MSS: usize = 48;
 
+// Linux follows RFC 1122 §4.2.2.13 by advancing the successor ISN by 65535 + 2;
+// use i32 because this value does not fit in a 16-bit usize.
+const TIME_WAIT_REOPEN_ISN_OFFSET: i32 = 65_535 + 2;
+
 impl<'a> Socket<'a> {
     #[allow(unused_comparisons)] // small usize platforms always pass rx_capacity check
     /// Create a socket using the given buffers.
@@ -1657,6 +1661,34 @@ impl<'a> Socket<'a> {
             };
             addr_ok && repr.dst_port != 0 && repr.dst_port == self.listen_endpoint.port
         }
+    }
+
+    pub(crate) fn can_reopen_time_wait(&self, repr: &TcpRepr) -> bool {
+        self.state == State::TimeWait
+            && repr.control == TcpControl::Syn
+            && repr.ack_number.is_none()
+            && self.rx_buffer.is_empty()
+            && repr.seq_number > self.remote_seq_no
+    }
+
+    pub(crate) fn time_wait_reopen_isn(&self) -> TcpSeqNumber {
+        debug_assert_eq!(self.state, State::TimeWait);
+        TcpSeqNumber(
+            self.local_seq_no
+                .0
+                .wrapping_add(TIME_WAIT_REOPEN_ISN_OFFSET),
+        )
+    }
+
+    pub(crate) fn set_syn_received_isn(&mut self, seq_number: TcpSeqNumber) {
+        debug_assert_eq!(self.state, State::SynReceived);
+        self.local_seq_no = seq_number;
+        self.remote_last_seq = seq_number;
+    }
+
+    pub(crate) fn close_time_wait(&mut self) {
+        debug_assert_eq!(self.state, State::TimeWait);
+        self.reset();
     }
 
     pub(crate) fn process(
