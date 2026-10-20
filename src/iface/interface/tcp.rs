@@ -29,9 +29,24 @@ impl InterfaceInner {
             &self.caps.checksum
         ));
 
+        // Prefer sockets bound to a connection, so a repeated SYN cannot be
+        // intercepted by an earlier listening socket.
         for tcp_socket in sockets
             .items_mut()
             .filter_map(|i| Socket::downcast_mut(&mut i.socket))
+            .filter(|socket| socket.remote_endpoint().is_some())
+        {
+            if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
+                return tcp_socket
+                    .process(self, &ip_repr, &tcp_repr)
+                    .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
+            }
+        }
+
+        for tcp_socket in sockets
+            .items_mut()
+            .filter_map(|i| Socket::downcast_mut(&mut i.socket))
+            .filter(|socket| socket.remote_endpoint().is_none())
         {
             if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
                 return tcp_socket

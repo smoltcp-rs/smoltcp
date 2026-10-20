@@ -299,3 +299,235 @@ pub fn tcp_listen_drops_unspecified_src() {
     assert_eq!(reply, None);
     assert!(sockets.get_mut::<tcp::Socket>(handle).is_listening());
 }
+
+#[cfg(all(feature = "medium-ip", feature = "socket-tcp", feature = "proto-ipv4"))]
+mod tcp_connection_precedence {
+    use super::*;
+
+    use crate::iface::{SocketHandle, SocketSet};
+    use crate::socket::tcp;
+    use crate::wire::IpEndpoint;
+
+    const SERVER_ADDR: Ipv4Address = Ipv4Address::new(192, 168, 1, 1);
+    const CLIENT_ADDR: Ipv4Address = Ipv4Address::new(192, 168, 1, 2);
+    const SERVER_PORT: u16 = 80;
+    const CLIENT_PORT: u16 = 50_000;
+    const CLIENT_ISN: TcpSeqNumber = TcpSeqNumber(1_000);
+
+    struct TestContext {
+        iface: Interface,
+        sockets: SocketSet<'static>,
+        connection: SocketHandle,
+        listener: SocketHandle,
+    }
+
+    fn socket() -> tcp::Socket<'static> {
+        tcp::Socket::new(
+            tcp::SocketBuffer::new(vec![0; 64]),
+            tcp::SocketBuffer::new(vec![0; 64]),
+        )
+    }
+
+    fn process_segment(
+        iface: &mut Interface,
+        sockets: &mut SocketSet<'_>,
+        src_port: u16,
+        seq_number: TcpSeqNumber,
+        ack_number: Option<TcpSeqNumber>,
+        control: TcpControl,
+    ) -> Option<(TcpControl, TcpSeqNumber, Option<TcpSeqNumber>)> {
+        let tcp = TcpRepr {
+            src_port,
+            dst_port: SERVER_PORT,
+            control,
+            seq_number,
+            ack_number,
+            window_len: 1024,
+            window_scale: None,
+            max_seg_size: Some(1460),
+            sack_permitted: false,
+            sack_ranges: [None, None, None],
+            timestamp: None,
+            payload: &[],
+        };
+        let ip = Ipv4Repr {
+            src_addr: CLIENT_ADDR,
+            dst_addr: SERVER_ADDR,
+            next_header: IpProtocol::Tcp,
+            payload_len: tcp.buffer_len(),
+            hop_limit: 64,
+        };
+        let mut tcp_bytes = vec![0; tcp.buffer_len()];
+        tcp.emit(
+            &mut TcpPacket::new_unchecked(&mut tcp_bytes),
+            &CLIENT_ADDR.into(),
+            &SERVER_ADDR.into(),
+            &ChecksumCapabilities::default(),
+        );
+
+        iface
+            .inner
+            .process_tcp(sockets, false, IpRepr::Ipv4(ip), &tcp_bytes)
+            .map(|packet| match packet.payload() {
+                IpPayload::Tcp(tcp) => (tcp.control, tcp.seq_number, tcp.ack_number),
+                _ => unreachable!(),
+            })
+    }
+
+    fn dispatch_segment(
+        iface: &mut Interface,
+        sockets: &mut SocketSet<'_>,
+        handle: SocketHandle,
+    ) -> Option<(TcpControl, TcpSeqNumber, Option<TcpSeqNumber>)> {
+        let mut response = None;
+        sockets
+            .get_mut::<tcp::Socket>(handle)
+            .dispatch(&mut iface.inner, |_, _, (_, tcp)| {
+                response = Some((tcp.control, tcp.seq_number, tcp.ack_number));
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        response
+    }
+
+    fn setup_connection(established: bool) -> TestContext {
+        let (mut iface, mut sockets, _) = setup(Medium::Ip);
+
+        // Keep slot 0 occupied while the connection is created in slot 1.
+        let placeholder = sockets.add(socket());
+        let connection = sockets.add(socket());
+        sockets
+            .get_mut::<tcp::Socket>(connection)
+            .listen(SERVER_PORT)
+            .unwrap();
+
+        assert_eq!(
+            process_segment(
+                &mut iface,
+                &mut sockets,
+                CLIENT_PORT,
+                CLIENT_ISN,
+                None,
+                TcpControl::Syn,
+            ),
+            None
+        );
+        let syn_ack = dispatch_segment(&mut iface, &mut sockets, connection).unwrap();
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(syn_ack.2, Some(CLIENT_ISN + 1));
+
+        if established {
+            assert_eq!(
+                process_segment(
+                    &mut iface,
+                    &mut sockets,
+                    CLIENT_PORT,
+                    CLIENT_ISN + 1,
+                    Some(syn_ack.1 + 1),
+                    TcpControl::None,
+                ),
+                None
+            );
+        }
+
+        // Reuse slot 0 for a listener on the same local port.
+        sockets.remove(placeholder);
+        let listener = sockets.add(socket());
+        sockets
+            .get_mut::<tcp::Socket>(listener)
+            .listen(SERVER_PORT)
+            .unwrap();
+
+        TestContext {
+            iface,
+            sockets,
+            connection,
+            listener,
+        }
+    }
+
+    #[test]
+    fn repeated_syn_prefers_syn_received_connection() {
+        let mut cx = setup_connection(false);
+
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                CLIENT_ISN,
+                None,
+                TcpControl::Syn,
+            ),
+            None
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::SynReceived
+        );
+        assert_eq!(
+            cx.sockets
+                .get::<tcp::Socket>(cx.connection)
+                .remote_endpoint(),
+            Some(IpEndpoint::new(CLIENT_ADDR.into(), CLIENT_PORT))
+        );
+        assert!(cx.sockets.get::<tcp::Socket>(cx.listener).is_listening());
+    }
+
+    #[test]
+    fn repeated_syn_prefers_established_connection() {
+        let mut cx = setup_connection(true);
+
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                CLIENT_PORT,
+                CLIENT_ISN,
+                None,
+                TcpControl::Syn,
+            ),
+            None
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::Established
+        );
+        assert!(cx.sockets.get::<tcp::Socket>(cx.listener).is_listening());
+    }
+
+    #[test]
+    fn listener_accepts_syn_for_new_connection() {
+        const NEW_CLIENT_PORT: u16 = CLIENT_PORT + 1;
+        const NEW_CLIENT_ISN: TcpSeqNumber = TcpSeqNumber(2_000);
+
+        let mut cx = setup_connection(true);
+        assert_eq!(
+            process_segment(
+                &mut cx.iface,
+                &mut cx.sockets,
+                NEW_CLIENT_PORT,
+                NEW_CLIENT_ISN,
+                None,
+                TcpControl::Syn,
+            ),
+            None
+        );
+        let syn_ack = dispatch_segment(&mut cx.iface, &mut cx.sockets, cx.listener).unwrap();
+
+        assert_eq!(syn_ack.0, TcpControl::Syn);
+        assert_eq!(syn_ack.2, Some(NEW_CLIENT_ISN + 1));
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.listener).state(),
+            tcp::State::SynReceived
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.listener).remote_endpoint(),
+            Some(IpEndpoint::new(CLIENT_ADDR.into(), NEW_CLIENT_PORT))
+        );
+        assert_eq!(
+            cx.sockets.get::<tcp::Socket>(cx.connection).state(),
+            tcp::State::Established
+        );
+    }
+}
