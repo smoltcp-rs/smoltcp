@@ -1017,7 +1017,7 @@ pub mod options {
                 | OptionType::PadN
                 | OptionType::DagMetricContainer
                 | OptionType::Unknown(_) => 2,
-                // prefix() reads buffer[8..body].
+                // prefix() reads buffer[8..2 + body].
                 OptionType::RouteInformation => {
                     // Byte:  0     1       2         3       4  5  6  7
                     //        Type Length PrefixLen Flags     Lifetime
@@ -2660,7 +2660,7 @@ mod tests {
             (&[0x03, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01], &[]),
             // Body length 8: fixed fields plus a two-byte prefix.
             (
-                &[0x03, 0x08, 0x16, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01],
+                &[0x03, 0x08, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01],
                 &[0x20, 0x01],
             ),
         ];
@@ -2684,13 +2684,14 @@ mod tests {
     #[test]
     fn route_information_with_prefix_and_next_option() {
         let data = [
-            0x03, 0x08, 0x16, 0x00, 0x00, 0x00, 0x00, 0x01, // kind=PadN, length=8
+            0x03, 0x08, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01, // kind=RouteInformation, length=8
             0x20, 0x01, // Two-byte prefix
             0x00, // Following kind=Pad1
         ];
         let packet = OptionPacket::new_checked(&data).unwrap();
 
-        // check prefix
+        // check prefix size and lenght
+        assert_eq!(packet.prefix_length(), 0x10);
         assert_eq!(packet.prefix(), &[0x20, 0x01]);
         // check next option
         assert_eq!(packet.next_option(), Some(&data[10..]));
