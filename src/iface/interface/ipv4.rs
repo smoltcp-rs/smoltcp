@@ -27,6 +27,26 @@ impl Interface {
     }
 }
 
+/// Whether an ICMPv4 "destination unreachable" code is a hard error for TCP.
+///
+/// RFC 1122 §4.2.3.9 classifies codes 0, 1 and 5 as soft errors that must not
+/// abort a connection; RFC 5461 §4 also mentions this in a more general term. Note that
+/// `FragRequired` must stay soft error: it drives Path MTU Discovery, not teardown the socket.
+#[cfg(feature = "socket-tcp")]
+fn icmpv4_dst_unreachable_is_hard(reason: Icmpv4DstUnreachable) -> bool {
+    match reason {
+        // Explicit refusal; retrying will not help.
+        Icmpv4DstUnreachable::ProtoUnreachable
+        | Icmpv4DstUnreachable::PortUnreachable
+        | Icmpv4DstUnreachable::NetProhibited
+        | Icmpv4DstUnreachable::HostProhibited
+        | Icmpv4DstUnreachable::CommProhibited => true,
+        // Everything else, including FragRequired and the transient
+        // net/host unreachable codes, is a soft error.
+        _ => false,
+    }
+}
+
 impl InterfaceInner {
     /// Get the next IPv4 fragment identifier.
     #[cfg(feature = "proto-ipv4-fragmentation")]
@@ -359,13 +379,35 @@ impl InterfaceInner {
             // Ignore any echo replies.
             Icmpv4Repr::EchoReply { .. } => None,
 
+            // A hard error referring to one of our TCP connections aborts an
+            // outstanding connection attempt. RFC 1122 §4.2.3.9 & RFC 5461 §4
+            #[cfg(feature = "socket-tcp")]
+            Icmpv4Repr::DstUnreachable {
+                reason,
+                header,
+                data,
+            } if header.next_header == IpProtocol::Tcp
+                && icmpv4_dst_unreachable_is_hard(reason) =>
+            {
+                super::tcp_deliver_icmp_hard_error(
+                    _sockets,
+                    header.src_addr.into(),
+                    header.dst_addr.into(),
+                    data,
+                );
+                None
+            }
+
             // Don't report an error if a packet with unknown type
             // has been handled by an ICMP socket
             #[cfg(feature = "socket-icmp")]
             _ if handled_by_icmp_socket => None,
 
-            // FIXME: do something correct here?
-            // By doing nothing, this arm handles the case when auto echo replies are disabled.
+            // FIXME:
+            //  - FragRequired would drive Path MTU Discovery (RFC 1191), which
+            //    needs a per-destination MTU cache that does not exist yet.
+            //  - TimeExceeded and ParamProblem are informational but could be handled.
+            // This arm also handles the case when auto echo replies are disabled.
             _ => None,
         }
     }
