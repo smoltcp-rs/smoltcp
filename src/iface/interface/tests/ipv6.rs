@@ -1091,6 +1091,129 @@ fn test_router_advertisement(#[case] medium: Medium) {
 }
 
 #[rstest]
+#[case(Medium::Ethernet)]
+#[cfg(feature = "medium-ethernet")]
+#[cfg(all(feature = "proto-ipv6-slaac", feature = "proto-ipv4"))]
+fn test_router_advertisement_dual_stack_with_existing_ipv4_route(#[case] medium: Medium) {
+    let prefix_addr = Ipv6Address::new(0x2001, 0xdb8, 0x3, 0, 0, 0, 0, 0);
+
+    let mut device = crate::tests::TestingDevice::new(medium);
+
+    let mut eth_bytes = vec![0u8; 102];
+
+    // Create mac addresses with derived link local addresses
+    let local_hw_addr = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
+    let remote_hw_addr = EthernetAddress([0x52, 0x54, 0x00, 0x00, 0x00, 0x00]);
+    let ll_prefix = Ipv6Cidr::new(Ipv6Cidr::LINK_LOCAL_PREFIX.address(), 64);
+    let local_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(local_hw_addr)).unwrap();
+    let remote_ip_addr =
+        Ipv6Cidr::from_link_prefix(&ll_prefix, HardwareAddress::Ethernet(remote_hw_addr)).unwrap();
+
+    // Create config with slaac enabled
+    let mut config = Config::new(match medium {
+        #[cfg(feature = "medium-ethernet")]
+        Medium::Ethernet => HardwareAddress::Ethernet(local_hw_addr),
+        _ => panic!("Not supported"),
+    });
+    config.slaac = true;
+
+    // Set up interface with link local address
+    let mut iface = Interface::new(config, &mut device, Instant::ZERO);
+    iface.update_ip_addrs(|ip_addrs| {
+        ip_addrs.push(IpCidr::Ipv6(local_ip_addr)).unwrap();
+    });
+
+    // Add an existing IPv4 default route
+    let ipv4_gateway = crate::wire::Ipv4Address::new(192, 168, 1, 1);
+    iface.routes_mut().update(|routes| {
+        routes
+            .push(crate::iface::Route::new_ipv4_gateway(ipv4_gateway))
+            .unwrap();
+    });
+
+    let mut sockets = SocketSet::new(vec![]);
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // Craft the router advertisement
+    let prefix_information = NdiscPrefixInformation {
+        prefix: prefix_addr,
+        prefix_len: 64,
+        flags: NdiscPrefixInfoFlags::ADDRCONF,
+        valid_lifetime: Duration::from_secs(600),
+        preferred_lifetime: Duration::from_secs(300),
+    };
+    let advertisement = NdiscRepr::RouterAdvert {
+        hop_limit: 255,
+        flags: NdiscRouterFlags::empty(),
+        router_lifetime: Duration::from_secs(600),
+        reachable_time: Duration::from_secs(0),
+        retrans_time: Duration::from_secs(0),
+        lladdr: None,
+        mtu: None,
+        prefix_info: Some(prefix_information),
+    };
+    let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+        src_addr: remote_ip_addr.address(),
+        dst_addr: local_ip_addr.address(),
+        next_header: IpProtocol::Icmpv6,
+        hop_limit: 255,
+        payload_len: advertisement.buffer_len(),
+    });
+    let mut frame = EthernetFrame::new_unchecked(&mut eth_bytes);
+    frame.set_dst_addr(local_hw_addr);
+    frame.set_src_addr(remote_hw_addr);
+    frame.set_ethertype(EthernetProtocol::Ipv6);
+    ip_repr.emit(frame.payload_mut(), &ChecksumCapabilities::default());
+    Icmpv6Repr::Ndisc(advertisement).emit(
+        &remote_ip_addr.address(),
+        &local_ip_addr.address(),
+        &mut Icmpv6Packet::new_unchecked(&mut frame.payload_mut()[ip_repr.header_len()..]),
+        &ChecksumCapabilities::default(),
+    );
+
+    iface.inner.process_ethernet(
+        &mut sockets,
+        PacketMeta::default(),
+        frame.into_inner(),
+        &mut iface.fragments,
+    );
+
+    iface.poll(Instant::ZERO, &mut device, &mut sockets);
+
+    // Verify both the IPv4 route and the newly pushed IPv6 SLAAC default route are present!
+    iface.routes_mut().update(|route| {
+        assert_eq!(route.len(), 2);
+        assert_eq!(route[0].cidr, IpCidr::new(IpAddress::v4(0, 0, 0, 0), 0));
+        assert_eq!(route[0].via_router, IpAddress::Ipv4(ipv4_gateway));
+        assert_eq!(
+            route[1].cidr,
+            IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 0), 0)
+        );
+        assert_eq!(
+            route[1].via_router,
+            IpAddress::Ipv6(remote_ip_addr.address())
+        );
+    });
+
+    // Verify route lookup for off-link addresses in both address families
+    let remote_offlink_ipv4 = crate::wire::Ipv4Address::new(8, 8, 8, 8);
+    let remote_offlink_ipv6 = Ipv6Address::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111);
+    assert_eq!(
+        iface
+            .routes()
+            .lookup(&IpAddress::Ipv4(remote_offlink_ipv4), Instant::ZERO),
+        Some(IpAddress::Ipv4(ipv4_gateway))
+    );
+    assert_eq!(
+        iface
+            .routes()
+            .lookup(&IpAddress::Ipv6(remote_offlink_ipv6), Instant::ZERO),
+        Some(IpAddress::Ipv6(remote_ip_addr.address()))
+    );
+}
+
+#[rstest]
 #[case(Medium::Ip)]
 #[cfg(feature = "medium-ip")]
 #[case(Medium::Ethernet)]
