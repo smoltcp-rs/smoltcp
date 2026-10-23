@@ -922,7 +922,7 @@ pub mod options {
         pub const ROUTE_INFO_PREFIX_LENGTH: usize = 2;
         pub const ROUTE_INFO_RESERVED: usize = 3;
         pub const ROUTE_INFO_PREFERENCE: usize = 3;
-        pub const ROUTE_INFO_LIFETIME: Field = 4..9;
+        pub const ROUTE_INFO_LIFETIME: Field = 4..8;
 
         // DODAG Configuration fields.
         pub const DODAG_CONF_FLAGS: usize = 2;
@@ -1007,18 +1007,22 @@ pub mod options {
             }
 
             let body = self.option_length() as usize;
+            let option_len = body + 2; // 2 bytes means 1 byte for Type, 1 byte for Length ...and body length.
+            if len < option_len {
+                return Err(Error);
+            }
             let required = match self.option_type() {
                 // Only Type/Length are read; the body is not indexed.
                 OptionType::Pad1
                 | OptionType::PadN
                 | OptionType::DagMetricContainer
                 | OptionType::Unknown(_) => 2,
-                // prefix() reads buffer[9..body].
+                // prefix() reads buffer[8..2 + body].
                 OptionType::RouteInformation => {
-                    if body < field::ROUTE_INFO_LIFETIME.end {
-                        return Err(Error);
-                    }
-                    body
+                    // Byte:  0     1       2         3       4  5  6  7
+                    //        Type Length PrefixLen Flags     Lifetime
+                    //                   └──────── 6 body bytes ───────┘
+                    field::ROUTE_INFO_LIFETIME.end
                 }
                 OptionType::DodagConfiguration => field::DODAG_CONF_LIFETIME_UNIT.end,
                 // target_prefix() yields buffer[4..body+2]; parse needs a 16-byte prefix.
@@ -1041,7 +1045,8 @@ pub mod options {
                 OptionType::RplTargetDescriptor => field::TARGET_DESCRIPTOR.end,
             };
 
-            if len < required {
+            if option_len < required {
+                // use complete option type, length and body
                 return Err(Error);
             }
 
@@ -1144,9 +1149,8 @@ pub mod options {
         /// Return the Prefix field.
         #[inline]
         pub fn prefix(&self) -> &'p [u8] {
-            let option_len = self.option_length();
-            &self.buffer.as_ref()[field::ROUTE_INFO_LIFETIME.end..]
-                [..option_len as usize - field::ROUTE_INFO_LIFETIME.end]
+            let option_len = 2 + usize::from(self.option_length());
+            &self.buffer.as_ref()[field::ROUTE_INFO_LIFETIME.end..option_len]
         }
     }
 
@@ -2485,10 +2489,212 @@ mod tests {
     #[test]
     fn padn_emit_does_not_underflow() {
         // PadN length byte 254 must re-emit without option_length underflow.
-        let repr = OptionRepr::parse(&OptionPacket::new_unchecked(&[0x01, 0xFE][..])).unwrap();
+        let mut bytes = [0u8; 256];
+        bytes[0] = 0x01; // PadN
+        bytes[1] = 0xFE; // length 254
+        let repr = OptionRepr::parse(&OptionPacket::new_unchecked(&bytes)).unwrap();
         let mut buffer = vec![0u8; repr.buffer_len()];
         repr.emit(&mut OptionPacket::new_unchecked(&mut buffer[..]));
         assert_eq!(buffer[1], 254);
+    }
+
+    /*
+     * This test checks that all supported RPL option types are rejected
+     * if the option body is truncated. Also checks that the full option
+     * body is accepted.
+     *
+     * Example PadN option field case PASS:
+     * [01, 04, 00, 00, 00, 00]
+     *  Typ Len └── body ────┘
+     * Example PadN option field case FaAIL:
+     * [01, 04, 00, 00, 00]
+     *  Typ Len └─ body ─┘
+     */
+    #[test]
+    fn truncated_option_bodies_rejected() {
+        // (Type, body length) for supported field values.
+        // All except Pad1 have a 2-byte header
+        let field_options = [
+            (0x01, 4),  // PadN
+            (0x03, 9),  // Route Information, current accessor layout
+            (0x04, 14), // DODAG Configuration
+            (0x05, 18), // RPL Target with a full IPv6 address
+            (0x06, 4),  // Transit Information without a parent
+            (0x06, 20), // Transit Information with a parent
+            (0x07, 19), // Solicited Information
+            (0x08, 30), // Prefix Information
+            (0x09, 4),  // RPL Target Descriptor
+        ];
+        // check that all truncated option bodies are rejected
+        for (kind, body_len) in field_options {
+            let mut data = [0u8; 32]; // 32 to be able to cover largest field option
+            data[0] = kind;
+            data[1] = body_len;
+            let option_len = 2 + usize::from(body_len); // 2 bytes for type and length
+
+            for len in 0..option_len {
+                let packet = OptionPacket::new_unchecked(&data[..len]);
+                assert!(packet.check_len().is_err());
+                assert!(OptionRepr::parse(&packet).is_err());
+            }
+
+            //now check that the full option body is accepted.
+            let packet = OptionPacket::new_checked(&data[..option_len]).unwrap();
+            assert!(OptionRepr::parse(&packet).is_ok());
+        }
+    }
+
+    /* This test checks that the declared option body is present.
+     * When option with a declared body length is parsed, the
+     * parser must check that the declared body is present.
+     * Example RPL Target Descriptor option field case FAIL:
+     * [09, 05, 00, 00, 00, 01]
+     *  Typ Len └── body ────┘
+     */
+    #[test]
+    fn declared_option_body_must_be_present() {
+        // option RPL Target Descriptor (type 0x09) declares a body length of 5,
+        // but only 4 bytes are present.
+        let data = [
+            0x09, // RPL Target Descriptor
+            0x05, // Claims 5 body bytes
+            0x00, 0x00, 0x00, 0x01, // Only 4 provided
+        ];
+
+        let packet = OptionPacket::new_unchecked(&data);
+
+        // check that the option is rejected because the declared body
+        // length is not present
+        assert!(packet.check_len().is_err());
+        assert!(OptionRepr::parse(&packet).is_err());
+    }
+
+    /*
+     * This test checks that options with zero length are rejected.
+     * These option types require body fields, so a declared body
+     * length of zero must be rejected.
+     */
+    #[test]
+    fn option_cannot_have_zero_length() {
+        let field_options_without_len = [
+            (0x03, 0), // Route Information, current accessor layout
+            (0x04, 0), // DODAG Configuration
+            (0x05, 0), // RPL Target with a full IPv6 address
+            (0x06, 0), // Transit Information
+            (0x07, 0), // Solicited Information
+            (0x08, 0), // Prefix Information
+            (0x09, 0), // RPL Target Descriptor
+        ];
+        for (kind, body_len) in field_options_without_len {
+            let mut data = [0u8; 32];
+            data[0] = kind;
+            data[1] = body_len;
+
+            let packet = OptionPacket::new_unchecked(&data[..]);
+            // check that the option is rejected because the declared body length is 0
+            assert!(packet.check_len().is_err());
+            assert!(OptionRepr::parse(&packet).is_err());
+        }
+    }
+
+    /* This test checks that a zero-length PadN option is accepted.
+     * Option PadN has a 2-byte header, so a zero-length PadN option is valid.
+     */
+    #[test]
+    fn zero_length_padn_accepted() {
+        let data = [0x01, 0x00]; // kind=PadN, length=0
+        let packet = OptionPacket::new_checked(&data).unwrap();
+
+        // check that the PadN option is parsed correctly
+        assert_eq!(OptionRepr::parse(&packet), Ok(OptionRepr::PadN(0)));
+    }
+
+    /* This test checks that a single-byte Pad1 option is accepted. */
+    #[test]
+    fn single_byte_pad1_accepted() {
+        let data = [0]; // kind=Pad1
+        let packet = OptionPacket::new_checked(&data).unwrap();
+        // chcek that the Pad1 option is parsed correctly
+        assert_eq!(OptionRepr::parse(&packet), Ok(OptionRepr::Pad1));
+    }
+
+    #[test]
+    fn following_option_is_preserved() {
+        // 2 options RPL Target Descriptor (type 0x09) followed by Pad1 (type 0x00)
+        let data = [
+            0x09, 0x04, // Target Descriptor, four body bytes
+            0x00, 0x00, 0x00, 0x01, // Descriptor = 1
+            0x00, // Following Pad1
+        ];
+        let packet = OptionPacket::new_checked(&data).unwrap();
+
+        // check that the first option is parsed correctly
+        assert_eq!(
+            OptionRepr::parse(&packet),
+            Ok(OptionRepr::RplTargetDescriptor { descriptor: 1 })
+        );
+        // check that the following option is preserved
+        assert_eq!(packet.next_option(), Some(&data[6..]));
+    }
+
+    /* This tesst creates PadN Option with lenghth 254 but it doesnt
+     * provide any data so it is rejected!
+     */
+    #[test]
+    fn truncated_padn_is_rejected() {
+        let data = [0x01, 0xFE]; // kind=PadN, length=254
+        // returns error since data is missing
+        let packet = OptionPacket::new_unchecked(&data);
+
+        assert!(packet.check_len().is_err());
+        assert!(OptionRepr::parse(&packet).is_err());
+    }
+
+    /* This test checks empty and nonempty prefixes,
+     * including their exact contents.
+     */
+    #[test]
+    fn route_information_prefix_is_parsed_correctly() {
+        let cases: &[(&[u8], &[u8])] = &[
+            // Body length 6: fixed fields only, no prefix.
+            (&[0x03, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01], &[]),
+            // Body length 8: fixed fields plus a two-byte prefix.
+            (
+                &[0x03, 0x08, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01, 0x20, 0x01],
+                &[0x20, 0x01],
+            ),
+        ];
+
+        for &(data, expected_prefix) in cases {
+            let packet = OptionPacket::new_checked(data).unwrap();
+
+            assert_eq!(
+                OptionRepr::parse(&packet),
+                Ok(OptionRepr::RouteInformation {
+                    prefix_length: data[2],
+                    preference: 0,
+                    lifetime: 1,
+                    prefix: expected_prefix,
+                })
+            );
+        }
+    }
+
+    /* This test checks that prefix stops before next option */
+    #[test]
+    fn route_information_with_prefix_and_next_option() {
+        let data = [
+            0x03, 0x08, 0x10, 0x00, 0x00, 0x00, 0x00, 0x01, // kind=RouteInformation, length=8
+            0x20, 0x01, // Two-byte prefix
+            0x00, // Following kind=Pad1
+        ];
+        let packet = OptionPacket::new_checked(&data).unwrap();
+
+        // check prefix size and lenght
+        assert_eq!(packet.prefix_length(), 0x10);
+        assert_eq!(packet.prefix(), &[0x20, 0x01]);
+        // check next option
+        assert_eq!(packet.next_option(), Some(&data[10..]));
     }
 
     #[test]
