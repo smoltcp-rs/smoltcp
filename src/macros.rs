@@ -37,6 +37,41 @@ macro_rules! net_debug {
     ($($arg:expr),*) => (net_log!(debug, $($arg),*));
 }
 
+/// Creates a [`DnsName`](crate::wire::DnsName) from a string literal at compile time.
+///
+/// The literal is validated during compilation and encoded into canonical, uncompressed
+/// DNS wire format.
+///
+/// # Examples
+///
+/// ```
+/// use smoltcp::iface::Context;
+/// use smoltcp::socket::dns;
+/// use smoltcp::wire::DnsQueryType;
+///
+/// fn start_query(socket: &mut dns::Socket<'_>, cx: &mut Context) {
+///     let _query = socket
+///         .start_query(cx, smoltcp::dns_name!("_http._tcp.local"), DnsQueryType::Srv)
+///         .unwrap();
+/// }
+/// ```
+#[cfg(feature = "proto-dns")]
+#[macro_export]
+macro_rules! dns_name {
+    ($name:literal) => {
+        const {
+            static NAME: ([u8; 255], usize) = $crate::wire::DnsName::encode_str_const($name);
+            #[allow(unsafe_code)]
+            unsafe {
+                $crate::wire::DnsName::from_const_unchecked(&*core::ptr::slice_from_raw_parts(
+                    NAME.0.as_ptr(),
+                    NAME.1,
+                ))
+            }
+        }
+    };
+}
+
 macro_rules! enum_with_unknown {
     (
         $( #[$enum_attr:meta] )*
