@@ -12,6 +12,7 @@ use crate::wire::{EthernetAddress, Ipv4Address};
 pub const SERVER_PORT: u16 = 67;
 pub const CLIENT_PORT: u16 = 68;
 pub const MAX_DNS_SERVER_COUNT: usize = 3;
+pub const MAX_NTP_SERVER_COUNT: usize = 3;
 
 const DHCP_MAGIC_NUMBER: u32 = 0x63825363;
 
@@ -647,6 +648,8 @@ pub struct Repr<'a> {
     pub parameter_request_list: Option<&'a [u8]>,
     /// DNS servers
     pub dns_servers: Option<Vec<Ipv4Address, MAX_DNS_SERVER_COUNT>>,
+    /// NTP servers (RFC 2132 §8.3)
+    pub ntp_servers: Option<Vec<Ipv4Address, MAX_NTP_SERVER_COUNT>>,
     /// The maximum size dhcp packet the interface can receive
     pub max_size: Option<u16>,
     /// The DHCP IP lease duration, specified in seconds.
@@ -691,6 +694,10 @@ impl<'a> Repr<'a> {
         if let Some(dns_servers) = &self.dns_servers {
             len += 2;
             len += dns_servers.iter().count() * core::mem::size_of::<u32>();
+        }
+        if let Some(ntp_servers) = &self.ntp_servers {
+            len += 2;
+            len += ntp_servers.iter().count() * core::mem::size_of::<u32>();
         }
         if let Some(list) = self.parameter_request_list {
             len += list.len() + 2;
@@ -738,6 +745,7 @@ impl<'a> Repr<'a> {
         let mut subnet_mask = None;
         let mut parameter_request_list = None;
         let mut dns_servers = None;
+        let mut ntp_servers = None;
         let mut max_size = None;
         let mut lease_duration = None;
         let mut renew_duration = None;
@@ -804,6 +812,21 @@ impl<'a> Repr<'a> {
                         net_trace!("DHCP domain name servers contained invalid address");
                     }
                 }
+                (field::OPT_NTP_SERVERS, _) => {
+                    let mut servers = Vec::new();
+                    const IP_ADDR_BYTE_LEN: usize = 4;
+                    let mut addrs = data.chunks_exact(IP_ADDR_BYTE_LEN);
+                    for chunk in &mut addrs {
+                        servers
+                            .push(Ipv4Address::from_octets(chunk.try_into().unwrap()))
+                            .ok();
+                    }
+                    ntp_servers = Some(servers);
+
+                    if !addrs.remainder().is_empty() {
+                        net_trace!("DHCP NTP servers contained invalid address");
+                    }
+                }
                 _ => {}
             }
         }
@@ -826,6 +849,7 @@ impl<'a> Repr<'a> {
             client_identifier,
             parameter_request_list,
             dns_servers,
+            ntp_servers,
             max_size,
             lease_duration,
             renew_duration,
@@ -938,6 +962,24 @@ impl<'a> Repr<'a> {
                     * IP_SIZE;
                 options.emit(DhcpOption {
                     kind: field::OPT_DOMAIN_NAME_SERVER,
+                    data: &servers[..data_len],
+                })?;
+            }
+
+            if let Some(ntp_servers) = &self.ntp_servers {
+                const IP_SIZE: usize = core::mem::size_of::<u32>();
+                let mut servers = [0; MAX_NTP_SERVER_COUNT * IP_SIZE];
+
+                let data_len = ntp_servers
+                    .iter()
+                    .enumerate()
+                    .inspect(|(i, ip)| {
+                        servers[(i * IP_SIZE)..((i + 1) * IP_SIZE)].copy_from_slice(&ip.octets());
+                    })
+                    .count()
+                    * IP_SIZE;
+                options.emit(DhcpOption {
+                    kind: field::OPT_NTP_SERVERS,
                     data: &servers[..data_len],
                 })?;
             }
@@ -1169,6 +1211,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: None,
             dns_servers: None,
+            ntp_servers: None,
             max_size: None,
             renew_duration: None,
             rebind_duration: None,
@@ -1199,6 +1242,7 @@ mod test {
             server_identifier: None,
             parameter_request_list: Some(&[1, 3, 6, 42]),
             dns_servers: None,
+            ntp_servers: None,
             additional_options: &[],
         }
     }
@@ -1260,6 +1304,40 @@ mod test {
                     Ipv4Address::new(163, 1, 74, 6),
                     Ipv4Address::new(163, 1, 74, 7),
                     Ipv4Address::new(163, 1, 74, 3),
+                ])
+                .unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn test_emit_offer_ntp() {
+        let repr = {
+            let mut repr = offer_repr();
+            repr.ntp_servers = Some(
+                Vec::from_slice(&[
+                    Ipv4Address::new(129, 6, 15, 28),
+                    Ipv4Address::new(129, 6, 15, 29),
+                    Ipv4Address::new(129, 6, 15, 30),
+                ])
+                .unwrap(),
+            );
+            repr
+        };
+        let mut bytes = vec![0xa5; repr.buffer_len()];
+        let mut packet = Packet::new_unchecked(&mut bytes);
+        repr.emit(&mut packet).unwrap();
+
+        let packet = Packet::new_unchecked(&bytes);
+        let repr_parsed = Repr::parse(&packet).unwrap();
+
+        assert_eq!(
+            repr_parsed.ntp_servers,
+            Some(
+                Vec::from_slice(&[
+                    Ipv4Address::new(129, 6, 15, 28),
+                    Ipv4Address::new(129, 6, 15, 29),
+                    Ipv4Address::new(129, 6, 15, 30),
                 ])
                 .unwrap()
             )
