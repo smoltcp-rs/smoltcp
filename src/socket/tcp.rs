@@ -818,7 +818,7 @@ impl<'a> Socket<'a> {
         let next_ack = self.remote_seq_no + self.rx_buffer.len();
 
         let last_win = (self.remote_last_win as usize) << self.remote_win_shift;
-        let last_win_adjusted = last_ack + last_win - next_ack;
+        let last_win_adjusted = last_win.saturating_sub(next_ack - last_ack);
 
         Some(u16::try_from(last_win_adjusted >> self.remote_win_shift).unwrap_or(u16::MAX))
     }
@@ -8137,6 +8137,7 @@ mod test {
             }
         );
         assert_eq!(s.state, State::CloseWait);
+        assert_eq!(s.last_scaled_window(), Some(0));
 
         recv!(
             s,
