@@ -149,6 +149,7 @@ fn test_handle_udp_broadcast(#[case] medium: Medium) {
         Ok((
             &UDP_PAYLOAD[..],
             udp::UdpMetadata {
+                local_port: Some(68),
                 local_address: Some(dst_addr),
                 ..IpEndpoint::new(src_ip.into(), 67).into()
             }
