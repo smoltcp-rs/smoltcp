@@ -910,7 +910,7 @@ mod tests {
         let parent_address =
             Ipv6Address::from_octets([253, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0, 1, 0, 1, 0, 1]);
 
-        let mut hbh_options = heapless::Vec::new();
+        let mut hbh_options = crate::data_structure::Vec::new();
         hbh_options
             .push(Ipv6OptionRepr::Rpl(RplHopByHopRepr {
                 down: false,

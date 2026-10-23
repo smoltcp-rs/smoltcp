@@ -1,7 +1,7 @@
 use super::{Error, Ipv6Option, Ipv6OptionRepr, Ipv6OptionsIterator, Result};
 use crate::config;
+use crate::data_structure::Vec;
 use crate::wire::ipv6option::RouterAlert;
-use heapless::Vec;
 
 /// A read/write wrapper around an IPv6 Hop-by-Hop Header buffer.
 pub struct Header<T: AsRef<[u8]>> {
