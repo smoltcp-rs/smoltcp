@@ -1070,8 +1070,19 @@ pub mod options {
                     OptionType::Pad1 => Some(&self.buffer.as_ref()[1..]),
                     OptionType::Unknown(_) => unreachable!(),
                     _ => {
-                        let len = self.option_length();
-                        Some(&self.buffer.as_ref()[2 + len as usize..])
+                        let buffer = self.buffer.as_ref();
+                        if buffer.len() < 2 {
+                            // Not even a Length byte; the option cannot be skipped.
+                            return None;
+                        }
+                        let end = 2 + self.option_length() as usize;
+                        if end > buffer.len() {
+                            // The declared body exceeds the buffer; the option
+                            // is truncated. Stop the iteration instead of
+                            // panicking with an out-of-bounds slice.
+                            return None;
+                        }
+                        Some(&buffer[end..])
                     }
                 }
             } else {
@@ -2489,6 +2500,39 @@ mod tests {
         let mut buffer = vec![0u8; repr.buffer_len()];
         repr.emit(&mut OptionPacket::new_unchecked(&mut buffer[..]));
         assert_eq!(buffer[1], 254);
+    }
+
+    #[test]
+    fn next_option_stops_on_truncated_option() {
+        // A DAG Metric Container option (type 0x02) declaring a 255-byte body
+        // in a 2-byte buffer: check_len accepts it (only Type/Length are
+        // read), so next_option must not slice past the end of the buffer.
+        let option = OptionPacket::new_checked(&[0x02, 0xFF][..]).unwrap();
+        assert_eq!(option.next_option(), None);
+
+        // A PadN option (type 0x01) declaring more body bytes than the
+        // buffer holds is truncated as well.
+        let option = OptionPacket::new_checked(&[0x01, 0x05, 0x00][..]).unwrap();
+        assert_eq!(option.next_option(), None);
+
+        // A buffer without even a Length byte cannot be skipped.
+        let option = OptionPacket::new_unchecked(&[0x01][..]);
+        assert_eq!(option.next_option(), None);
+
+        // A well-formed option is followed by the remaining options.
+        let data = [0x01, 0x01, 0xAA, 0x01, 0x00];
+        let option = OptionPacket::new_checked(&data[..]).unwrap();
+        assert_eq!(option.next_option(), Some(&data[3..]));
+
+        // An option that exactly fills the buffer leaves nothing behind.
+        let data = [0x01, 0x00];
+        let option = OptionPacket::new_checked(&data[..]).unwrap();
+        assert_eq!(option.next_option(), Some(&[][..]));
+
+        // Pad1 is a single byte, the next option starts right after it.
+        let data = [0x00, 0x01, 0x00];
+        let option = OptionPacket::new_checked(&data[..]).unwrap();
+        assert_eq!(option.next_option(), Some(&data[1..]));
     }
 
     #[test]
