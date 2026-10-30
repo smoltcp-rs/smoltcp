@@ -514,14 +514,12 @@ impl<'a> Socket<'a> {
                     }
                 }
 
-                q.set_state(if addresses.is_empty() {
-                    State::Failure
-                } else {
-                    State::Completed(CompletedQuery { addresses })
-                });
-
-                // If we get here, packet matched the current query, stop processing.
-                return;
+                if !addresses.is_empty() {
+                    q.set_state(State::Completed(CompletedQuery { addresses }));
+                    // If we get here, packet matched the current query, stop processing.
+                    return;
+                }
+                // Do not fail immediately on empty addresses (e.g., additionals-only mDNS responses)
             }
         }
 
