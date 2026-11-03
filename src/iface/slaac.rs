@@ -274,7 +274,13 @@ impl Slaac {
     /// Get the next time the SLAAC state must be polled for updates.
     pub(crate) fn poll_at(&self, now: Instant) -> Option<Instant> {
         match self.phase {
-            Phase::Discovering | Phase::Start => Some(self.retry_rs_at),
+            Phase::Discovering | Phase::Start => {
+                if self.num_solicitations > 0 {
+                    Some(self.retry_rs_at)
+                } else {
+                    None
+                }
+            }
             Phase::Maintaining => {
                 let prefix_at = self.prefix.values().filter_map(|prefix_info| {
                     if prefix_info.is_valid(now) {
