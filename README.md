@@ -277,10 +277,6 @@ Size of the buffer used for reassembling (de-fragmenting) incoming packets. If t
 
 Number of reassembly buffers, i.e how many different incoming packets can be reassembled at the same time. Default: 1.
 
-### `DNS_MAX_RESULT_COUNT`
-
-Maximum amount of address results for a given DNS query that will be kept. For example, if this is set to 2 and the queried name has 4 `A` records, only the first 2 will be returned. Default: 1.
-
 ### `DNS_MAX_SERVER_COUNT`
 
 Maximum amount of DNS servers that can be configured in one DNS socket. Default: 1.

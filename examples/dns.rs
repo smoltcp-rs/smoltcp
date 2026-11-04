@@ -5,7 +5,9 @@ use smoltcp::phy::Device;
 use smoltcp::phy::{Medium, wait as phy_wait};
 use smoltcp::socket::dns::{self, GetQueryResultError};
 use smoltcp::time::Instant;
-use smoltcp::wire::{DnsQueryType, EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address};
+use smoltcp::wire::{
+    DnsName, DnsQueryType, EthernetAddress, IpAddress, IpCidr, Ipv4Address, Ipv6Address,
+};
 use std::os::unix::io::AsRawFd;
 
 fn main() {
@@ -14,6 +16,7 @@ fn main() {
     let (mut opts, mut free) = utils::create_options();
     utils::add_tuntap_options(&mut opts, &mut free);
     utils::add_middleware_options(&mut opts, &mut free);
+    opts.optopt("", "type", "DNS query type (A, AAAA, SRV, PTR)", "TYPE");
     free.push("ADDRESS");
 
     let mut matches = utils::parse_options(&opts, free);
@@ -22,6 +25,16 @@ fn main() {
     let mut device =
         utils::parse_middleware_options(&mut matches, device, /*loopback=*/ false);
     let name = &matches.free[0];
+    let query_type = match matches.opt_str("type") {
+        Some(value) if value.eq_ignore_ascii_case("a") => DnsQueryType::A,
+        Some(value) if value.eq_ignore_ascii_case("aaaa") => DnsQueryType::Aaaa,
+        Some(value) if value.eq_ignore_ascii_case("srv") => DnsQueryType::Srv,
+        Some(value) if value.eq_ignore_ascii_case("ptr") => DnsQueryType::Ptr,
+        Some(value) => panic!("unsupported DNS query type: {value}"),
+        None => DnsQueryType::A,
+    };
+    let mut query_name_storage = [0u8; 255];
+    let query_name = DnsName::from_str(&mut query_name_storage, name).expect("invalid DNS name");
 
     // Create interface
     let mut config = match device.capabilities().medium {
@@ -66,7 +79,7 @@ fn main() {
 
     let socket = sockets.get_mut::<dns::Socket>(dns_handle);
     let query = socket
-        .start_query(iface.context(), name, DnsQueryType::A)
+        .start_query(iface.context(), query_name, query_type)
         .unwrap();
 
     loop {
@@ -79,8 +92,11 @@ fn main() {
             .get_mut::<dns::Socket>(dns_handle)
             .get_query_result(query)
         {
-            Ok(addrs) => {
-                println!("Query done: {addrs:?}");
+            Ok(results) => {
+                println!("Query done:");
+                for result in results {
+                    println!("  {result}");
+                }
                 break;
             }
             Err(GetQueryResultError::Pending) => {} // not done yet
