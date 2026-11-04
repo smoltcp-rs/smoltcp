@@ -425,19 +425,42 @@ impl<T: Into<Address>> From<(T, u16)> for Endpoint {
 /// An internet endpoint address for listening.
 ///
 /// In contrast with [`Endpoint`], `ListenEndpoint` allows not specifying the address,
-/// in order to listen on a given port at all our addresses.
+/// in order to listen on a given port at all our addresses, and/or not specifying the
+/// port, in order to listen on all ports at a given address.
+///
+/// A `None` address means "any address", and a `None` port means "any port".
 ///
 /// An endpoint can be constructed from a port, in which case the address is unspecified.
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct ListenEndpoint {
     pub addr: Option<Address>,
-    pub port: u16,
+    pub port: Option<u16>,
+}
+
+impl Default for ListenEndpoint {
+    /// Return an unspecified endpoint, which cannot be bound or listened on.
+    fn default() -> Self {
+        Self {
+            addr: None,
+            port: Some(0),
+        }
+    }
 }
 
 impl ListenEndpoint {
+    /// A listen endpoint that matches any address and any port.
+    pub const ANY_PORT: Self = Self {
+        addr: None,
+        port: None,
+    };
+
     /// Query whether the endpoint has a specified address and port.
     pub const fn is_specified(&self) -> bool {
-        self.addr.is_some() && self.port != 0
+        self.addr.is_some()
+            && match self.port {
+                Some(port) => port != 0,
+                None => false,
+            }
     }
 }
 
@@ -446,7 +469,7 @@ impl From<::core::net::SocketAddr> for ListenEndpoint {
     fn from(x: ::core::net::SocketAddr) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some(x.ip().into()),
-            port: x.port(),
+            port: Some(x.port()),
         }
     }
 }
@@ -456,7 +479,7 @@ impl From<::core::net::SocketAddrV4> for ListenEndpoint {
     fn from(x: ::core::net::SocketAddrV4) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some((*x.ip()).into()),
-            port: x.port(),
+            port: Some(x.port()),
         }
     }
 }
@@ -466,17 +489,18 @@ impl From<::core::net::SocketAddrV6> for ListenEndpoint {
     fn from(x: ::core::net::SocketAddrV6) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some((*x.ip()).into()),
-            port: x.port(),
+            port: Some(x.port()),
         }
     }
 }
 
 impl fmt::Display for ListenEndpoint {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if let Some(addr) = self.addr {
-            write!(f, "{}:{}", addr, self.port)
-        } else {
-            write!(f, "*:{}", self.port)
+        match (self.addr, self.port) {
+            (Some(addr), Some(port)) => write!(f, "{}:{}", addr, port),
+            (Some(addr), None) => write!(f, "{}:*", addr),
+            (None, Some(port)) => write!(f, "*:{}", port),
+            (None, None) => write!(f, "*:*"),
         }
     }
 }
@@ -484,13 +508,21 @@ impl fmt::Display for ListenEndpoint {
 #[cfg(feature = "defmt")]
 impl defmt::Format for ListenEndpoint {
     fn format(&self, f: defmt::Formatter) {
-        defmt::write!(f, "{:?}:{=u16}", self.addr, self.port);
+        match (self.addr, self.port) {
+            (Some(addr), Some(port)) => defmt::write!(f, "{}:{=u16}", addr, port),
+            (Some(addr), None) => defmt::write!(f, "{}:*", addr),
+            (None, Some(port)) => defmt::write!(f, "*:{=u16}", port),
+            (None, None) => defmt::write!(f, "*:*"),
+        }
     }
 }
 
 impl From<u16> for ListenEndpoint {
     fn from(port: u16) -> ListenEndpoint {
-        ListenEndpoint { addr: None, port }
+        ListenEndpoint {
+            addr: None,
+            port: Some(port),
+        }
     }
 }
 
@@ -498,7 +530,7 @@ impl From<Endpoint> for ListenEndpoint {
     fn from(endpoint: Endpoint) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some(endpoint.addr),
-            port: endpoint.port,
+            port: Some(endpoint.port),
         }
     }
 }
@@ -507,7 +539,7 @@ impl<T: Into<Address>> From<(T, u16)> for ListenEndpoint {
     fn from((addr, port): (T, u16)) -> ListenEndpoint {
         ListenEndpoint {
             addr: Some(addr.into()),
-            port,
+            port: Some(port),
         }
     }
 }

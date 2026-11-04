@@ -23,6 +23,9 @@ pub struct UdpMetadata {
     /// determined using the algorithms of RFC 6724 (candidate source address selection) or some
     /// heuristic (for IPv4).
     pub local_address: Option<IpAddress>,
+    /// Destination port on receive (always set); source port on send.
+    /// On send, defaults to the bound port and must match it if fixed.
+    pub local_port: Option<u16>,
     pub meta: PacketMeta,
 }
 
@@ -31,6 +34,7 @@ impl<T: Into<IpEndpoint>> From<T> for UdpMetadata {
         Self {
             endpoint: value.into(),
             local_address: None,
+            local_port: None,
             meta: PacketMeta::default(),
         }
     }
@@ -214,9 +218,13 @@ impl<'a> Socket<'a> {
     /// This function returns `Err(Error::Illegal)` if the socket was open
     /// (see [is_open](#method.is_open)), and `Err(Error::Unaddressable)`
     /// if the port in the given endpoint is zero.
+    ///
+    /// Use [IpListenEndpoint::ANY_PORT] to receive datagrams on all ports.
+    /// Received metadata preserves the destination address and port; use these
+    /// as the local address and port when sending a proxy reply.
     pub fn bind<T: Into<IpListenEndpoint>>(&mut self, endpoint: T) -> Result<(), BindError> {
         let endpoint = endpoint.into();
-        if endpoint.port == 0 {
+        if endpoint.port == Some(0) {
             return Err(BindError::Unaddressable);
         }
 
@@ -254,7 +262,7 @@ impl<'a> Socket<'a> {
     /// Check whether the socket is open.
     #[inline]
     pub fn is_open(&self) -> bool {
-        self.endpoint.port != 0
+        self.endpoint.port != Some(0)
     }
 
     /// Check whether the transmit buffer is full.
@@ -305,10 +313,22 @@ impl<'a> Socket<'a> {
         size: usize,
         meta: impl Into<UdpMetadata>,
     ) -> Result<&mut [u8], SendError> {
-        let meta = meta.into();
-        if self.endpoint.port == 0 {
+        if !self.is_open() {
             return Err(SendError::Unaddressable);
         }
+
+        let meta = meta.into();
+        let local_port = match meta.local_port.or(self.endpoint.port) {
+            Some(port) if port != 0 => port,
+            _ => return Err(SendError::Unaddressable),
+        };
+
+        if let Some(bound_port) = self.endpoint.port
+            && local_port != bound_port
+        {
+            return Err(SendError::Unaddressable);
+        }
+
         if meta.endpoint.addr.is_unspecified() {
             return Err(SendError::Unaddressable);
         }
@@ -344,10 +364,22 @@ impl<'a> Socket<'a> {
     where
         F: FnOnce(&mut [u8]) -> usize,
     {
-        let meta = meta.into();
-        if self.endpoint.port == 0 {
+        if !self.is_open() {
             return Err(SendError::Unaddressable);
         }
+
+        let meta = meta.into();
+        let local_port = match meta.local_port.or(self.endpoint.port) {
+            Some(port) if port != 0 => port,
+            _ => return Err(SendError::Unaddressable),
+        };
+
+        if let Some(bound_port) = self.endpoint.port
+            && local_port != bound_port
+        {
+            return Err(SendError::Unaddressable);
+        }
+
         if meta.endpoint.addr.is_unspecified() {
             return Err(SendError::Unaddressable);
         }
@@ -475,7 +507,12 @@ impl<'a> Socket<'a> {
     }
 
     pub(crate) fn accepts(&self, cx: &mut Context, ip_repr: &IpRepr, repr: &UdpRepr) -> bool {
-        if self.endpoint.port != repr.dst_port {
+        if !self.is_open() || repr.dst_port == 0 {
+            return false;
+        }
+        if let Some(endpoint_port) = self.endpoint.port
+            && endpoint_port != repr.dst_port
+        {
             return false;
         }
         if self.endpoint.addr.is_some()
@@ -516,6 +553,7 @@ impl<'a> Socket<'a> {
         let metadata = UdpMetadata {
             endpoint: remote_endpoint,
             local_address: Some(ip_repr.dst_addr()),
+            local_port: Some(repr.dst_port),
             meta,
         };
 
@@ -540,6 +578,17 @@ impl<'a> Socket<'a> {
         let hop_limit = self.hop_limit.unwrap_or(64);
 
         let res = self.tx_buffer.dequeue_with(|packet_meta, payload_buf| {
+            let endpoint_port = match packet_meta.local_port.or(endpoint.port) {
+                Some(port) if port != 0 => port,
+                _ => {
+                    net_trace!(
+                        "udp:{}:{}: invalid local port, dropping.",
+                        endpoint,
+                        packet_meta.endpoint
+                    );
+                    return Ok(());
+                }
+            };
             let src_addr = if let Some(s) = packet_meta.local_address {
                 s
             } else {
@@ -567,7 +616,7 @@ impl<'a> Socket<'a> {
             );
 
             let repr = UdpRepr {
-                src_port: endpoint.port,
+                src_port: endpoint_port,
                 dst_port: packet_meta.endpoint.port,
             };
             let ip_repr = IpRepr::new(
@@ -670,6 +719,7 @@ mod test {
         // Would be great as a const once we have const `.into()`.
         UdpMetadata {
             local_address: Some(LOCAL_ADDR.into()),
+            local_port: Some(LOCAL_PORT),
             ..REMOTE_END.into()
         }
     }
@@ -709,6 +759,74 @@ mod test {
     };
 
     const PAYLOAD: &[u8] = b"abcdef";
+
+    #[test]
+    #[cfg(feature = "medium-ip")]
+    fn test_any_port_roundtrip() {
+        let (mut iface, _, _) = setup(Medium::Ip);
+        let cx = iface.context();
+        let mut socket = socket(buffer(2), buffer(2));
+        assert!(!socket.is_open());
+        assert!(!socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        socket.bind(IpListenEndpoint::ANY_PORT).unwrap();
+        assert!(socket.is_open());
+        assert_eq!(socket.bind(1234), Err(BindError::InvalidState));
+        for port in [53, 443] {
+            let repr = UdpRepr {
+                dst_port: port,
+                ..REMOTE_UDP_REPR
+            };
+            assert!(socket.accepts(cx, &REMOTE_IP_REPR, &repr));
+            socket.process(cx, PacketMeta::default(), &REMOTE_IP_REPR, &repr, PAYLOAD);
+        }
+        for port in [53, 443] {
+            let (payload, meta) = socket.recv().unwrap();
+            assert_eq!(payload, PAYLOAD);
+            assert_eq!(meta.endpoint, REMOTE_END);
+            assert_eq!(meta.local_address, Some(LOCAL_ADDR.into()));
+            assert_eq!(meta.local_port, Some(port));
+            socket.send_slice(PAYLOAD, meta).unwrap();
+        }
+        for port in [53, 443] {
+            socket
+                .dispatch(cx, |_, _, (ip, udp, payload)| {
+                    assert_eq!(ip, LOCAL_IP_REPR);
+                    assert_eq!(udp.src_port, port);
+                    assert_eq!(udp.dst_port, REMOTE_PORT);
+                    assert_eq!(payload, PAYLOAD);
+                    Ok::<_, ()>(())
+                })
+                .unwrap();
+        }
+        assert_eq!(
+            socket.send_slice(PAYLOAD, REMOTE_END),
+            Err(SendError::Unaddressable)
+        );
+        assert_eq!(
+            socket.send_with(6, REMOTE_END, |_| panic!("invalid send")),
+            Err(SendError::Unaddressable)
+        );
+        let zero = UdpMetadata {
+            local_port: Some(0),
+            ..REMOTE_END.into()
+        };
+        assert_eq!(
+            socket.send_slice(PAYLOAD, zero),
+            Err(SendError::Unaddressable)
+        );
+        socket.close();
+        assert!(!socket.is_open());
+        assert!(!socket.accepts(cx, &REMOTE_IP_REPR, &REMOTE_UDP_REPR));
+        socket.bind(LOCAL_PORT).unwrap();
+        let wrong = UdpMetadata {
+            local_port: Some(LOCAL_PORT + 1),
+            ..REMOTE_END.into()
+        };
+        assert_eq!(
+            socket.send_slice(PAYLOAD, wrong),
+            Err(SendError::Unaddressable)
+        );
+    }
 
     #[test]
     fn test_bind_unaddressable() {

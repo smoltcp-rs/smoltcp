@@ -357,6 +357,7 @@ In at rhoncus tortor. Cras blandit tellus diam, varius vestibulum nibh commodo n
         Ok((
             &udp_data[..],
             udp::UdpMetadata {
+                local_port: Some(6969),
                 local_address: Some(
                     Ipv6Address::new(0xfe80, 0, 0, 0, 0x92fc, 0x48c2, 0xa441, 0xfc76).into()
                 ),
