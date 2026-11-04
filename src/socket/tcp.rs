@@ -392,6 +392,12 @@ impl Timer {
         }
     }
 
+    fn cancel_keep_alive(&mut self) {
+        if let Timer::Idle { keep_alive_at } = self {
+            *keep_alive_at = None;
+        }
+    }
+
     fn rewind_keep_alive(&mut self, timestamp: Instant, interval: Option<Duration>) {
         if let Timer::Idle { keep_alive_at } = self {
             *keep_alive_at = interval.map(|interval| timestamp + interval)
@@ -924,6 +930,8 @@ impl<'a> Socket<'a> {
             // If the connection is idle and we've just set the option, it would not take effect
             // until the next packet, unless we wind up the timer explicitly.
             self.timer.set_keep_alive();
+        } else {
+            self.timer.cancel_keep_alive();
         }
     }
 
@@ -9130,6 +9138,25 @@ mod test {
             payload:    &b"\x00"[..],
             ..RECV_TEMPL
         }));
+    }
+
+    #[test]
+    fn test_disable_keep_alive() {
+        let mut s = socket_established();
+
+        s.set_keep_alive(Some(Duration::from_millis(100)));
+
+        recv!(s, time 0, Ok(TcpRepr {
+            seq_number: LOCAL_SEQ,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &[0],
+            ..RECV_TEMPL
+        }));
+
+        s.set_keep_alive(None);
+
+        recv_nothing!(s, time 100);
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Ingress);
     }
 
     // =========================================================================================//
