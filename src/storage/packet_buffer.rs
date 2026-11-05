@@ -63,7 +63,16 @@ impl<'a, H> PacketBuffer<'a, H> {
 
     /// Query whether the buffer is empty.
     pub fn is_empty(&self) -> bool {
-        self.metadata_ring.is_empty()
+        let slice1 = self
+            .metadata_ring
+            .get_allocated(0, self.metadata_ring.len());
+        if slice1.iter().any(|meta| !meta.is_padding()) {
+            return false;
+        }
+        let slice2 = self
+            .metadata_ring
+            .get_allocated(slice1.len(), self.metadata_ring.len() - slice1.len());
+        !slice2.iter().any(|meta| !meta.is_padding())
     }
 
     /// Query whether the buffer is full.
@@ -78,6 +87,8 @@ impl<'a, H> PacketBuffer<'a, H> {
     /// return a reference to its payload, or return `Err(Full)`
     /// if the buffer is full.
     pub fn enqueue(&mut self, size: usize, header: H) -> Result<&mut [u8], Full> {
+        self.dequeue_padding();
+
         if self.payload_ring.capacity() < size || self.metadata_ring.is_full() {
             return Err(Full);
         }
@@ -99,6 +110,8 @@ impl<'a, H> PacketBuffer<'a, H> {
                 // and is larger than the contiguous window will be after adding
                 // the padding necessary to circle around to the beginning of the
                 // ring buffer.
+                return Err(Full);
+            } else if self.metadata_ring.window() < 2 {
                 return Err(Full);
             } else {
                 // Add padding to the end of the ring buffer so that the
@@ -128,6 +141,8 @@ impl<'a, H> PacketBuffer<'a, H> {
     where
         F: FnOnce(&'b mut [u8]) -> usize,
     {
+        self.dequeue_padding();
+
         if self.payload_ring.capacity() < max_size || self.metadata_ring.is_full() {
             return Err(Full);
         }
@@ -143,6 +158,8 @@ impl<'a, H> PacketBuffer<'a, H> {
                 // and is larger than the contiguous window will be after adding
                 // the padding necessary to circle around to the beginning of the
                 // ring buffer.
+                return Err(Full);
+            } else if self.metadata_ring.window() < 2 {
                 return Err(Full);
             } else {
                 // Add padding to the end of the ring buffer so that the
@@ -167,7 +184,7 @@ impl<'a, H> PacketBuffer<'a, H> {
     }
 
     fn dequeue_padding(&mut self) {
-        let _ = self.metadata_ring.dequeue_one_with(|metadata| {
+        while let Ok(Ok(())) = self.metadata_ring.dequeue_one_with(|metadata| {
             if metadata.is_padding() {
                 // note(discard): function does not use value of dequeued padding bytes
                 let _buf_dequeued = self.payload_ring.dequeue_many(metadata.size);
@@ -175,7 +192,7 @@ impl<'a, H> PacketBuffer<'a, H> {
             } else {
                 Err(()) // don't dequeue metadata
             }
-        });
+        }) {}
     }
 
     /// Call `f` with a single packet from the buffer, and dequeue the packet if `f`
@@ -432,5 +449,75 @@ mod test {
         assert!(!buffer.is_empty());
         buffer.reset();
         assert!(buffer.is_empty());
+    }
+
+    #[test]
+    fn test_is_empty_with_padding() {
+        let mut buffer = PacketBuffer::new(vec![PacketMetadata::EMPTY; 4], vec![0u8; 16]);
+
+        // Enqueue two packets
+        assert!(buffer.enqueue(6, ()).is_ok());
+        assert!(buffer.enqueue(8, ()).is_ok());
+        assert!(!buffer.is_empty());
+
+        // Dequeue the first packet (6 bytes)
+        assert!(buffer.dequeue().is_ok());
+        assert!(!buffer.is_empty());
+
+        // Enqueue a 4-byte packet, which requires 2 bytes of padding at the end
+        assert!(buffer.enqueue(4, ()).is_ok());
+        assert!(!buffer.is_empty());
+
+        // Dequeue the second packet (8 bytes). Now padding is at the head, followed by the 4-byte packet.
+        assert!(buffer.dequeue().is_ok());
+        // Since the 4-byte packet is still in the buffer, is_empty must be false!
+        assert!(!buffer.is_empty());
+
+        // Dequeue the 4-byte packet.
+        let dequeued = buffer.dequeue();
+        assert!(dequeued.is_ok());
+
+        // Now all packets have been dequeued, so is_empty must be true!
+        assert!(buffer.is_empty());
+        assert_eq!(buffer.dequeue(), Err(Empty));
+    }
+
+    #[test]
+    fn test_enqueue_padding_metadata_window_insufficient() {
+        let mut buffer = PacketBuffer::new(vec![PacketMetadata::EMPTY; 4], vec![0u8; 16]);
+
+        assert!(buffer.enqueue(12, ()).is_ok());
+        assert!(buffer.enqueue(1, ()).is_ok());
+        assert!(buffer.enqueue(1, ()).is_ok());
+        // Now 3 packets enqueued, 1 metadata slot free.
+        assert_eq!(buffer.metadata_ring.len(), 3);
+        assert_eq!(buffer.metadata_ring.window(), 1);
+
+        // Dequeue the 12-byte packet. Now 2 packets remain (at offsets 12..14),
+        // free space is at start (0..12) and end (14..16, contig_window = 2).
+        // 2 metadata slots are used, 2 are free.
+        assert!(buffer.dequeue().is_ok());
+        assert_eq!(buffer.metadata_ring.len(), 2);
+        assert_eq!(buffer.metadata_ring.window(), 2);
+
+        // Fill one more metadata slot with a 1-byte packet.
+        assert!(buffer.enqueue(1, ()).is_ok());
+        assert_eq!(buffer.metadata_ring.len(), 3);
+        assert_eq!(buffer.metadata_ring.window(), 1);
+
+        // Now we attempt to enqueue a 5-byte packet.
+        // contig_window at end is 1 byte (< 5), so it would need wrap-around padding.
+        // But metadata_ring only has 1 slot free (window == 1 < 2).
+        // It must return Err(Full) and NOT enqueue orphan padding.
+        assert_eq!(buffer.enqueue(5, ()), Err(Full));
+        assert_eq!(buffer.metadata_ring.len(), 3);
+        assert_eq!(buffer.metadata_ring.window(), 1);
+
+        // Dequeue the remaining 3 packets:
+        assert!(buffer.dequeue().is_ok());
+        assert!(buffer.dequeue().is_ok());
+        assert!(buffer.dequeue().is_ok());
+        assert!(buffer.is_empty());
+        assert_eq!(buffer.dequeue(), Err(Empty));
     }
 }
