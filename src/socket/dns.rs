@@ -514,14 +514,12 @@ impl<'a> Socket<'a> {
                     }
                 }
 
-                q.set_state(if addresses.is_empty() {
-                    State::Failure
-                } else {
-                    State::Completed(CompletedQuery { addresses })
-                });
-
-                // If we get here, packet matched the current query, stop processing.
-                return;
+                if !addresses.is_empty() {
+                    q.set_state(State::Completed(CompletedQuery { addresses }));
+                    // If we get here, packet matched the current query, stop processing.
+                    return;
+                }
+                // Do not fail immediately on empty addresses (e.g., additionals-only mDNS responses)
             }
         }
 
@@ -708,4 +706,64 @@ fn copy_name<'a, const N: usize>(
     dest.push(0).map_err(|_| wire::Error)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::phy::Medium;
+
+    #[test]
+    fn test_mdns_empty_response_does_not_fail() {
+        let mut sockets_storage = [None, None];
+        let mut dns_socket = Socket::new(&[], &mut sockets_storage[..]);
+
+        let mut device = crate::phy::Loopback::new(Medium::Ethernet);
+        let config = crate::iface::Config::new(crate::wire::HardwareAddress::Ethernet(
+            crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
+        ));
+        let mut iface = crate::iface::Interface::new(config, &mut device, Instant::ZERO);
+        let mut casual_cx = iface.context();
+
+        let handle = dns_socket
+            .start_query(casual_cx, "test.local", Type::A)
+            .unwrap();
+
+        let query = dns_socket.queries[handle.0].as_ref().unwrap();
+        let txid = match &query.state {
+            State::Pending(pq) => pq.txid,
+            _ => panic!("expected pending query"),
+        };
+
+        let mut repr = Repr {
+            transaction_id: txid,
+            flags: Flags::RESPONSE | Flags::RECURSION_DESIRED,
+            opcode: Opcode::Query,
+            question: Question {
+                name: b"\x04test\x05local\x00",
+                type_: Type::A,
+            },
+        };
+
+        let mut payload_buf = [0u8; 512];
+        let payload_len = repr.buffer_len();
+        repr.emit(&mut Packet::new_unchecked(&mut payload_buf[..payload_len]));
+
+        let ip_repr = IpRepr::new(
+            IpAddress::v4(224, 0, 0, 251),
+            IpAddress::v4(192, 168, 1, 1),
+            IpProtocol::Udp,
+            8 + payload_len,
+            255,
+        );
+        let udp_repr = UdpRepr {
+            src_port: MDNS_DNS_PORT,
+            dst_port: 5353,
+        };
+
+        dns_socket.process(casual_cx, &ip_repr, &udp_repr, &payload_buf[..payload_len]);
+
+        let result = dns_socket.get_query_result(handle);
+        assert_eq!(result, Err(GetQueryResultError::Pending));
+    }
 }
