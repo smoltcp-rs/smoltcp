@@ -1,7 +1,7 @@
 // Heads up! Before working on this file you should read, at least,
 // the parts of RFC 1122 that discuss ARP.
 
-use heapless::LinearMap;
+use crate::data_structure::LinearMap;
 
 use crate::config::IFACE_NEIGHBOR_CACHE_COUNT;
 use crate::time::{Duration, Instant};

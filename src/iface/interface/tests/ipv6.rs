@@ -1099,7 +1099,7 @@ fn test_router_advertisement(#[case] medium: Medium) {
 #[cfg(feature = "medium-ieee802154")]
 fn test_solicited_node_addrs(#[case] medium: Medium) {
     let (mut iface, _, _) = setup(medium);
-    let mut new_addrs = heapless::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
+    let mut new_addrs = crate::data_structure::Vec::<IpCidr, IFACE_MAX_ADDR_COUNT>::new();
     new_addrs
         .push(IpCidr::new(IpAddress::v6(0xfe80, 0, 0, 0, 1, 2, 0, 2), 64))
         .unwrap();
