@@ -5,9 +5,9 @@ use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
 use crate::wire::{
-    DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_SERVER_PORT, DhcpMessageType, DhcpPacket,
-    DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4AddressExt, Ipv4Cidr, Ipv4Repr,
-    UDP_HEADER_LEN, UdpRepr,
+    DHCP_CLIENT_PORT, DHCP_MAX_DNS_SERVER_COUNT, DHCP_MAX_NTP_SERVER_COUNT, DHCP_SERVER_PORT,
+    DhcpMessageType, DhcpPacket, DhcpRepr, IpAddress, IpProtocol, Ipv4Address, Ipv4AddressExt,
+    Ipv4Cidr, Ipv4Repr, UDP_HEADER_LEN, UdpRepr,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
 use heapless::Vec;
@@ -23,6 +23,7 @@ const DEFAULT_PARAMETER_REQUEST_LIST: &[u8] = &[
     dhcpv4_field::OPT_SUBNET_MASK,
     dhcpv4_field::OPT_ROUTER,
     dhcpv4_field::OPT_DOMAIN_NAME_SERVER,
+    dhcpv4_field::OPT_NTP_SERVERS,
 ];
 
 /// IPv4 configuration data provided by the DHCP server.
@@ -39,6 +40,8 @@ pub struct Config<'a> {
     pub router: Option<Ipv4Address>,
     /// DNS servers
     pub dns_servers: Vec<Ipv4Address, DHCP_MAX_DNS_SERVER_COUNT>,
+    /// NTP servers (RFC 2132 §8.3)
+    pub ntp_servers: Vec<Ipv4Address, DHCP_MAX_NTP_SERVER_COUNT>,
     /// Received DHCP packet
     pub packet: Option<DhcpPacket<&'a [u8]>>,
 }
@@ -490,11 +493,24 @@ impl<'a> Socket<'a> {
                 dns_servers.push(*a).ok();
             });
 
+        // Cleanup the NTP servers list, keeping only unicasts
+        let mut ntp_servers = Vec::new();
+
+        dhcp_repr
+            .ntp_servers
+            .iter()
+            .flatten()
+            .filter(|s| s.x_is_unicast())
+            .for_each(|a| {
+                ntp_servers.push(*a).ok();
+            });
+
         let config = Config {
             server,
             address: Ipv4Cidr::new(dhcp_repr.your_ip, prefix_len),
             router: dhcp_repr.router,
             dns_servers,
+            ntp_servers,
             packet: None,
         };
 
@@ -598,6 +614,7 @@ impl<'a> Socket<'a> {
             renew_duration: None,
             rebind_duration: None,
             dns_servers: None,
+            ntp_servers: None,
             additional_options: self.outgoing_options,
         };
 
@@ -753,6 +770,7 @@ impl<'a> Socket<'a> {
                 address: state.config.address,
                 router: state.config.router,
                 dns_servers: state.config.dns_servers.clone(),
+                ntp_servers: state.config.ntp_servers.clone(),
                 packet: self
                     .receive_packet_buffer
                     .as_deref()
@@ -901,6 +919,11 @@ mod test {
     const DNS_IP_3: Ipv4Address = Ipv4Address::new(1, 1, 1, 3);
     const DNS_IPS: &[Ipv4Address] = &[DNS_IP_1, DNS_IP_2, DNS_IP_3];
 
+    const NTP_IP_1: Ipv4Address = Ipv4Address::new(129, 6, 15, 28);
+    const NTP_IP_2: Ipv4Address = Ipv4Address::new(129, 6, 15, 29);
+    const NTP_IP_3: Ipv4Address = Ipv4Address::new(129, 6, 15, 30);
+    const NTP_IPS: &[Ipv4Address] = &[NTP_IP_1, NTP_IP_2, NTP_IP_3];
+
     const MASK_24: Ipv4Address = Ipv4Address::new(255, 255, 255, 0);
 
     const MY_MAC: EthernetAddress = EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]);
@@ -983,6 +1006,7 @@ mod test {
         server_identifier: None,
         parameter_request_list: None,
         dns_servers: None,
+        ntp_servers: None,
         max_size: None,
         renew_duration: None,
         rebind_duration: None,
@@ -993,7 +1017,7 @@ mod test {
     const DHCP_DISCOVER: DhcpRepr = DhcpRepr {
         message_type: DhcpMessageType::Discover,
         client_identifier: Some(MY_MAC),
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 42]),
         max_size: Some(1432),
         ..DHCP_DEFAULT
     };
@@ -1008,6 +1032,7 @@ mod test {
             router: Some(SERVER_IP),
             subnet_mask: Some(MASK_24),
             dns_servers: Some(Vec::from_slice(DNS_IPS).unwrap()),
+            ntp_servers: Some(Vec::from_slice(NTP_IPS).unwrap()),
             lease_duration: Some(1000),
 
             ..DHCP_DEFAULT
@@ -1021,7 +1046,7 @@ mod test {
         max_size: Some(1432),
 
         requested_ip: Some(MY_IP),
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 42]),
         ..DHCP_DEFAULT
     };
 
@@ -1035,6 +1060,7 @@ mod test {
             router: Some(SERVER_IP),
             subnet_mask: Some(MASK_24),
             dns_servers: Some(Vec::from_slice(DNS_IPS).unwrap()),
+            ntp_servers: Some(Vec::from_slice(NTP_IPS).unwrap()),
             lease_duration: Some(1000),
 
             ..DHCP_DEFAULT
@@ -1056,7 +1082,7 @@ mod test {
         max_size: Some(1432),
 
         requested_ip: None,
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 42]),
         ..DHCP_DEFAULT
     };
 
@@ -1068,7 +1094,7 @@ mod test {
         max_size: Some(1432),
 
         requested_ip: None,
-        parameter_request_list: Some(&[1, 3, 6]),
+        parameter_request_list: Some(&[1, 3, 6, 42]),
         ..DHCP_DEFAULT
     };
 
@@ -1111,6 +1137,7 @@ mod test {
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
+                ntp_servers: Vec::from_slice(NTP_IPS).unwrap(),
                 router: Some(SERVER_IP),
                 packet: None,
             },
@@ -1146,6 +1173,7 @@ mod test {
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
+                ntp_servers: Vec::from_slice(NTP_IPS).unwrap(),
                 router: Some(SERVER_IP),
                 packet: None,
             }))
@@ -1184,6 +1212,7 @@ mod test {
                 },
                 address: Ipv4Cidr::new(MY_IP, 24),
                 dns_servers: Vec::from_slice(DNS_IPS).unwrap(),
+                ntp_servers: Vec::from_slice(NTP_IPS).unwrap(),
                 router: Some(SERVER_IP),
                 packet: None,
             }))
