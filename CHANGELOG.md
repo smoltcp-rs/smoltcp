@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- iface: rate-limit neighbor discovery per address, so an on-link host that never answers ARP no longer stops lookups of the gateway.
 - tcp: add `set_min_rto`/`set_initial_rto` to tune the retransmission timeout bounds per socket.
 
 ## [0.14.0] - 2026-08-07
