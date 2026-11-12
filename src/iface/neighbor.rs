@@ -45,7 +45,10 @@ impl Answer {
 #[derive(Debug)]
 pub struct Cache {
     storage: LinearMap<IpAddress, Neighbor, IFACE_NEIGHBOR_CACHE_COUNT>,
-    silent_until: Instant,
+    /// The address last asked for, and until when it is not asked again.
+    /// Per address (RFC 1122 2.3.2.1), so a neighbor that never answers does
+    /// not silence the lookups of every other one, such as the gateway.
+    silent: Option<(IpAddress, Instant)>,
 }
 
 impl Cache {
@@ -59,7 +62,7 @@ impl Cache {
     pub fn new() -> Self {
         Self {
             storage: LinearMap::new(),
-            silent_until: Instant::from_millis(0),
+            silent: None,
         }
     }
 
@@ -158,15 +161,18 @@ impl Cache {
             return Answer::Found(hardware_addr);
         }
 
-        if timestamp < self.silent_until {
+        if let Some((addr, until)) = self.silent
+            && addr == *protocol_addr
+            && timestamp < until
+        {
             Answer::RateLimited
         } else {
             Answer::NotFound
         }
     }
 
-    pub(crate) fn limit_rate(&mut self, timestamp: Instant) {
-        self.silent_until = timestamp + Self::SILENT_TIME;
+    pub(crate) fn limit_rate(&mut self, protocol_addr: IpAddress, timestamp: Instant) {
+        self.silent = Some((protocol_addr, timestamp + Self::SILENT_TIME));
     }
 
     pub(crate) fn flush(&mut self) {
@@ -305,10 +311,14 @@ mod test {
             Answer::NotFound
         );
 
-        cache.limit_rate(Instant::from_millis(0));
+        cache.limit_rate(MOCK_IP_ADDR_1.into(), Instant::from_millis(0));
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(100)),
             Answer::RateLimited
+        );
+        assert_eq!(
+            cache.lookup(&MOCK_IP_ADDR_2.into(), Instant::from_millis(100)),
+            Answer::NotFound
         );
         assert_eq!(
             cache.lookup(&MOCK_IP_ADDR_1.into(), Instant::from_millis(2000)),
