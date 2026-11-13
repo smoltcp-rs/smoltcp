@@ -131,6 +131,12 @@ impl<'a, H> PacketBuffer<'a, H> {
         if self.payload_ring.capacity() < max_size || self.metadata_ring.is_full() {
             return Err(Full);
         }
+        
+        // Ring is currently empty.  Clear it (resetting `read_at`) to maximize
+        // for contiguous space.
+        if self.payload_ring.is_empty() {
+            self.payload_ring.clear();
+        }
 
         let window = self.payload_ring.window();
         let contig_window = self.payload_ring.contiguous_window();
@@ -433,4 +439,26 @@ mod test {
         buffer.reset();
         assert!(buffer.is_empty());
     }
+    
+    #[test]
+    fn test_contiguous_window_wrap_infallible() {
+        let mut buffer = buffer();
+        
+        // 1. fill the Buffer (15 byte)
+        assert!(buffer.enqueue(15, ()).is_ok());
+        
+        // 2. make the Buffer empty. (empty but pointers are at the end )
+        assert!(buffer.dequeue().is_ok());
+        
+        // 3. enqueue 16 byte with enqueue_with_infallible . 
+        // my fix prevents Err(Full) issue #1236 .
+        let res = buffer.enqueue_with_infallible(16, (), |data| {
+            assert_eq!(data.len(), 16); 
+            16 
+        });
+        
+        
+        assert!(res.is_ok());
+    }
+    
 }
