@@ -618,7 +618,16 @@ impl Interface {
 
         #[cfg(feature = "proto-ipv6-slaac")]
         if self.inner.slaac_enabled {
-            res = res.min(self.inner.slaac.poll_at(timestamp));
+            // Combine the socket deadlines with the SLAAC deadline safely.
+            // Option::min treats None as smaller than Some(T), which causes a pending
+            // socket deadline to be discarded if SLAAC returns None (e.g. after exhaustion).
+            // We treat None as infinity (no deadline constraint).
+            res = match (res, self.inner.slaac.poll_at(timestamp)) {
+                (Some(t1), Some(t2)) => Some(t1.min(t2)),
+                (Some(t), None) => Some(t),
+                (None, Some(t)) => Some(t),
+                (None, None) => None,
+            };
         }
 
         res
