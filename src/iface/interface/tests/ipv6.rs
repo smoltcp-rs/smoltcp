@@ -1866,3 +1866,50 @@ fn test_solicited_node_multicast_autojoin(#[case] medium: Medium) {
     assert!(!iface.has_multicast_group(addr1.solicited_node()));
     assert!(!iface.has_multicast_group(addr2.solicited_node()));
 }
+
+
+#[rstest]
+#[case::ethernet(Medium::Ethernet)]
+#[cfg(all(feature = "medium-ethernet", feature = "proto-ipv6-slaac", feature = "socket-tcp"))]
+fn test_slaac_exhaustion_socket_deadline(#[case] medium: Medium) {
+    use crate::time::Instant;
+
+    //  mut device for poll() function
+    let (mut iface, mut sockets, mut device) = setup(medium);
+
+    iface.inner.slaac_enabled = true;
+
+    // SLAAC Exhaustion Simulation: poll the interface at 0, 4000 and 8000 ms .
+    
+    for time_ms in [0, 4000, 8000] {
+        let time = Instant::from_millis(time_ms);
+        let _ = iface.poll(time, &mut device, &mut sockets);
+    }
+
+    // 8001. ms ,  SLAAC is exhausted .
+    let time = Instant::from_millis(8001);
+    assert_eq!(iface.inner.slaac.poll_at(time), None);
+
+    
+    let rx_buffer = crate::socket::tcp::SocketBuffer::new(vec![0; 64]);
+    let tx_buffer = crate::socket::tcp::SocketBuffer::new(vec![0; 64]);
+    let mut tcp_socket = crate::socket::tcp::Socket::new(rx_buffer, tx_buffer);
+
+    tcp_socket
+        .connect(
+            iface.context(),
+            (crate::wire::IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 2), 1234),
+            (crate::wire::IpAddress::v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), 5678),
+        )
+        .unwrap();
+
+    sockets.add(tcp_socket);
+
+     
+    let next_poll = iface.poll_at(time, &sockets);
+
+    assert!(
+        next_poll.is_some(),
+        "poll_at() should return the pending TCP socket deadline despite SLAAC returning None!"
+    );
+}
