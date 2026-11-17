@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - tcp: add `set_min_rto`/`set_initial_rto` to tune the retransmission timeout bounds per socket.
+- wire: fix panic in `RplOptionPacket::next_option` when iterating a truncated option that `check_len` accepts. ([#1218](https://github.com/smoltcp-rs/smoltcp/issues/1218))
 
 ## [0.14.0] - 2026-08-07
 
