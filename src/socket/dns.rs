@@ -519,7 +519,21 @@ impl<'a> Socket<'a> {
                     // If we get here, packet matched the current query, stop processing.
                     return;
                 }
-                // Do not fail immediately on empty addresses (e.g., additionals-only mDNS responses)
+
+                // Empty answer section:
+                // - mDNS: may be an additionals-only / partial response, keep waiting.
+                // - unicast: empty NOERROR is NODATA, a final answer -> fail immediately.
+                let keep_waiting = match pq.mdns {
+                    #[cfg(feature = "socket-mdns")]
+                    MulticastDns::Enabled => true,
+                    MulticastDns::Disabled => false,
+                };
+
+                if !keep_waiting {
+                    net_trace!("empty answer (NODATA)");
+                    q.set_state(State::Failure);
+                    return;
+                }
             }
         }
 
@@ -713,57 +727,103 @@ mod test {
     use super::*;
     use crate::phy::Medium;
 
+    fn empty_response(txid: u16, name: &[u8]) -> ([u8; 512], usize) {
+        let repr = Repr {
+            transaction_id: txid,
+            flags: Flags::RESPONSE | Flags::RECURSION_DESIRED,
+            opcode: Opcode::Query,
+            question: Question {
+                name,
+                type_: Type::A,
+            },
+        };
+
+        let mut buf = [0u8; 512];
+        let len = repr.buffer_len();
+        repr.emit(&mut Packet::new_unchecked(&mut buf[..len]));
+        (buf, len)
+    }
+
+    fn pending_ids(socket: &Socket, handle: QueryHandle) -> (u16, u16) {
+        match &socket.queries[handle.0].as_ref().unwrap().state {
+            State::Pending(pq) => (pq.txid, pq.port),
+            _ => panic!("expected pending query"),
+        }
+    }
+
     #[test]
+    #[cfg(all(feature = "socket-mdns", feature = "proto-ipv4"))]
     fn test_mdns_empty_response_does_not_fail() {
-        let mut sockets_storage = [None, None];
-        let mut dns_socket = Socket::new(&[], &mut sockets_storage[..]);
+        let mut storage = [None, None];
+        let mut socket = Socket::new(&[], &mut storage[..]);
 
         let mut device = crate::phy::Loopback::new(Medium::Ethernet);
         let config = crate::iface::Config::new(crate::wire::HardwareAddress::Ethernet(
             crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
         ));
         let mut iface = crate::iface::Interface::new(config, &mut device, Instant::ZERO);
-        let mut casual_cx = iface.context();
+        let cx = iface.context();
 
-        let handle = dns_socket
-            .start_query(casual_cx, "test.local", Type::A)
-            .unwrap();
+        let handle = socket.start_query(cx, "test.local", Type::A).unwrap();
+        let (txid, port) = pending_ids(&socket, handle);
 
-        let query = dns_socket.queries[handle.0].as_ref().unwrap();
-        let txid = match &query.state {
-            State::Pending(pq) => pq.txid,
-            _ => panic!("expected pending query"),
-        };
-
-        let mut repr = Repr {
-            transaction_id: txid,
-            flags: Flags::RESPONSE | Flags::RECURSION_DESIRED,
-            opcode: Opcode::Query,
-            question: Question {
-                name: b"\x04test\x05local\x00",
-                type_: Type::A,
-            },
-        };
-
-        let mut payload_buf = [0u8; 512];
-        let payload_len = repr.buffer_len();
-        repr.emit(&mut Packet::new_unchecked(&mut payload_buf[..payload_len]));
-
+        let (buf, len) = empty_response(txid, b"\x04test\x05local\x00");
         let ip_repr = IpRepr::new(
-            IpAddress::v4(224, 0, 0, 251),
+            IpAddress::v4(192, 168, 1, 2),
             IpAddress::v4(192, 168, 1, 1),
             IpProtocol::Udp,
-            8 + payload_len,
+            8 + len,
             255,
         );
         let udp_repr = UdpRepr {
             src_port: MDNS_DNS_PORT,
-            dst_port: 5353,
+            dst_port: port,
         };
 
-        dns_socket.process(casual_cx, &ip_repr, &udp_repr, &payload_buf[..payload_len]);
+        socket.process(cx, &ip_repr, &udp_repr, &buf[..len]);
 
-        let result = dns_socket.get_query_result(handle);
-        assert_eq!(result, Err(GetQueryResultError::Pending));
+        assert_eq!(
+            socket.get_query_result(handle),
+            Err(GetQueryResultError::Pending)
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "proto-ipv4")]
+    fn test_unicast_empty_response_fails() {
+        let server = IpAddress::v4(192, 168, 1, 1);
+
+        let mut storage = [None, None];
+        let mut socket = Socket::new(&[server], &mut storage[..]);
+
+        let mut device = crate::phy::Loopback::new(Medium::Ethernet);
+        let config = crate::iface::Config::new(crate::wire::HardwareAddress::Ethernet(
+            crate::wire::EthernetAddress([0x02, 0x02, 0x02, 0x02, 0x02, 0x02]),
+        ));
+        let mut iface = crate::iface::Interface::new(config, &mut device, Instant::ZERO);
+        let cx = iface.context();
+
+        let handle = socket.start_query(cx, "test.example", Type::A).unwrap();
+        let (txid, port) = pending_ids(&socket, handle);
+
+        let (buf, len) = empty_response(txid, b"\x04test\x07example\x00");
+        let ip_repr = IpRepr::new(
+            server,
+            IpAddress::v4(192, 168, 1, 2),
+            IpProtocol::Udp,
+            8 + len,
+            64,
+        );
+        let udp_repr = UdpRepr {
+            src_port: DNS_PORT,
+            dst_port: port,
+        };
+
+        socket.process(cx, &ip_repr, &udp_repr, &buf[..len]);
+
+        assert_eq!(
+            socket.get_query_result(handle),
+            Err(GetQueryResultError::Failed)
+        );
     }
 }
