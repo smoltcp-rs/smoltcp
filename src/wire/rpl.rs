@@ -1055,7 +1055,7 @@ pub mod options {
                 let prefix_bits = usize::from(self.prefix_length());
                 let prefix_bytes = (prefix_bits + 7) / 8;
 
-                if prefix_bits > 128 || body != 6 + prefix_bytes {
+                if prefix_bits > 128 || body < 6 + prefix_bytes {
                     return Err(Error);
                 }
             }
@@ -2542,7 +2542,7 @@ mod tests {
             (9, 2, true),     // rounds up to 2 octets
             (64, 8, true),    // ok
             (128, 16, true),  // ok
-            (64, 9, false),   // body longer than declared
+            (64, 9, true),    // body longer than declared
             (64, 7, false),   // body shorter than declared
             (129, 17, false), // over 128 bits, even though body matches
         ];
