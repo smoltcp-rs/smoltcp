@@ -1949,15 +1949,31 @@ impl<'a> Socket<'a> {
         let mut control = repr.control;
         control = control.quash_psh();
 
-        // If a FIN is received at the end of the current segment, but
-        // we have a hole in the assembler before the current segment, disregard this FIN.
-        if control == TcpControl::Fin && window_start < segment_start {
-            tcp_trace!(
-                "ignoring FIN because we don't have full data yet. window_start={} segment_start={}",
-                window_start,
-                segment_start
-            );
-            control = TcpControl::None;
+        // A FIN can only be accepted once all preceding data has been received.
+        if control == TcpControl::Fin {
+            // Preserve acceptance of an in-sequence FIN-only segment
+            // when the receive window is zero.
+            let fin_at_zero_window = window_start == window_end
+                && segment_start == window_start
+                && segment_start == segment_end;
+
+            if window_start < segment_start {
+                // There is a gap before this segment.
+                tcp_trace!(
+                    "ignoring FIN because we don't have full data yet. window_start={} segment_start={}",
+                    window_start,
+                    segment_start
+                );
+                control = TcpControl::None;
+            } else if segment_end >= window_end && !fin_at_zero_window {
+                // FIN lies at or beyond the receive window's exclusive end.
+                tcp_trace!(
+                    "ignoring FIN outside receive window: segment_end={} window_end={}",
+                    segment_end,
+                    window_end
+                );
+                control = TcpControl::None;
+            }
         }
 
         // Validate and update the state.
@@ -5639,6 +5655,82 @@ mod test {
         );
     }
 
+    #[test]
+    fn test_fin_outside_receive_window() {
+        let mut s = socket_established();
+
+        let data = [0x55u8; 100];
+
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                control: TcpControl::Fin,
+                payload: &data,
+                ..SEND_TEMPL
+            }
+        );
+
+        assert_eq!(s.state(), State::Established);
+        assert_eq!(s.recv_queue(), 64);
+
+        // The ACK must acknowledge only those 64 bytes,
+        // not the FIN.
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 64),
+                window_len: 0,
+                ..RECV_TEMPL
+            }]
+        );
+    }
+
+    #[test]
+    fn test_fin_receive_window_boundaries() {
+        // (payload length, FIN accepted)
+        let cases = [(0usize, true), (63, true), (64, false), (65, false)];
+
+        for (payload_len, fin_accepted) in cases {
+            let mut s = socket_established();
+            let data = vec![0x55; payload_len];
+
+            send!(
+                s,
+                TcpRepr {
+                    seq_number: REMOTE_SEQ + 1,
+                    ack_number: Some(LOCAL_SEQ + 1),
+                    control: TcpControl::Fin,
+                    payload: &data,
+                    ..SEND_TEMPL
+                }
+            );
+
+            let expected_state = if fin_accepted {
+                State::CloseWait
+            } else {
+                State::Established
+            };
+            assert_eq!(s.state(), expected_state);
+
+            let accepted_len = payload_len.min(64);
+            assert_eq!(s.recv_queue(), accepted_len);
+
+            let expected_ack = REMOTE_SEQ + 1 + accepted_len + usize::from(fin_accepted);
+
+            recv!(
+                s,
+                [TcpRepr {
+                    seq_number: LOCAL_SEQ + 1,
+                    ack_number: Some(expected_ack),
+                    window_len: (64 - accepted_len) as u16,
+                    ..RECV_TEMPL
+                }]
+            );
+        }
+    }
     // =========================================================================================//
     // Tests for the FIN-WAIT-1 state.
     // =========================================================================================//
