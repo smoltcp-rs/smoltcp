@@ -1,6 +1,7 @@
 #[cfg(feature = "async")]
 use core::task::Waker;
 
+use crate::data_structure::Vec;
 use crate::iface::Context;
 use crate::time::{Duration, Instant};
 use crate::wire::dhcpv4::field as dhcpv4_field;
@@ -10,7 +11,6 @@ use crate::wire::{
     UDP_HEADER_LEN, UdpRepr,
 };
 use crate::wire::{DhcpOption, HardwareAddress};
-use heapless::Vec;
 
 #[cfg(feature = "async")]
 use super::WakerRegistration;

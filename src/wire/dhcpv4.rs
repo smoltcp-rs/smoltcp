@@ -1,9 +1,9 @@
 // See https://tools.ietf.org/html/rfc2131 for the DHCP specification.
 
+use crate::data_structure::Vec;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NetworkEndian};
 use core::iter;
-use heapless::Vec;
 
 use super::{Error, Result};
 use crate::wire::arp::Hardware;
